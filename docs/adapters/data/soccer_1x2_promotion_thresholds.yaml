@@ -1,0 +1,75 @@
+# soccer_1x2_promotion_thresholds.yaml
+#
+# Structured status ledger for every NUMERIC threshold proposed in
+# docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md sections 14 ("Backtest
+# acceptance gates") and 15 ("Prospective PAPER admission gates").
+#
+# This is a DESIGN artifact, not a runtime registry: it is not loaded by
+# pcbf_calculator at runtime, is not part of the CLI contract, and is not
+# consulted by any code path. Nothing in this file can promote an adapter
+# to PAPER or CASH — see tests/test_soccer_1x2_promotion_thresholds.py,
+# which proves both (a) every threshold here is still unapproved, and
+# (b) no runtime code reads this file at all.
+#
+# WHY THIS FILE EXISTS: the six numeric thresholds below were introduced
+# in the original spec PR as if they were settled PCBF policy. They are
+# not. They are the spec author's initial candidate numbers, and have not
+# been through a statistical review or operator approval. Concrete numbers
+# satisfy "this spec has measurable gates" as a documentation shape check
+# — they do not, by themselves, make those numbers correct or authorized.
+# Until a threshold's status below is changed to APPROVED (by a human
+# operator, after statistical review, with the review recorded), it
+# authorizes nothing: the adapter remains capped at RESEARCH-MODEL
+# regardless of what any backtest run against these numbers would show.
+#
+# Every row must declare: id, spec_section, proposed_value, status,
+# enforcement, rationale. Allowed `status` values: PROPOSED_OPERATOR_DECISION,
+# APPROVED. Allowed `enforcement` values: DISABLED, ACTIVE. As of this file's
+# creation, no code path enforces ANY threshold in ANY state — enforcement
+# only becomes meaningful once a future implementation PR actually wires a
+# backtest-gate check to consult this file, and even then, `enforcement:
+# DISABLED` must remain the default for a newly-proposed threshold, flipped
+# to ACTIVE only alongside a status change to APPROVED for that same row.
+
+categories:
+  - id: backtest_minimum_sample_size
+    spec_section: "14.1"
+    proposed_value: "500 fixtures in the held-out test fold"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval."
+
+  - id: backtest_date_range_coverage
+    spec_section: "14.2"
+    proposed_value: "at least one full season, not a scattered cross-season sample"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval."
+
+  - id: backtest_calibration_error_bound
+    spec_section: "14.3"
+    proposed_value: "expected calibration error (ECE) <= 0.05 post-recalibration"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval."
+
+  - id: backtest_beats_baseline_by_percent
+    spec_section: "14.4"
+    proposed_value: "log loss AND Brier score each at least 1% lower than the market-implied baseline"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval."
+
+  - id: prospective_minimum_live_fixture_count
+    spec_section: "15"
+    proposed_value: "at least 150 live shadow-mode fixtures across at least 2 distinct weeks"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval."
+
+  - id: prospective_live_feature_availability_rate
+    spec_section: "15"
+    proposed_value: "required features successfully computed, on time, for at least 98% of eligible shadow-mode fixtures"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval."
