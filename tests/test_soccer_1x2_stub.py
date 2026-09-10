@@ -13,6 +13,7 @@ import unittest
 from pcbf_calculator.adapters.base import ForecastResult, SportAdapter
 from pcbf_calculator.adapters.registry import NoForecastAdapter, _ADAPTER_IMPLEMENTATIONS, get_adapter
 from pcbf_calculator.adapters.soccer_1x2_stub import (
+    ADAPTER_ID,
     NO_ADMITTED_MODEL_VERSION,
     REQUIRED_FEATURE_IDS,
     SoccerOneXTwoAdapter,
@@ -26,7 +27,7 @@ PLAUSIBLE_FULL_FIXTURE = {
     "home_team_rolling_goals_against_last_10": 0.9,
     "away_team_rolling_goals_for_last_10": 1.3,
     "away_team_rolling_goals_against_last_10": 1.1,
-    "market_closing_odds_1x2": {"home_win": 0.5, "draw": 0.3, "away_win": 0.2},
+    "market_snapshot_odds_1x2": {"home_win": 0.5, "draw": 0.3, "away_win": 0.2},
     "days_since_last_match_home": 6,
     "days_since_last_match_away": 4,
 }
@@ -38,6 +39,8 @@ class SoccerOneXTwoStubTests(unittest.TestCase):
         self.assertIsInstance(adapter, SportAdapter)
         declaration = adapter.declaration
         self.assertEqual(declaration.sport_id, "soccer")
+        self.assertEqual(declaration.adapter_id, ADAPTER_ID)
+        self.assertNotEqual(declaration.adapter_id, declaration.sport_id)
         self.assertEqual(set(declaration.feature_requirements), set(REQUIRED_FEATURE_IDS))
 
     def test_never_fabricates_a_probability_with_no_fixture_data(self):
@@ -65,6 +68,8 @@ class SoccerOneXTwoStubTests(unittest.TestCase):
         adapter = SoccerOneXTwoAdapter()
         payload = adapter.forecast(dict(PLAUSIBLE_FULL_FIXTURE)).to_dict()
         self.assertEqual(payload["sport_id"], "soccer")
+        self.assertEqual(payload["adapter_id"], ADAPTER_ID)
+        self.assertNotEqual(payload["adapter_id"], payload["sport_id"])
         self.assertFalse(payload["forecast_available"])
         self.assertIsNone(payload["probabilities"])
 
@@ -88,8 +93,11 @@ class SoccerOneXTwoStubTests(unittest.TestCase):
         }
         result = evaluate_decision(decision_input, market_profitability, forecast_quality)
         self.assertEqual(result["status"], "PASSED")
-        self.assertEqual(result["classification"], "PAPER")
+        self.assertEqual(result["classification"], "RESEARCH-MODEL")
         self.assertNotEqual(result["classification"], "CASH")
+        self.assertNotEqual(result["classification"], "PAPER")
+        self.assertEqual(result["cash_stake"], 0)
+        self.assertEqual(result["simulated_stake"], 0)
 
     def test_stub_is_not_registered_in_the_live_dispatch_table(self):
         # DESIGN_IN_PROGRESS must not accidentally unlock new runtime

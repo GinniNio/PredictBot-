@@ -1,0 +1,75 @@
+# model-admission-registry.yaml
+#
+# The ONLY authoritative source of "this adapter's model version has
+# cleared backtest gates / prospective validation / CASH admission" for
+# the entire platform. decision/engine.py consults this file (via
+# registries/model_admission.py) to resolve PAPER/CASH eligibility — it
+# NEVER trusts a caller-supplied boolean (e.g. a `backtest_approved: true`
+# field embedded in a request's decision_input or in an adapter's own
+# ForecastResult). A forged or stale claim of approval anywhere else in the
+# system has zero effect: only a row in this file, keyed by the EXACT
+# (adapter_id, model_version) pair AND matching model_artifact_hash,
+# authorizes anything.
+#
+# Row shape (every row must declare all seven fields):
+#   id                      — unique row id, human-readable
+#                             (convention: "<adapter_id>__<model_version>")
+#   adapter_id              — must match a SportAdapter's declared
+#                             `sport_id` (adapters/base.py)
+#   model_version           — must match that adapter's ForecastResult
+#                             `model_version` string exactly
+#   model_artifact_hash     — content hash of the specific trained model
+#                             artifact this row vouches for (e.g.
+#                             "sha256:<hex>"); the decision engine refuses
+#                             the row if the running adapter's own reported
+#                             hash does not match this value exactly — this
+#                             is what stops a caller/adapter from
+#                             piggybacking an unapproved model build on an
+#                             already-approved version string's identity
+#   backtest_gates_status   — PENDING | APPROVED | REJECTED — mirrors a
+#                             specific adapter spec's backtest acceptance
+#                             gates (e.g.
+#                             docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md
+#                             section 14) actually being cleared, on real
+#                             data, and the operator flipping every
+#                             relevant row's `status` to `APPROVED` in that
+#                             adapter's own promotion-thresholds ledger
+#                             first — this field is not itself where
+#                             thresholds get approved, it is the *result*
+#                             of that separate approval being reflected
+#                             here for a specific trained model version.
+#   prospective_status      — PENDING | APPROVED | REJECTED — mirrors the
+#                             spec's prospective/shadow-mode admission gate
+#                             (e.g. section 15) for this model version.
+#   cash_admission_status   — PENDING | APPROVED | REJECTED — mirrors the
+#                             spec's manual CASH-admission sign-off (e.g.
+#                             section 16); this registry field is a
+#                             MECHANICAL prerequisite the decision engine
+#                             checks, it does not by itself constitute or
+#                             replace the human sign-off process the spec
+#                             requires — a row must not be set to APPROVED
+#                             here except as the recorded outcome of that
+#                             human process having actually happened.
+#   rationale               — free-text note on why this row is in its
+#                             current state (who reviewed it, when, and
+#                             against what evidence).
+#
+# THIS FILE HAS ZERO ADMITTED ROWS TODAY. No adapter in this repository has
+# a registered implementation (Release A/B: soccer's adapter_status is
+# DESIGN_IN_PROGRESS with no class in `_ADAPTER_IMPLEMENTATIONS`), so there
+# is nothing to admit yet. This is deliberate: the file exists, correctly
+# shaped, proving the admission mechanism is in place and defaults safely
+# closed — an empty registry means every (adapter_id, model_version) lookup
+# resolves to "not approved," which is exactly the fail-closed behavior
+# `decision/engine.py` requires. Adding a row here is itself a significant,
+# reviewable, auditable change (a real PR diff) rather than a
+# request-time or runtime-computed flag — that is the entire point of
+# routing gate-approval through a committed file instead of trusting
+# caller input.
+#
+# See docs/MULTI_SPORT_ARCHITECTURE.md ("Model-admission registry and the
+# three-tier classification policy") for the full lookup semantics and
+# docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md sections 14 and 16 for how this
+# registry's fields map onto that spec's backtest/CASH gates.
+
+categories:

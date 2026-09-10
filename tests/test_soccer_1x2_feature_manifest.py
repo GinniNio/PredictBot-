@@ -36,7 +36,7 @@ EXPECTED_REQUIRED_IDS = {
     "home_team_rolling_goals_against_last_10",
     "away_team_rolling_goals_for_last_10",
     "away_team_rolling_goals_against_last_10",
-    "market_closing_odds_1x2",
+    "market_snapshot_odds_1x2",
     "days_since_last_match_home",
     "days_since_last_match_away",
 }

@@ -1,8 +1,10 @@
 # soccer_1x2_promotion_thresholds.yaml
 #
-# Structured status ledger for every NUMERIC threshold proposed in
-# docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md sections 14 ("Backtest
-# acceptance gates") and 15 ("Prospective PAPER admission gates").
+# Structured status ledger for every NUMERIC, POLICY-AFFECTING threshold
+# proposed in docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md sections 5 (training
+# dataset requirements), 4 (missing/stale-data failures), 14 ("Backtest
+# acceptance gates"), 15 ("Prospective PAPER admission gates"), and 17
+# (monitoring/drift/rollback).
 #
 # This is a DESIGN artifact, not a runtime registry: it is not loaded by
 # pcbf_calculator at runtime, is not part of the CLI contract, and is not
@@ -11,16 +13,30 @@
 # which proves both (a) every threshold here is still unapproved, and
 # (b) no runtime code reads this file at all.
 #
-# WHY THIS FILE EXISTS: the six numeric thresholds below were introduced
-# in the original spec PR as if they were settled PCBF policy. They are
-# not. They are the spec author's initial candidate numbers, and have not
-# been through a statistical review or operator approval. Concrete numbers
+# WHY THIS FILE EXISTS: the numeric thresholds below were introduced in the
+# original spec PR as if they were settled PCBF policy. They are not. They
+# are the spec author's initial candidate numbers, and have not been
+# through a statistical review or operator approval. Concrete numbers
 # satisfy "this spec has measurable gates" as a documentation shape check
 # — they do not, by themselves, make those numbers correct or authorized.
 # Until a threshold's status below is changed to APPROVED (by a human
 # operator, after statistical review, with the review recorded), it
 # authorizes nothing: the adapter remains capped at RESEARCH-MODEL
 # regardless of what any backtest run against these numbers would show.
+#
+# CORRECTION 3 (this PR): the original 6 rows below covered only sections
+# 14-15. A further sweep of the spec found additional numeric,
+# policy-affecting thresholds outside that original ledger (dataset
+# minimums in section 5, a staleness tolerance in section 4, the shadow
+# period length in section 15, and several monitoring/rollback numbers in
+# section 17) — those are added here as new rows, none colliding with an
+# existing id. Two numbers considered and deliberately NOT added here
+# because they are feature-definition constants (modeling hyperparameters
+# to be tuned empirically during validation, not go/no-go policy gates
+# requiring pre-approval) are documented inline in the spec instead: the
+# `T-1h` feature-freeze-time convention's exact value (spec section 3) and
+# the "last 10 matches" rolling-window size (spec section 2) — see the
+# spec's own inline notes at each for the classification rationale.
 #
 # Every row must declare: id, spec_section, proposed_value, status,
 # enforcement, rationale. Allowed `status` values: PROPOSED_OPERATOR_DECISION,
@@ -70,6 +86,72 @@ categories:
   - id: prospective_live_feature_availability_rate
     spec_section: "15"
     proposed_value: "required features successfully computed, on time, for at least 98% of eligible shadow-mode fixtures"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval."
+
+  # --- Correction 3: newly ledgered rows (previously unapproved numbers
+  # left outside the original 6-row ledger) ---
+
+  - id: dataset_minimum_seasons
+    spec_section: "5"
+    proposed_value: "at least 3 full completed seasons of one or more covered leagues"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval. Per the resolved operator decision on historical-period scope (spec 'Unresolved / operator decisions'), this now reads as a floor/target to validate against once every consistently formatted season has been acquired, not a fixed up-front acquisition target."
+
+  - id: dataset_minimum_fixture_count
+    spec_section: "5"
+    proposed_value: "at least 3,000 completed, non-void fixtures after the required-feature drop rule"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval."
+
+  - id: dataset_minimum_feature_coverage_rate
+    spec_section: "5"
+    proposed_value: "every required feature computable for at least 95% of fixtures in the training coverage window"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval. Distinct from prospective_live_feature_availability_rate (98%, section 15) — this row is an OFFLINE training-dataset coverage check, that one is a LIVE shadow-mode availability check on a different pipeline; never conflate or merge these two numbers under one id."
+
+  - id: feature_staleness_tolerance_hours
+    spec_section: "4"
+    proposed_value: "a required feature's source data must have refreshed within 48 hours ahead of a same-day kickoff, illustrated via the FEATURE_DATA_STALE example (an Elo rating computed from a match-results feed stale by more than 48 hours)"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold (currently stated only as an illustrative example in spec section 4's FEATURE_DATA_STALE row); requires statistical/operational review and operator approval before being treated as an actual enforced staleness tolerance, and before FEATURE_DATA_STALE itself is wired into errors.py."
+
+  - id: prospective_minimum_shadow_period_weeks
+    spec_section: "15"
+    proposed_value: "at least 4 consecutive weeks of live shadow-mode monitoring before promotion eligibility"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval. (Correction 3: an earlier draft of this spec described the 4-week window as 'design intent, not pending numeric approval' — that characterization is superseded; it is a numeric, policy-affecting gate like the others in this ledger and is ledgered accordingly.)"
+
+  - id: rollback_calibration_error_bound
+    spec_section: "17"
+    proposed_value: "rollback triggers when rolling ECE exceeds 0.08 over a trailing window of at least 100 settled fixtures"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval. Deliberately looser than backtest_calibration_error_bound (0.05) to avoid rolling back on ordinary short-window noise, per spec section 17's own stated intent — kept as a separate id since it is a distinct rollback-trigger number, not a restatement of the admission-gate number."
+
+  - id: rollback_feature_availability_threshold
+    spec_section: "17"
+    proposed_value: "rollback triggers when live feature-availability rate drops below 90% over a trailing week"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval. Deliberately looser than prospective_live_feature_availability_rate (98%) to avoid over-reacting to a single bad day, per spec section 17's own stated intent."
+
+  - id: rollback_baseline_comparison_window_fixtures
+    spec_section: "17"
+    proposed_value: "rollback triggers when rolling log loss becomes worse than the market-implied baseline over a trailing window of at least 150 settled fixtures"
+    status: PROPOSED_OPERATOR_DECISION
+    enforcement: DISABLED
+    rationale: "Initial candidate threshold; requires statistical review and operator approval. Distinct from prospective_minimum_live_fixture_count's '150 live shadow-mode fixtures' (section 15, a PROMOTION-eligibility count on newly-collected shadow data) — this row is a ROLLBACK-trigger window over already-live, already-admitted fixtures; the coincidence that both use the number 150 does not make them the same threshold, and each is tracked under its own id rather than double-ledgered."
+
+  - id: monitoring_calibration_window_and_cadence
+    spec_section: "17"
+    proposed_value: "recompute the calibration reliability diagram on a trailing rolling window of the last 200 settled fixtures, on a weekly cadence"
     status: PROPOSED_OPERATOR_DECISION
     enforcement: DISABLED
     rationale: "Initial candidate threshold; requires statistical review and operator approval."

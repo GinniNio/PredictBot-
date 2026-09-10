@@ -11,11 +11,11 @@ categories:
   # is documentation/tracking only and is treated identically to
   # NOT_IMPLEMENTED at runtime (no entry in adapters/registry.py's
   # _ADAPTER_IMPLEMENTATIONS, so dispatch still resolves to
-  # NoForecastAdapter and the classification ceiling stays PAPER).
+  # NoForecastAdapter and the classification ceiling stays RESEARCH-MODEL).
   - id: soccer
     adapter_status: DESIGN_IN_PROGRESS
     adapter_unsupported_reason: FORECASTING_ADAPTER_DESIGN_IN_PROGRESS_NOT_YET_BUILT
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   # players_soccer, specials_soccer, antepost_soccer, zoom_soccer and
@@ -30,13 +30,13 @@ categories:
   - id: players_soccer
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: specials_soccer
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: specials_combo
@@ -48,168 +48,168 @@ categories:
   - id: antepost_soccer
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: zoom_soccer
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: players_zoom_soccer
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: tennis
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: zoom_tennis
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: basketball
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: volleyball
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: american_football
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: players_american_football
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: baseball
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: handball
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: rugby
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: motor_sports
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: ice_hockey
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: cycling
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: alpine
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: biathlon
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: cross_country
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: badminton
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: boxing
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: cricket
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: darts
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: floorball
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: futsal
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: mma
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: snooker
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: table_tennis
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
   - id: outrights
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
-    classification_ceiling: PAPER
+    classification_ceiling: RESEARCH-MODEL
     feature_requirements: []
     uncertainty_method: null
