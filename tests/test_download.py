@@ -26,9 +26,11 @@ from data_pipeline.download import (
     DEFAULT_MANIFEST_PATH,
     ERROR_CONNECTION,
     ERROR_HTTP,
+    ERROR_NOT_ATTEMPTED_HOST_BLOCKED,
     ERROR_TIMEOUT,
     download_one,
     load_manifest,
+    run,
     season_codes,
 )
 
@@ -138,6 +140,76 @@ class DownloadOneRetryAndTypedFailureTests(unittest.TestCase):
         self.assertEqual(outcome.content_length, len(b"Date,HomeTeam\n01/01/2020,X\n"))
         self.assertIsNotNone(outcome.sha256)
         self.assertIsNotNone(outcome.retrieved_at_utc)
+
+
+class CircuitBreakerTests(unittest.TestCase):
+    """Proves the circuit breaker trips well before all files in a manifest
+    are individually retried 3x each — no real network call is made; every
+    urlopen call is mocked to simulate a confirmed host-level denial
+    (CONNECTION_ERROR) exactly as observed in this sandbox."""
+
+    def _write_manifest(self, path: Path, num_leagues: int, num_seasons: int) -> None:
+        lines = ["categories:"]
+        for i in range(num_leagues):
+            lines.append(f'  - league_code: "L{i}"')
+            lines.append(f'    league_name: "League {i}"')
+            lines.append('    url_pattern: "https://blocked.invalid/{season_code}/X.csv"')
+            lines.append('    file_type: "CSV"')
+            lines.append('    first_season: "9394"')
+            last_year = 93 + num_seasons - 1
+            lines.append(f'    latest_completed_season: "{last_year % 100:02d}{(last_year + 1) % 100:02d}"')
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_circuit_breaker_trips_and_skips_the_remaining_files(self):
+        import shutil
+        import tempfile
+
+        work_dir = Path(tempfile.mkdtemp(dir=str(REPO_ROOT)))
+        try:
+            manifest_path = work_dir / "manifest.yaml"
+            # 3 leagues x 5 seasons = 15 total planned files, all against
+            # the SAME host — a confirmed host-level denial on the first
+            # two files must stop the other 13 from ever being attempted.
+            self._write_manifest(manifest_path, num_leagues=3, num_seasons=5)
+            raw_dir = work_dir / "raw"
+            retrieval_log_path = work_dir / "retrieval_log.json"
+
+            call_count = {"n": 0}
+
+            def fake_urlopen(*args, **kwargs):
+                call_count["n"] += 1
+                raise urllib.error.URLError("Tunnel connection failed: 403 Forbidden")
+
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                result = run(
+                    manifest_path=manifest_path,
+                    raw_dir=raw_dir,
+                    retrieval_log_path=retrieval_log_path,
+                    sleep_fn=lambda s: None,
+                )
+
+            summary = result["summary"]
+            self.assertEqual(summary["total_manifest_entries"], 15)
+            self.assertEqual(summary["succeeded"], 0)
+            # Only the first 2 files (threshold=2) are actually attempted
+            # over the network, 3 tries each -> 6 urlopen calls total, NOT
+            # 15 files x 3 = 45.
+            self.assertEqual(call_count["n"], 6)
+            self.assertEqual(summary["network_attempts_made"], 2)
+            self.assertEqual(summary["skipped_host_blocked"], 13)
+
+            skipped = [f for f in result["failed_attempts"] if f["error_type"] == ERROR_NOT_ATTEMPTED_HOST_BLOCKED]
+            self.assertEqual(len(skipped), 13)
+            for f in skipped:
+                self.assertEqual(f["attempts_made"], 0)
+
+            attempted_and_failed = [f for f in result["failed_attempts"] if f["error_type"] == ERROR_CONNECTION]
+            self.assertEqual(len(attempted_and_failed), 2)
+
+            self.assertEqual(result["circuit_breaker"]["tripped_hosts"], ["blocked.invalid"])
+            self.assertEqual(len(result["circuit_breaker"]["events"]), 1)
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

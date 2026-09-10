@@ -44,6 +44,7 @@ import socket
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -69,6 +70,26 @@ ERROR_TIMEOUT = "TIMEOUT"
 ERROR_HTTP = "HTTP_ERROR"
 ERROR_CONNECTION = "CONNECTION_ERROR"
 ERROR_UNKNOWN = "UNKNOWN_ERROR"
+# Not a download failure at all — this file was never even attempted
+# because the circuit breaker (see `run()`) had already confirmed, from
+# earlier files against the SAME host in this same run, that the host is
+# blocked at the proxy/network level. Kept distinct from every real
+# error_type above so the evidence trail can always tell "we tried this
+# specific file and it failed" from "we didn't even try this one".
+ERROR_NOT_ATTEMPTED_HOST_BLOCKED = "NOT_ATTEMPTED_HOST_BLOCKED"
+
+# Circuit breaker: once a single host has produced this many CONNECTION_ERROR
+# failures in this run (a policy-level/proxy-level denial, not a
+# per-file/transient issue — see ERROR_CONNECTION's docstring above), every
+# remaining season for every league on that host is recorded as
+# NOT_ATTEMPTED_HOST_BLOCKED instead of being individually retried 3x each.
+# 2 is deliberately small: a single CONNECTION_ERROR could in principle be a
+# one-off blip, but two independent files against the same host both failing
+# at the connection layer (never reaching an HTTP response) is already
+# strong, cheap-to-obtain evidence that the host itself is unreachable from
+# this environment — continuing to retry all 155 files 3x each would only
+# burn time confirming what's already confirmed.
+HOST_BLOCK_FAILURE_THRESHOLD = 2
 
 
 @dataclass
@@ -239,22 +260,68 @@ def run(
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
     raw_dir: Path = DEFAULT_RAW_DIR,
     retrieval_log_path: Path = DEFAULT_RETRIEVAL_LOG_PATH,
+    host_block_failure_threshold: int = HOST_BLOCK_FAILURE_THRESHOLD,
+    sleep_fn=time.sleep,
 ) -> dict[str, Any]:
     manifest_rows = load_manifest(manifest_path)
     successes: list[DownloadOutcome] = []
     failures: list[DownloadOutcome] = []
 
+    # Circuit breaker state, per host — see HOST_BLOCK_FAILURE_THRESHOLD.
+    connection_error_counts: dict[str, int] = {}
+    blocked_hosts: set[str] = set()
+    circuit_breaker_events: list[dict[str, Any]] = []
+
     for row in manifest_rows:
         for code in season_codes(str(row["first_season"]), str(row["latest_completed_season"])):
             url = row["url_pattern"].format(season_code=code)
+            host = urllib.parse.urlparse(url).netloc
+
+            if host in blocked_hosts:
+                # Do not even attempt this one — a confirmed host-level
+                # denial was already observed against this same host
+                # earlier in this run (see circuit_breaker_events below).
+                failures.append(
+                    DownloadOutcome(
+                        league_code=row["league_code"],
+                        league_name=row["league_name"],
+                        season_code=code,
+                        requested_url=url,
+                        success=False,
+                        attempts_made=0,
+                        error_type=ERROR_NOT_ATTEMPTED_HOST_BLOCKED,
+                        error_detail=(
+                            f"Not attempted: host {host!r} was already confirmed blocked "
+                            f"earlier in this run after {host_block_failure_threshold} "
+                            "consecutive CONNECTION_ERROR failures against it (circuit breaker)."
+                        ),
+                    )
+                )
+                continue
+
             outcome = download_one(
                 league_code=row["league_code"],
                 league_name=row["league_name"],
                 season_code=code,
                 url=url,
                 raw_dir=raw_dir,
+                sleep_fn=sleep_fn,
             )
             (successes if outcome.success else failures).append(outcome)
+
+            if outcome.success:
+                connection_error_counts[host] = 0
+            elif outcome.error_type == ERROR_CONNECTION:
+                connection_error_counts[host] = connection_error_counts.get(host, 0) + 1
+                if connection_error_counts[host] >= host_block_failure_threshold:
+                    blocked_hosts.add(host)
+                    circuit_breaker_events.append(
+                        {
+                            "host": host,
+                            "tripped_after_league_season": f"{row['league_code']}/{code}",
+                            "consecutive_connection_errors": connection_error_counts[host],
+                        }
+                    )
 
     result = {
         "run_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -263,6 +330,14 @@ def run(
             if manifest_path.is_relative_to(REPO_ROOT)
             else str(manifest_path)
         ),
+        "circuit_breaker": {
+            "failure_threshold": host_block_failure_threshold,
+            "tripped_hosts": sorted(blocked_hosts),
+            "events": circuit_breaker_events,
+            "not_attempted_host_blocked_count": sum(
+                1 for o in failures if o.error_type == ERROR_NOT_ATTEMPTED_HOST_BLOCKED
+            ),
+        },
         "downloads": [
             {
                 "league_code": o.league_code,
@@ -295,9 +370,23 @@ def run(
             for o in failures
         ],
         "summary": {
-            "total_attempted": len(successes) + len(failures),
+            # Every (league, season) pair the manifest's confirmed range
+            # covers, whether it was actually attempted over the network or
+            # skipped by the circuit breaker — this always equals
+            # successes + failures, and failures includes both real
+            # per-file failures AND NOT_ATTEMPTED_HOST_BLOCKED skips.
+            "total_manifest_entries": len(successes) + len(failures),
             "succeeded": len(successes),
             "failed": len(failures),
+            # Subset of the above that actually made a network attempt
+            # (download_one was called at least once) — excludes rows the
+            # circuit breaker skipped entirely.
+            "network_attempts_made": sum(1 for o in successes) + sum(
+                1 for o in failures if o.error_type != ERROR_NOT_ATTEMPTED_HOST_BLOCKED
+            ),
+            "skipped_host_blocked": sum(
+                1 for o in failures if o.error_type == ERROR_NOT_ATTEMPTED_HOST_BLOCKED
+            ),
         },
     }
 
@@ -316,12 +405,22 @@ def main() -> None:
     result = run(manifest_path=args.manifest, raw_dir=args.raw_dir, retrieval_log_path=args.retrieval_log)
     summary = result["summary"]
     print(
-        f"Attempted {summary['total_attempted']} files: "
-        f"{summary['succeeded']} succeeded, {summary['failed']} failed. "
+        f"{summary['total_manifest_entries']} league-season files planned: "
+        f"{summary['network_attempts_made']} actually attempted over the network "
+        f"({summary['succeeded']} succeeded, "
+        f"{summary['network_attempts_made'] - summary['succeeded']} failed), "
+        f"{summary['skipped_host_blocked']} skipped by the circuit breaker "
+        "(NOT_ATTEMPTED_HOST_BLOCKED). "
         f"Retrieval log written to {args.retrieval_log}"
     )
+    if result["circuit_breaker"]["tripped_hosts"]:
+        print(
+            "Circuit breaker tripped for host(s): "
+            f"{', '.join(result['circuit_breaker']['tripped_hosts'])} — "
+            "see retrieval_log.json's circuit_breaker[] for details."
+        )
     if summary["failed"] and not summary["succeeded"]:
-        print("ALL downloads failed — see failed_attempts[].error_type/error_detail in the retrieval log.")
+        print("ALL downloads failed/skipped — see failed_attempts[].error_type/error_detail in the retrieval log.")
 
 
 if __name__ == "__main__":

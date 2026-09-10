@@ -1,0 +1,580 @@
+{
+  "summary_table": [
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:clean_modern_season",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "total_rows": 5,
+      "usable_fixtures": 5,
+      "rejected_fixtures": 0
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:duplicate_fixture",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "total_rows": 4,
+      "usable_fixtures": 2,
+      "rejected_fixtures": 2
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:missing_odds",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "total_rows": 3,
+      "usable_fixtures": 2,
+      "rejected_fixtures": 1
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:incomplete_three_way",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "total_rows": 3,
+      "usable_fixtures": 1,
+      "rejected_fixtures": 2
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:old_date_format_season",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "total_rows": 3,
+      "usable_fixtures": 3,
+      "rejected_fixtures": 0
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:column_drift_2000s_season",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "total_rows": 3,
+      "usable_fixtures": 3,
+      "rejected_fixtures": 0
+    }
+  ],
+  "label_counts": {
+    "LIVE_SOURCE_VALIDATED": 0,
+    "FIXTURE_ONLY_VALIDATED": 6,
+    "SOURCE_NOT_USABLE": 0
+  },
+  "column_drift_findings": [
+    {
+      "league_code": "TEST_FIXTURE",
+      "from_season": "fixture:clean_modern_season",
+      "to_season": "fixture:duplicate_fixture",
+      "columns_dropped": [
+        "PSA",
+        "PSCA",
+        "PSCD",
+        "PSCH",
+        "PSD",
+        "PSH"
+      ],
+      "columns_added": []
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "from_season": "fixture:incomplete_three_way",
+      "to_season": "fixture:old_date_format_season",
+      "columns_dropped": [
+        "B365A",
+        "B365D",
+        "B365H",
+        "HTAG",
+        "HTHG",
+        "HTR",
+        "Time"
+      ],
+      "columns_added": []
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "from_season": "fixture:old_date_format_season",
+      "to_season": "fixture:column_drift_2000s_season",
+      "columns_dropped": [],
+      "columns_added": [
+        "B365A",
+        "B365D",
+        "B365H",
+        "GBA",
+        "GBD",
+        "GBH",
+        "HTAG",
+        "HTHG",
+        "HTR",
+        "SJA",
+        "SJD",
+        "SJH"
+      ]
+    }
+  ],
+  "entries": [
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:clean_modern_season",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "file_path": "tests/fixtures/football_data/clean_modern_season.csv",
+      "total_rows": 5,
+      "usable_fixtures": 5,
+      "rejected_fixtures": 0,
+      "rejection_reason_counts": {
+        "DUPLICATE_FIXTURE": 0,
+        "MISSING_TEAM_IDENTITY": 0,
+        "MISSING_RESULT": 0,
+        "INVALID_RESULT_LABEL": 0,
+        "IMPOSSIBLE_SCORE": 0,
+        "CONFLICTING_FIXTURE": 0,
+        "UNPARSEABLE_DATE": 0,
+        "MISSING_OR_INVALID_ODDS": 0,
+        "INCOMPLETE_THREE_WAY_PRICE": 0
+      },
+      "missingness_by_column": {
+        "fixture_date": 0.0,
+        "kickoff_time": 0.0,
+        "home_team": 0.0,
+        "away_team": 0.0,
+        "full_time_home_goals": 0.0,
+        "full_time_away_goals": 0.0,
+        "full_time_result": 0.0,
+        "half_time_home_goals": 0.0,
+        "half_time_away_goals": 0.0,
+        "half_time_result": 0.0,
+        "league_division": 0.0
+      },
+      "date_formats_observed": {
+        "%d/%m/%Y": 5
+      },
+      "odds_availability": [
+        {
+          "bookmaker_prefix": "B365",
+          "bookmaker_name": "Bet365",
+          "is_pinnacle": false,
+          "variant": "opening_or_only",
+          "all_three_columns_present_in_header": true,
+          "capture_timestamp_known": false,
+          "missing_or_invalid_rate_by_column": {
+            "B365H": 0.0,
+            "B365D": 0.0,
+            "B365A": 0.0
+          }
+        },
+        {
+          "bookmaker_prefix": "PS",
+          "bookmaker_name": "Pinnacle",
+          "is_pinnacle": true,
+          "variant": "opening_or_only",
+          "all_three_columns_present_in_header": true,
+          "capture_timestamp_known": false,
+          "missing_or_invalid_rate_by_column": {
+            "PSH": 0.0,
+            "PSD": 0.0,
+            "PSA": 0.0
+          }
+        },
+        {
+          "bookmaker_prefix": "PS",
+          "bookmaker_name": "Pinnacle",
+          "is_pinnacle": true,
+          "variant": "closing",
+          "all_three_columns_present_in_header": true,
+          "capture_timestamp_known": false,
+          "missing_or_invalid_rate_by_column": {
+            "PSCH": 0.0,
+            "PSCD": 0.0,
+            "PSCA": 0.0
+          }
+        }
+      ],
+      "core_columns_absent": [],
+      "header": [
+        "Div",
+        "Date",
+        "Time",
+        "HomeTeam",
+        "AwayTeam",
+        "FTHG",
+        "FTAG",
+        "FTR",
+        "HTHG",
+        "HTAG",
+        "HTR",
+        "B365H",
+        "B365D",
+        "B365A",
+        "PSH",
+        "PSD",
+        "PSA",
+        "PSCH",
+        "PSCD",
+        "PSCA"
+      ]
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:duplicate_fixture",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "file_path": "tests/fixtures/football_data/duplicate_fixture.csv",
+      "total_rows": 4,
+      "usable_fixtures": 2,
+      "rejected_fixtures": 2,
+      "rejection_reason_counts": {
+        "DUPLICATE_FIXTURE": 2,
+        "MISSING_TEAM_IDENTITY": 0,
+        "MISSING_RESULT": 0,
+        "INVALID_RESULT_LABEL": 0,
+        "IMPOSSIBLE_SCORE": 0,
+        "CONFLICTING_FIXTURE": 1,
+        "UNPARSEABLE_DATE": 0,
+        "MISSING_OR_INVALID_ODDS": 0,
+        "INCOMPLETE_THREE_WAY_PRICE": 0
+      },
+      "missingness_by_column": {
+        "fixture_date": 0.0,
+        "kickoff_time": 0.0,
+        "home_team": 0.0,
+        "away_team": 0.0,
+        "full_time_home_goals": 0.0,
+        "full_time_away_goals": 0.0,
+        "full_time_result": 0.0,
+        "half_time_home_goals": 0.0,
+        "half_time_away_goals": 0.0,
+        "half_time_result": 0.0,
+        "league_division": 0.0
+      },
+      "date_formats_observed": {
+        "%d/%m/%Y": 4
+      },
+      "odds_availability": [
+        {
+          "bookmaker_prefix": "B365",
+          "bookmaker_name": "Bet365",
+          "is_pinnacle": false,
+          "variant": "opening_or_only",
+          "all_three_columns_present_in_header": true,
+          "capture_timestamp_known": false,
+          "missing_or_invalid_rate_by_column": {
+            "B365H": 0.0,
+            "B365D": 0.0,
+            "B365A": 0.0
+          }
+        }
+      ],
+      "core_columns_absent": [],
+      "header": [
+        "Div",
+        "Date",
+        "Time",
+        "HomeTeam",
+        "AwayTeam",
+        "FTHG",
+        "FTAG",
+        "FTR",
+        "HTHG",
+        "HTAG",
+        "HTR",
+        "B365H",
+        "B365D",
+        "B365A"
+      ]
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:missing_odds",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "file_path": "tests/fixtures/football_data/missing_odds.csv",
+      "total_rows": 3,
+      "usable_fixtures": 2,
+      "rejected_fixtures": 1,
+      "rejection_reason_counts": {
+        "DUPLICATE_FIXTURE": 0,
+        "MISSING_TEAM_IDENTITY": 0,
+        "MISSING_RESULT": 0,
+        "INVALID_RESULT_LABEL": 0,
+        "IMPOSSIBLE_SCORE": 0,
+        "CONFLICTING_FIXTURE": 0,
+        "UNPARSEABLE_DATE": 0,
+        "MISSING_OR_INVALID_ODDS": 1,
+        "INCOMPLETE_THREE_WAY_PRICE": 0
+      },
+      "missingness_by_column": {
+        "fixture_date": 0.0,
+        "kickoff_time": 0.0,
+        "home_team": 0.0,
+        "away_team": 0.0,
+        "full_time_home_goals": 0.0,
+        "full_time_away_goals": 0.0,
+        "full_time_result": 0.0,
+        "half_time_home_goals": 0.0,
+        "half_time_away_goals": 0.0,
+        "half_time_result": 0.0,
+        "league_division": 0.0
+      },
+      "date_formats_observed": {
+        "%d/%m/%Y": 3
+      },
+      "odds_availability": [
+        {
+          "bookmaker_prefix": "B365",
+          "bookmaker_name": "Bet365",
+          "is_pinnacle": false,
+          "variant": "opening_or_only",
+          "all_three_columns_present_in_header": true,
+          "capture_timestamp_known": false,
+          "missing_or_invalid_rate_by_column": {
+            "B365H": 0.3333333333333333,
+            "B365D": 0.3333333333333333,
+            "B365A": 0.3333333333333333
+          }
+        }
+      ],
+      "core_columns_absent": [],
+      "header": [
+        "Div",
+        "Date",
+        "Time",
+        "HomeTeam",
+        "AwayTeam",
+        "FTHG",
+        "FTAG",
+        "FTR",
+        "HTHG",
+        "HTAG",
+        "HTR",
+        "B365H",
+        "B365D",
+        "B365A"
+      ]
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:incomplete_three_way",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "file_path": "tests/fixtures/football_data/incomplete_three_way.csv",
+      "total_rows": 3,
+      "usable_fixtures": 1,
+      "rejected_fixtures": 2,
+      "rejection_reason_counts": {
+        "DUPLICATE_FIXTURE": 0,
+        "MISSING_TEAM_IDENTITY": 0,
+        "MISSING_RESULT": 0,
+        "INVALID_RESULT_LABEL": 0,
+        "IMPOSSIBLE_SCORE": 0,
+        "CONFLICTING_FIXTURE": 0,
+        "UNPARSEABLE_DATE": 0,
+        "MISSING_OR_INVALID_ODDS": 0,
+        "INCOMPLETE_THREE_WAY_PRICE": 2
+      },
+      "missingness_by_column": {
+        "fixture_date": 0.0,
+        "kickoff_time": 0.0,
+        "home_team": 0.0,
+        "away_team": 0.0,
+        "full_time_home_goals": 0.0,
+        "full_time_away_goals": 0.0,
+        "full_time_result": 0.0,
+        "half_time_home_goals": 0.0,
+        "half_time_away_goals": 0.0,
+        "half_time_result": 0.0,
+        "league_division": 0.0
+      },
+      "date_formats_observed": {
+        "%d/%m/%Y": 3
+      },
+      "odds_availability": [
+        {
+          "bookmaker_prefix": "B365",
+          "bookmaker_name": "Bet365",
+          "is_pinnacle": false,
+          "variant": "opening_or_only",
+          "all_three_columns_present_in_header": true,
+          "capture_timestamp_known": false,
+          "missing_or_invalid_rate_by_column": {
+            "B365H": 0.3333333333333333,
+            "B365D": 0.0,
+            "B365A": 0.3333333333333333
+          }
+        }
+      ],
+      "core_columns_absent": [],
+      "header": [
+        "Div",
+        "Date",
+        "Time",
+        "HomeTeam",
+        "AwayTeam",
+        "FTHG",
+        "FTAG",
+        "FTR",
+        "HTHG",
+        "HTAG",
+        "HTR",
+        "B365H",
+        "B365D",
+        "B365A"
+      ]
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:old_date_format_season",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "file_path": "tests/fixtures/football_data/old_date_format_season.csv",
+      "total_rows": 3,
+      "usable_fixtures": 3,
+      "rejected_fixtures": 0,
+      "rejection_reason_counts": {
+        "DUPLICATE_FIXTURE": 0,
+        "MISSING_TEAM_IDENTITY": 0,
+        "MISSING_RESULT": 0,
+        "INVALID_RESULT_LABEL": 0,
+        "IMPOSSIBLE_SCORE": 0,
+        "CONFLICTING_FIXTURE": 0,
+        "UNPARSEABLE_DATE": 0,
+        "MISSING_OR_INVALID_ODDS": 0,
+        "INCOMPLETE_THREE_WAY_PRICE": 0
+      },
+      "missingness_by_column": {
+        "fixture_date": 0.0,
+        "kickoff_time": 0.0,
+        "home_team": 0.0,
+        "away_team": 0.0,
+        "full_time_home_goals": 0.0,
+        "full_time_away_goals": 0.0,
+        "full_time_result": 0.0,
+        "half_time_home_goals": 0.0,
+        "half_time_away_goals": 0.0,
+        "half_time_result": 0.0,
+        "league_division": 0.0
+      },
+      "date_formats_observed": {
+        "%d/%m/%y": 3
+      },
+      "odds_availability": [],
+      "core_columns_absent": [
+        "kickoff_time",
+        "half_time_home_goals",
+        "half_time_away_goals",
+        "half_time_result"
+      ],
+      "header": [
+        "Div",
+        "Date",
+        "HomeTeam",
+        "AwayTeam",
+        "FTHG",
+        "FTAG",
+        "FTR"
+      ]
+    },
+    {
+      "league_code": "TEST_FIXTURE",
+      "league_name": "TEST_FIXTURE",
+      "season": "fixture:column_drift_2000s_season",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "file_path": "tests/fixtures/football_data/column_drift_2000s_season.csv",
+      "total_rows": 3,
+      "usable_fixtures": 3,
+      "rejected_fixtures": 0,
+      "rejection_reason_counts": {
+        "DUPLICATE_FIXTURE": 0,
+        "MISSING_TEAM_IDENTITY": 0,
+        "MISSING_RESULT": 0,
+        "INVALID_RESULT_LABEL": 0,
+        "IMPOSSIBLE_SCORE": 0,
+        "CONFLICTING_FIXTURE": 0,
+        "UNPARSEABLE_DATE": 0,
+        "MISSING_OR_INVALID_ODDS": 0,
+        "INCOMPLETE_THREE_WAY_PRICE": 0
+      },
+      "missingness_by_column": {
+        "fixture_date": 0.0,
+        "kickoff_time": 0.0,
+        "home_team": 0.0,
+        "away_team": 0.0,
+        "full_time_home_goals": 0.0,
+        "full_time_away_goals": 0.0,
+        "full_time_result": 0.0,
+        "half_time_home_goals": 0.0,
+        "half_time_away_goals": 0.0,
+        "half_time_result": 0.0,
+        "league_division": 0.0
+      },
+      "date_formats_observed": {
+        "%d/%m/%Y": 3
+      },
+      "odds_availability": [
+        {
+          "bookmaker_prefix": "B365",
+          "bookmaker_name": "Bet365",
+          "is_pinnacle": false,
+          "variant": "opening_or_only",
+          "all_three_columns_present_in_header": true,
+          "capture_timestamp_known": false,
+          "missing_or_invalid_rate_by_column": {
+            "B365H": 0.0,
+            "B365D": 0.0,
+            "B365A": 0.0
+          }
+        },
+        {
+          "bookmaker_prefix": "GB",
+          "bookmaker_name": "Gamebookers",
+          "is_pinnacle": false,
+          "variant": "opening_or_only",
+          "all_three_columns_present_in_header": true,
+          "capture_timestamp_known": false,
+          "missing_or_invalid_rate_by_column": {
+            "GBH": 0.0,
+            "GBD": 0.0,
+            "GBA": 0.0
+          }
+        },
+        {
+          "bookmaker_prefix": "SJ",
+          "bookmaker_name": "Stan James",
+          "is_pinnacle": false,
+          "variant": "opening_or_only",
+          "all_three_columns_present_in_header": true,
+          "capture_timestamp_known": false,
+          "missing_or_invalid_rate_by_column": {
+            "SJH": 0.0,
+            "SJD": 0.0,
+            "SJA": 0.0
+          }
+        }
+      ],
+      "core_columns_absent": [
+        "kickoff_time"
+      ],
+      "header": [
+        "Div",
+        "Date",
+        "HomeTeam",
+        "AwayTeam",
+        "FTHG",
+        "FTAG",
+        "FTR",
+        "HTHG",
+        "HTAG",
+        "HTR",
+        "B365H",
+        "B365D",
+        "B365A",
+        "GBH",
+        "GBD",
+        "GBA",
+        "SJH",
+        "SJD",
+        "SJA"
+      ]
+    }
+  ],
+  "note": "Every entry in this file is a hand-crafted test fixture (tests/fixtures/football_data/), identified only as 'TEST_FIXTURE' \u2014 never a real league name. This file proves the schema-inspection/validation code's PARSING BEHAVIOR only; it is never evidence of source compatibility or dataset usability for any real league or season. See data_pipeline/reports/feasibility_report.json for the real source-attempt record."
+}

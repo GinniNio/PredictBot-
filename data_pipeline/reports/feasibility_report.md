@@ -1,82 +1,180 @@
-# Football-Data feasibility report
+# Football-Data feasibility report — real source-attempt evidence
 
-Every row below is labeled with exactly one of three defined values: `LIVE_SOURCE_VALIDATED` (a real football-data.co.uk download, run through this pipeline in this environment, that passed validation well enough to be usable), `FIXTURE_ONLY_VALIDATED` (only a hand-crafted test fixture was exercised, or the real download failed/was blocked — no real Football-Data content was ever obtained to judge this league-season one way or the other), or `SOURCE_NOT_USABLE` (a real download DID complete with real Football-Data content, but that real content fails validation badly enough to be unusable — a genuine negative finding about the source itself, never a stand-in for "couldn't test it", which stays `FIXTURE_ONLY_VALIDATED`). See `data_pipeline/FEASIBILITY_DECISION.md`.
+This report covers REAL football-data.co.uk download attempts only. It never contains the hand-crafted parser-behavior test fixtures — those are reported separately in `data_pipeline/reports/fixture_validation_report.json`/`.md`, which proves parser BEHAVIOR only and must never be read as evidence about a real league or season. See `data_pipeline/FEASIBILITY_DECISION.md`.
 
-LIVE_SOURCE_VALIDATED rows: 0
-FIXTURE_ONLY_VALIDATED rows: 6
-SOURCE_NOT_USABLE rows: 0
+## Source-attempt table
 
-## League x season x label summary
+165 (league, season) rows: one row per pair this manifest names — every real download attempt this run made (succeeded, failed, or skipped by the circuit breaker), plus any season explicitly gapped as `SOURCE_NOT_LISTED` (defect 4). Never fabricated: `total_rows`/`usable_fixtures` are `null` for every row where no real file was validated.
 
-| League | Season | Label | Total rows | Usable | Rejected |
-|---|---|---|---:|---:|---:|
-| English Premier League (fixture proxy) (E0) | fixture:clean_modern_season | FIXTURE_ONLY_VALIDATED | 5 | 5 | 0 |
-| English Premier League (fixture proxy) (E0) | fixture:duplicate_fixture | FIXTURE_ONLY_VALIDATED | 4 | 2 | 2 |
-| English Premier League (fixture proxy) (E0) | fixture:missing_odds | FIXTURE_ONLY_VALIDATED | 3 | 2 | 1 |
-| English Premier League (fixture proxy) (E0) | fixture:incomplete_three_way | FIXTURE_ONLY_VALIDATED | 3 | 1 | 2 |
-| English Premier League (fixture proxy) (E0) | fixture:old_date_format_season | FIXTURE_ONLY_VALIDATED | 3 | 3 | 0 |
-| English Premier League (fixture proxy) (E0) | fixture:column_drift_2000s_season | FIXTURE_ONLY_VALIDATED | 3 | 3 | 0 |
+download_status counts: `{'CONNECTION_ERROR': 2, 'NOT_ATTEMPTED_HOST_BLOCKED': 153, 'SOURCE_NOT_LISTED': 10}`
+source_label counts: `{'LIVE_SOURCE_VALIDATED': 0, 'FIXTURE_ONLY_VALIDATED': 155, 'SOURCE_NOT_USABLE': 0, 'SOURCE_NOT_LISTED': 10}`
 
-## Per-file detail
+| League | Season | source_label | download_status | validation_status | total_rows | usable_fixtures |
+|---|---|---|---|---|---:|---:|
+| E0 | 9394 | FIXTURE_ONLY_VALIDATED | CONNECTION_ERROR | NOT_RUN | None | None |
+| E0 | 9495 | FIXTURE_ONLY_VALIDATED | CONNECTION_ERROR | NOT_RUN | None | None |
+| E0 | 9596 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 9697 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 9798 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 9899 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 9900 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0001 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0102 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0203 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0304 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0405 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0506 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0607 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0708 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0809 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 0910 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1011 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1112 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1213 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1314 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1415 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1516 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1617 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1718 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1819 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 1920 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 2021 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| E0 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| E0 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| D1 | 9394 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 9495 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 9596 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 9697 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 9798 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 9899 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 9900 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0001 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0102 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0203 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0304 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0405 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0506 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0607 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0708 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0809 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 0910 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1011 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1112 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1213 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1314 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1415 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1516 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1617 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1718 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1819 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 1920 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 2021 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| D1 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| D1 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| SP1 | 9394 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 9495 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 9596 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 9697 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 9798 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 9899 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 9900 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0001 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0102 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0203 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0304 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0405 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0506 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0607 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0708 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0809 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 0910 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1011 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1112 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1213 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1314 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1415 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1516 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1617 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1718 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1819 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 1920 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 2021 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| SP1 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| SP1 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| I1 | 9394 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 9495 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 9596 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 9697 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 9798 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 9899 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 9900 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0001 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0102 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0203 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0304 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0405 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0506 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0607 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0708 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0809 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 0910 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1011 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1112 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1213 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1314 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1415 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1516 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1617 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1718 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1819 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 1920 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 2021 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| I1 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| I1 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| F1 | 9394 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 9495 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 9596 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 9697 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 9798 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 9899 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 9900 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0001 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0102 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0203 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0304 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0405 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0506 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0607 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0708 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0809 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 0910 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1011 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1112 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1213 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1314 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1415 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1516 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1617 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1718 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1819 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 1920 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 2021 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
+| F1 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| F1 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
 
-### English Premier League (fixture proxy) (E0) — fixture:clean_modern_season — `FIXTURE_ONLY_VALIDATED`
-- file: `/home/user/PredictBot-/tests/fixtures/football_data/clean_modern_season.csv`
-- total_rows: 5, usable: 5, rejected: 0
-- rejection_reason_counts: `{'DUPLICATE_FIXTURE': 0, 'MISSING_TEAM_IDENTITY': 0, 'MISSING_RESULT': 0, 'INVALID_RESULT_LABEL': 0, 'IMPOSSIBLE_SCORE': 0, 'CONFLICTING_FIXTURE': 0, 'UNPARSEABLE_DATE': 0, 'MISSING_OR_INVALID_ODDS': 0, 'INCOMPLETE_THREE_WAY_PRICE': 0}`
-- date_formats_observed: `{'%d/%m/%Y': 5}`
-- core_columns_absent: `[]`
-- odds columns found (bookmaker, variant, all-3-present, capture_timestamp_known):
-  - Bet365 (B365, opening_or_only): all_three_present=True, capture_timestamp_known=False
-  - Pinnacle (PS, opening_or_only, PINNACLE — treat cautiously, never auto-authoritative): all_three_present=True, capture_timestamp_known=False
-  - Pinnacle (PS, closing, PINNACLE — treat cautiously, never auto-authoritative): all_three_present=True, capture_timestamp_known=False
-
-### English Premier League (fixture proxy) (E0) — fixture:duplicate_fixture — `FIXTURE_ONLY_VALIDATED`
-- file: `/home/user/PredictBot-/tests/fixtures/football_data/duplicate_fixture.csv`
-- total_rows: 4, usable: 2, rejected: 2
-- rejection_reason_counts: `{'DUPLICATE_FIXTURE': 2, 'MISSING_TEAM_IDENTITY': 0, 'MISSING_RESULT': 0, 'INVALID_RESULT_LABEL': 0, 'IMPOSSIBLE_SCORE': 0, 'CONFLICTING_FIXTURE': 1, 'UNPARSEABLE_DATE': 0, 'MISSING_OR_INVALID_ODDS': 0, 'INCOMPLETE_THREE_WAY_PRICE': 0}`
-- date_formats_observed: `{'%d/%m/%Y': 4}`
-- core_columns_absent: `[]`
-- odds columns found (bookmaker, variant, all-3-present, capture_timestamp_known):
-  - Bet365 (B365, opening_or_only): all_three_present=True, capture_timestamp_known=False
-
-### English Premier League (fixture proxy) (E0) — fixture:missing_odds — `FIXTURE_ONLY_VALIDATED`
-- file: `/home/user/PredictBot-/tests/fixtures/football_data/missing_odds.csv`
-- total_rows: 3, usable: 2, rejected: 1
-- rejection_reason_counts: `{'DUPLICATE_FIXTURE': 0, 'MISSING_TEAM_IDENTITY': 0, 'MISSING_RESULT': 0, 'INVALID_RESULT_LABEL': 0, 'IMPOSSIBLE_SCORE': 0, 'CONFLICTING_FIXTURE': 0, 'UNPARSEABLE_DATE': 0, 'MISSING_OR_INVALID_ODDS': 1, 'INCOMPLETE_THREE_WAY_PRICE': 0}`
-- date_formats_observed: `{'%d/%m/%Y': 3}`
-- core_columns_absent: `[]`
-- odds columns found (bookmaker, variant, all-3-present, capture_timestamp_known):
-  - Bet365 (B365, opening_or_only): all_three_present=True, capture_timestamp_known=False
-
-### English Premier League (fixture proxy) (E0) — fixture:incomplete_three_way — `FIXTURE_ONLY_VALIDATED`
-- file: `/home/user/PredictBot-/tests/fixtures/football_data/incomplete_three_way.csv`
-- total_rows: 3, usable: 1, rejected: 2
-- rejection_reason_counts: `{'DUPLICATE_FIXTURE': 0, 'MISSING_TEAM_IDENTITY': 0, 'MISSING_RESULT': 0, 'INVALID_RESULT_LABEL': 0, 'IMPOSSIBLE_SCORE': 0, 'CONFLICTING_FIXTURE': 0, 'UNPARSEABLE_DATE': 0, 'MISSING_OR_INVALID_ODDS': 0, 'INCOMPLETE_THREE_WAY_PRICE': 2}`
-- date_formats_observed: `{'%d/%m/%Y': 3}`
-- core_columns_absent: `[]`
-- odds columns found (bookmaker, variant, all-3-present, capture_timestamp_known):
-  - Bet365 (B365, opening_or_only): all_three_present=True, capture_timestamp_known=False
-
-### English Premier League (fixture proxy) (E0) — fixture:old_date_format_season — `FIXTURE_ONLY_VALIDATED`
-- file: `/home/user/PredictBot-/tests/fixtures/football_data/old_date_format_season.csv`
-- total_rows: 3, usable: 3, rejected: 0
-- rejection_reason_counts: `{'DUPLICATE_FIXTURE': 0, 'MISSING_TEAM_IDENTITY': 0, 'MISSING_RESULT': 0, 'INVALID_RESULT_LABEL': 0, 'IMPOSSIBLE_SCORE': 0, 'CONFLICTING_FIXTURE': 0, 'UNPARSEABLE_DATE': 0, 'MISSING_OR_INVALID_ODDS': 0, 'INCOMPLETE_THREE_WAY_PRICE': 0}`
-- date_formats_observed: `{'%d/%m/%y': 3}`
-- core_columns_absent: `['kickoff_time', 'half_time_home_goals', 'half_time_away_goals', 'half_time_result']`
-- odds columns found (bookmaker, variant, all-3-present, capture_timestamp_known):
-
-### English Premier League (fixture proxy) (E0) — fixture:column_drift_2000s_season — `FIXTURE_ONLY_VALIDATED`
-- file: `/home/user/PredictBot-/tests/fixtures/football_data/column_drift_2000s_season.csv`
-- total_rows: 3, usable: 3, rejected: 0
-- rejection_reason_counts: `{'DUPLICATE_FIXTURE': 0, 'MISSING_TEAM_IDENTITY': 0, 'MISSING_RESULT': 0, 'INVALID_RESULT_LABEL': 0, 'IMPOSSIBLE_SCORE': 0, 'CONFLICTING_FIXTURE': 0, 'UNPARSEABLE_DATE': 0, 'MISSING_OR_INVALID_ODDS': 0, 'INCOMPLETE_THREE_WAY_PRICE': 0}`
-- date_formats_observed: `{'%d/%m/%Y': 3}`
-- core_columns_absent: `['kickoff_time']`
-- odds columns found (bookmaker, variant, all-3-present, capture_timestamp_known):
-  - Bet365 (B365, opening_or_only): all_three_present=True, capture_timestamp_known=False
-  - Gamebookers (GB, opening_or_only): all_three_present=True, capture_timestamp_known=False
-  - Stan James (SJ, opening_or_only): all_three_present=True, capture_timestamp_known=False
-
-## Column drift between seasons
-- E0: fixture:clean_modern_season -> fixture:duplicate_fixture: dropped=['PSA', 'PSCA', 'PSCD', 'PSCH', 'PSD', 'PSH'], added=[]
-- E0: fixture:incomplete_three_way -> fixture:old_date_format_season: dropped=['B365A', 'B365D', 'B365H', 'HTAG', 'HTHG', 'HTR', 'Time'], added=[]
-- E0: fixture:old_date_format_season -> fixture:column_drift_2000s_season: dropped=[], added=['B365A', 'B365D', 'B365H', 'GBA', 'GBD', 'GBH', 'HTAG', 'HTHG', 'HTR', 'SJA', 'SJD', 'SJH']
+No real download succeeded in this run, so there is no live per-file entries section below — see the source-attempt table above for the full attempt record.

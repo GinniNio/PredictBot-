@@ -43,6 +43,30 @@
 # will simply report a 404/no-file outcome for any season attempted beyond
 # what Football-Data has actually published, which is safe and legible
 # either way.
+#
+# EXPLICIT COVERAGE GAP (do not silently omit later seasons — see the
+# data_pipeline feasibility-report defect fix that added this note): as of
+# this file's last edit, "today" is 2026-09-10, and by the conventional
+# August-to-May European domestic-season calendar the 2024-25 season
+# ("2425") and the 2025-26 season ("2526") have both already reached their
+# natural completion point (a 2026-27 season would be the one currently
+# in progress, not yet completed). `latest_completed_season` above is
+# deliberately NOT advanced to "2526", because this download attempt runs
+# in a sandbox with no live outbound access to football-data.co.uk (see
+# FEASIBILITY_DECISION.md) — there is no way in this environment to
+# CONFIRM the site's URL pattern for these two seasons still resolves to a
+# real file (the scheme has been stable historically, but "historically
+# stable" is not the same as "confirmed live"). Rather than silently
+# stopping the season list at 2324 with no explanation, both seasons are
+# listed explicitly below as `unconfirmed_seasons` per league — this
+# manifest attempts to download them like any other season, but any
+# feasibility-report row for one of these must never claim a URL was
+# "confirmed" it wasn't (see download_status: SOURCE_NOT_LISTED in
+# data_pipeline/report.py, assigned only when a season is NOT part of the
+# confirmed [first_season, latest_completed_season] range). Once a
+# live-download-capable environment actually confirms these seasons'
+# files resolve and validate, promote them into
+# `latest_completed_season` and drop them from `unconfirmed_seasons`.
 
 categories:
   - league_code: "E0"
@@ -52,6 +76,7 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
+    unconfirmed_seasons: ["2425", "2526"]
 
   - league_code: "D1"
     league_name: "Bundesliga"
@@ -60,6 +85,7 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
+    unconfirmed_seasons: ["2425", "2526"]
 
   - league_code: "SP1"
     league_name: "La Liga"
@@ -68,6 +94,7 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
+    unconfirmed_seasons: ["2425", "2526"]
 
   - league_code: "I1"
     league_name: "Serie A"
@@ -76,6 +103,7 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
+    unconfirmed_seasons: ["2425", "2526"]
 
   - league_code: "F1"
     league_name: "Ligue 1"
@@ -84,3 +112,4 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
+    unconfirmed_seasons: ["2425", "2526"]

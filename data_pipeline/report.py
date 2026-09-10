@@ -65,18 +65,73 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from data_pipeline.download import DEFAULT_MANIFEST_PATH, load_manifest, season_codes
 from data_pipeline.schema_inspection import column_drift, inspect_file, result_to_dict as schema_to_dict
 from data_pipeline.validation import result_to_dict as validation_to_dict
 from data_pipeline.validation import validate_file
+
+
+def _repo_relative_path(path: Path) -> str:
+    """Render `path` as a path relative to the repository root, never a
+    machine-specific absolute path — so `feasibility_report.json`/`.md`
+    are reproducible byte-for-byte (modulo timestamps) regardless of where
+    this repo happens to be checked out (a different absolute prefix on
+    every environment: ChatGPT, Claude Cowork, Gemini, Windows, CI, a
+    developer's own machine). Falls back to the path as given only if it
+    genuinely is not inside REPO_ROOT (should not happen for anything this
+    module writes into a report, but never raises over it)."""
+
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 LIVE_SOURCE_VALIDATED = "LIVE_SOURCE_VALIDATED"
 FIXTURE_ONLY_VALIDATED = "FIXTURE_ONLY_VALIDATED"
 SOURCE_NOT_USABLE = "SOURCE_NOT_USABLE"
 
-# The complete, closed set of valid `source_label` values for a feasibility
-# report entry. See the module docstring above for what each one means and
-# when it may (and may not) be assigned.
+# The complete, closed set of valid `source_label` values for a per-file
+# feasibility-report entry (a real download OR a hand-crafted fixture — see
+# `build_entry`/`build_live_entry`/`build_fixture_only_report`). See the
+# module docstring above for what each one means and when it may (and may
+# not) be assigned. This set intentionally stays at three — it is NOT the
+# same set used by the source-attempt table below, which additionally
+# tracks attempts that were never even run against a real or fixture file
+# (see `SOURCE_NOT_LISTED`).
 VALID_SOURCE_LABELS = (LIVE_SOURCE_VALIDATED, FIXTURE_ONLY_VALIDATED, SOURCE_NOT_USABLE)
+
+# A source-attempt-table-only label (see `build_source_attempts` below): a
+# season that exists in principle (the football calendar has moved past
+# it) but for which this manifest lists no confirmed, live-verified source
+# URL yet (`data_pipeline/sources/football_data_sources.yaml`'s
+# `unconfirmed_seasons`). Never assigned to a per-file entry built by
+# `build_entry`/`build_live_entry` — those always describe a file that was
+# actually exercised (real download or fixture); `SOURCE_NOT_LISTED` rows
+# were never attempted at all, by design, so they never appear in
+# `VALID_SOURCE_LABELS`.
+SOURCE_NOT_LISTED = "SOURCE_NOT_LISTED"
+
+# The closed set of `source_label` values that may appear in the
+# source-attempt table (defect 1) — the three per-file labels above, plus
+# SOURCE_NOT_LISTED for a season this manifest does not yet confirm a URL
+# for (defect 4).
+VALID_SOURCE_ATTEMPT_LABELS = VALID_SOURCE_LABELS + (SOURCE_NOT_LISTED,)
+
+# Identity used for every hand-crafted test-fixture entry (see
+# `build_fixture_only_report`) — deliberately neutral and never a real
+# league name, so a reader can never mistake a fixture-validation result
+# for evidence about a real Football-Data league or season.
+TEST_FIXTURE_IDENTITY = "TEST_FIXTURE"
+
+# Download-status values a source-attempt-table row may carry. The first
+# five mirror `data_pipeline.download`'s typed `error_type`s (plus a
+# success indicator); `NOT_ATTEMPTED_HOST_BLOCKED` mirrors the circuit
+# breaker's skip reason; `SOURCE_NOT_LISTED` mirrors the label above (this
+# season was never attempted because no URL is listed for it at all, which
+# is a different reason than "attempted and blocked").
+DOWNLOAD_STATUS_SUCCESS = "SUCCESS"
+VALID_VALIDATION_STATUSES = ("NOT_RUN", "PASSED", "FAILED")
 
 
 def _validate_label(label: str) -> None:
@@ -143,7 +198,7 @@ def _assemble_entry(
         "league_name": league_name,
         "season": season_label,
         "source_label": label,
-        "file_path": str(csv_path),
+        "file_path": _repo_relative_path(csv_path),
         "total_rows": validation_result.total_rows,
         "usable_fixtures": validation_result.usable_fixtures,
         "rejected_fixtures": validation_result.rejected_fixtures,
@@ -251,13 +306,10 @@ def build_report(entries: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def write_report(report: dict[str, Any], json_path: Path, markdown_path: Path) -> None:
-    json_path.parent.mkdir(parents=True, exist_ok=True)
-    json_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-
-    lines = ["# Football-Data feasibility report", ""]
+def _entries_markdown_lines(report: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
     lines.append(
-        "Every row below is labeled with exactly one of three defined values: "
+        "Every per-file entry below is labeled with exactly one of three defined values: "
         "`LIVE_SOURCE_VALIDATED` (a real football-data.co.uk download, run through this "
         "pipeline in this environment, that passed validation well enough to be usable), "
         "`FIXTURE_ONLY_VALIDATED` (only a hand-crafted test fixture was exercised, or the "
@@ -310,36 +362,277 @@ def write_report(report: dict[str, Any], json_path: Path, markdown_path: Path) -
                 f"- {d['league_code']}: {d['from_season']} -> {d['to_season']}: "
                 f"dropped={d['columns_dropped']}, added={d['columns_added']}"
             )
+    return lines
+
+
+def write_feasibility_report(report: dict[str, Any], json_path: Path, markdown_path: Path) -> None:
+    """Write the REAL-source feasibility report — the source-attempt table
+    (every (league, season) this pipeline actually attempted or explicitly
+    marked SOURCE_NOT_LISTED, defect 1/4) plus, when any real download
+    succeeded, a per-file entries breakdown built from real validation
+    evidence (`build_live_entry`). This file NEVER contains the
+    hand-crafted test fixtures — those live exclusively in
+    `fixture_validation_report.json`/`.md` (see `write_fixture_validation_report`)."""
+
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    lines = ["# Football-Data feasibility report — real source-attempt evidence", ""]
+    lines.append(
+        "This report covers REAL football-data.co.uk download attempts only. It never "
+        "contains the hand-crafted parser-behavior test fixtures — those are reported "
+        "separately in `data_pipeline/reports/fixture_validation_report.json`/`.md`, which "
+        "proves parser BEHAVIOR only and must never be read as evidence about a real league "
+        "or season. See `data_pipeline/FEASIBILITY_DECISION.md`."
+    )
+    lines.append("")
+
+    attempts = report.get("source_attempts", [])
+    attempts_summary = report.get("source_attempts_summary", {})
+    lines.append("## Source-attempt table")
+    lines.append("")
+    lines.append(
+        f"{attempts_summary.get('total_rows', len(attempts))} (league, season) rows: "
+        f"one row per pair this manifest names — every real download attempt this run made "
+        f"(succeeded, failed, or skipped by the circuit breaker), plus any season explicitly "
+        f"gapped as `SOURCE_NOT_LISTED` (defect 4). Never fabricated: `total_rows`/"
+        "`usable_fixtures` are `null` for every row where no real file was validated."
+    )
+    lines.append("")
+    lines.append(f"download_status counts: `{attempts_summary.get('download_status_counts', {})}`")
+    lines.append(f"source_label counts: `{attempts_summary.get('source_label_counts', {})}`")
+    lines.append("")
+    lines.append("| League | Season | source_label | download_status | validation_status | total_rows | usable_fixtures |")
+    lines.append("|---|---|---|---|---|---:|---:|")
+    for row in attempts:
+        lines.append(
+            f"| {row['league_code']} | {row['season']} | {row['source_label']} | {row['download_status']} | "
+            f"{row['validation_status']} | {row['total_rows']} | {row['usable_fixtures']} |"
+        )
+    lines.append("")
+
+    if report.get("entries"):
+        lines.append("## Real live-download per-file detail")
+        lines.append("")
+        lines.extend(_entries_markdown_lines(report))
+    else:
+        lines.append(
+            "No real download succeeded in this run, so there is no live per-file entries "
+            "section below — see the source-attempt table above for the full attempt record."
+        )
+
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_fixture_validation_report(report: dict[str, Any], json_path: Path, markdown_path: Path) -> None:
+    """Write the SEPARATE fixture-validation report — the 6 hand-crafted
+    fixtures' results, always identified as `TEST_FIXTURE_IDENTITY`
+    (never a real league name), proving parser/validator BEHAVIOR only.
+    This file must never be conflated with `feasibility_report.json`/`.md`
+    (real source-attempt evidence) — see `data_pipeline/FEASIBILITY_DECISION.md`."""
+
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    lines = ["# Fixture validation report — parser-behavior evidence ONLY", ""]
+    lines.append(
+        "**This file proves the schema-inspection/validation code's PARSING BEHAVIOR only "
+        "— it is NEVER evidence of source compatibility or dataset usability for any real "
+        "league or season.** Every entry's league identity is the neutral "
+        f"`{TEST_FIXTURE_IDENTITY}` (never a real league name/code), and every entry is "
+        "built from a small, hand-crafted CSV checked into `tests/fixtures/football_data/` "
+        "— never real downloaded Football-Data content. For the real source-attempt record, "
+        "see `data_pipeline/reports/feasibility_report.json`/`.md` and "
+        "`data_pipeline/FEASIBILITY_DECISION.md`."
+    )
+    lines.append("")
+    lines.extend(_entries_markdown_lines(report))
 
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
     markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def build_fixture_only_report() -> dict[str, Any]:
-    """Build the feasibility report entirely from the checked-in hand-
-    crafted fixtures (tests/fixtures/football_data/), used when no real
-    Football-Data download succeeded in this environment. Every entry is
-    labeled FIXTURE_ONLY_VALIDATED."""
+    """Build a report ENTIRELY from the checked-in hand-crafted fixtures
+    (tests/fixtures/football_data/) — this proves parser/validator
+    BEHAVIOR only, never source compatibility or dataset usability for any
+    real league or season (see the module docstring and
+    `data_pipeline/FEASIBILITY_DECISION.md`).
+
+    Every entry's identity is deliberately the neutral `TEST_FIXTURE_IDENTITY`
+    (never a real league name/code) so this can never be mistaken for real
+    Football-Data evidence, and every entry is labeled FIXTURE_ONLY_VALIDATED.
+    This report is written to its OWN file, `fixture_validation_report.json`/`.md`
+    — it is never merged into `feasibility_report.json`/`.md`, which is
+    reserved for the real source-attempt evidence (`build_source_attempts`)
+    and any real live-download entries."""
 
     fixtures_dir = REPO_ROOT / "tests" / "fixtures" / "football_data"
     fixture_files = [
-        ("E0", "English Premier League (fixture proxy)", "fixture:clean_modern_season", "clean_modern_season.csv"),
-        ("E0", "English Premier League (fixture proxy)", "fixture:duplicate_fixture", "duplicate_fixture.csv"),
-        ("E0", "English Premier League (fixture proxy)", "fixture:missing_odds", "missing_odds.csv"),
-        ("E0", "English Premier League (fixture proxy)", "fixture:incomplete_three_way", "incomplete_three_way.csv"),
-        ("E0", "English Premier League (fixture proxy)", "fixture:old_date_format_season", "old_date_format_season.csv"),
-        ("E0", "English Premier League (fixture proxy)", "fixture:column_drift_2000s_season", "column_drift_2000s_season.csv"),
+        ("fixture:clean_modern_season", "clean_modern_season.csv"),
+        ("fixture:duplicate_fixture", "duplicate_fixture.csv"),
+        ("fixture:missing_odds", "missing_odds.csv"),
+        ("fixture:incomplete_three_way", "incomplete_three_way.csv"),
+        ("fixture:old_date_format_season", "old_date_format_season.csv"),
+        ("fixture:column_drift_2000s_season", "column_drift_2000s_season.csv"),
     ]
     entries = [
-        build_entry(code, name, season, fixtures_dir / filename, FIXTURE_ONLY_VALIDATED)
-        for code, name, season, filename in fixture_files
+        build_entry(TEST_FIXTURE_IDENTITY, TEST_FIXTURE_IDENTITY, season, fixtures_dir / filename, FIXTURE_ONLY_VALIDATED)
+        for season, filename in fixture_files
     ]
     return build_report(entries)
 
 
+def build_source_attempts(
+    manifest_rows: list[dict[str, Any]],
+    retrieval_log: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build the source-attempt table: exactly one row per (league, season)
+    pair this manifest names, joining `football_data_sources.yaml` against
+    `retrieval_log.json` — the real record of every download this pipeline
+    actually attempted (or, since the circuit breaker, deliberately did NOT
+    attempt) in this run.
+
+    This is the fix for the core defect: unlike the old report, which only
+    ever showed the 6 hand-crafted fixtures, this covers every real
+    (league, season) attempt the manifest describes, INCLUDING the seasons
+    in the confirmed [first_season, latest_completed_season] range (which
+    this run's download attempt actually tried, successfully or not) and
+    the `unconfirmed_seasons` gap seasons (defect 4), which are never
+    attempted at all and are always reported `SOURCE_NOT_LISTED` rather
+    than silently omitted.
+
+    `total_rows`/`usable_fixtures` are populated from real validation
+    evidence ONLY when a real file was actually downloaded for that row —
+    never copied from an unrelated fixture's numbers, and never fabricated
+    for a row whose file was never fetched."""
+
+    downloads_by_key = {(d["league_code"], d["season_code"]): d for d in retrieval_log.get("downloads", [])}
+    failed_by_key = {(d["league_code"], d["season_code"]): d for d in retrieval_log.get("failed_attempts", [])}
+
+    rows: list[dict[str, Any]] = []
+    for manifest_row in manifest_rows:
+        league_code = manifest_row["league_code"]
+        league_name = manifest_row["league_name"]
+
+        for code in season_codes(str(manifest_row["first_season"]), str(manifest_row["latest_completed_season"])):
+            key = (league_code, code)
+            if key in downloads_by_key:
+                download = downloads_by_key[key]
+                raw_path = REPO_ROOT / download["raw_path"]
+                # A real file was actually downloaded — classify it from
+                # real validation evidence, exactly like build_live_entry,
+                # rather than assuming success just because the transfer
+                # completed.
+                if raw_path.exists():
+                    schema_result = inspect_file(raw_path)
+                    validation_result = validate_file(raw_path)
+                    label = classify_live_download(
+                        schema_result.core_columns_absent,
+                        validation_result.total_rows,
+                        validation_result.usable_fixtures,
+                    )
+                    rows.append(
+                        {
+                            "league_code": league_code,
+                            "season": code,
+                            "source_label": label,
+                            "download_status": DOWNLOAD_STATUS_SUCCESS,
+                            "validation_status": "PASSED" if label == LIVE_SOURCE_VALIDATED else "FAILED",
+                            "total_rows": validation_result.total_rows,
+                            "usable_fixtures": validation_result.usable_fixtures,
+                        }
+                    )
+                else:
+                    # Recorded as a successful transfer but the raw file
+                    # is not present on disk (raw downloads are git-ignored
+                    # — see data_pipeline/download.py's module docstring):
+                    # a real file was fetched at some point but this
+                    # environment cannot re-validate it now, so this is
+                    # honestly FIXTURE_ONLY_VALIDATED/NOT_RUN, never a
+                    # fabricated pass/fail.
+                    rows.append(
+                        {
+                            "league_code": league_code,
+                            "season": code,
+                            "source_label": FIXTURE_ONLY_VALIDATED,
+                            "download_status": DOWNLOAD_STATUS_SUCCESS,
+                            "validation_status": "NOT_RUN",
+                            "total_rows": None,
+                            "usable_fixtures": None,
+                        }
+                    )
+            elif key in failed_by_key:
+                failure = failed_by_key[key]
+                rows.append(
+                    {
+                        "league_code": league_code,
+                        "season": code,
+                        "source_label": FIXTURE_ONLY_VALIDATED,
+                        "download_status": failure["error_type"],
+                        "validation_status": "NOT_RUN",
+                        "total_rows": None,
+                        "usable_fixtures": None,
+                    }
+                )
+            else:
+                # In the manifest's confirmed range but absent from the
+                # retrieval log entirely (e.g. the log predates this
+                # league/season, or download.py has not been re-run since
+                # the manifest changed) — never fabricate an outcome.
+                rows.append(
+                    {
+                        "league_code": league_code,
+                        "season": code,
+                        "source_label": FIXTURE_ONLY_VALIDATED,
+                        "download_status": "NOT_YET_ATTEMPTED",
+                        "validation_status": "NOT_RUN",
+                        "total_rows": None,
+                        "usable_fixtures": None,
+                    }
+                )
+
+        for gap_season in manifest_row.get("unconfirmed_seasons", []) or []:
+            rows.append(
+                {
+                    "league_code": league_code,
+                    "season": str(gap_season),
+                    "source_label": SOURCE_NOT_LISTED,
+                    "download_status": SOURCE_NOT_LISTED,
+                    "validation_status": "NOT_RUN",
+                    "total_rows": None,
+                    "usable_fixtures": None,
+                }
+            )
+
+    for row in rows:
+        if row["source_label"] not in VALID_SOURCE_ATTEMPT_LABELS:
+            raise ValueError(f"source_attempts row has an invalid source_label: {row!r}")
+        if row["validation_status"] not in VALID_VALIDATION_STATUSES:
+            raise ValueError(f"source_attempts row has an invalid validation_status: {row!r}")
+
+    return rows
+
+
+def summarize_source_attempts(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    download_status_counts: dict[str, int] = {}
+    source_label_counts: dict[str, int] = {label: 0 for label in VALID_SOURCE_ATTEMPT_LABELS}
+    for row in rows:
+        download_status_counts[row["download_status"]] = download_status_counts.get(row["download_status"], 0) + 1
+        source_label_counts[row["source_label"]] = source_label_counts.get(row["source_label"], 0) + 1
+    return {
+        "total_rows": len(rows),
+        "download_status_counts": download_status_counts,
+        "source_label_counts": source_label_counts,
+    }
+
+
 def main() -> None:
     retrieval_log_path = REPO_ROOT / "data_pipeline" / "retrieval_log.json"
-    entries: list[dict[str, Any]] = []
+    manifest_rows = load_manifest(DEFAULT_MANIFEST_PATH)
+    live_entries: list[dict[str, Any]] = []
+    source_attempts: list[dict[str, Any]] = []
 
     if retrieval_log_path.exists():
         retrieval_log = json.loads(retrieval_log_path.read_text(encoding="utf-8"))
@@ -349,7 +642,7 @@ def main() -> None:
                 # Never assume a completed download is automatically
                 # usable — build_live_entry classifies LIVE_SOURCE_VALIDATED
                 # vs. SOURCE_NOT_USABLE from the real validation evidence.
-                entries.append(
+                live_entries.append(
                     build_live_entry(
                         d["league_code"],
                         d["league_name"],
@@ -357,36 +650,68 @@ def main() -> None:
                         raw_path,
                     )
                 )
+        # The source-attempt table (defect 1) is built regardless of
+        # whether any download succeeded — it is the honest record of
+        # every (league, season) pair this manifest names, including
+        # every attempt that failed/was skipped, and every explicitly
+        # gapped SOURCE_NOT_LISTED season (defect 4).
+        source_attempts = build_source_attempts(manifest_rows, retrieval_log)
+    else:
+        retrieval_log = {}
 
-    if entries:
-        report = build_report(entries)
-        live_count = sum(1 for e in entries if e["source_label"] == LIVE_SOURCE_VALIDATED)
-        not_usable_count = sum(1 for e in entries if e["source_label"] == SOURCE_NOT_USABLE)
+    report = build_report(live_entries)
+    report["source_attempts"] = source_attempts
+    report["source_attempts_summary"] = summarize_source_attempts(source_attempts)
+
+    if live_entries:
+        live_count = sum(1 for e in live_entries if e["source_label"] == LIVE_SOURCE_VALIDATED)
+        not_usable_count = sum(1 for e in live_entries if e["source_label"] == SOURCE_NOT_USABLE)
         note = (
-            f"{len(entries)} league-season file(s) were actually downloaded from "
+            f"{len(live_entries)} league-season file(s) were actually downloaded from "
             f"football-data.co.uk in this environment: {live_count} classified "
             f"LIVE_SOURCE_VALIDATED, {not_usable_count} classified SOURCE_NOT_USABLE "
             "(real content downloaded, but too broken/incomplete to use). "
-            "See data_pipeline/retrieval_log.json."
+            f"See data_pipeline/retrieval_log.json and this report's source_attempts[] "
+            f"({len(source_attempts)} rows) for the full attempt record. Hand-crafted "
+            "parser-behavior fixture evidence is reported separately in "
+            "data_pipeline/reports/fixture_validation_report.json."
         )
     else:
-        report = build_fixture_only_report()
+        attempted = retrieval_log.get("summary", {}).get("network_attempts_made")
+        skipped = retrieval_log.get("summary", {}).get("skipped_host_blocked", 0)
         note = (
             "No real football-data.co.uk download succeeded in this environment "
-            "(see data_pipeline/retrieval_log.json's failed_attempts[]) — every entry below is "
-            "FIXTURE_ONLY_VALIDATED, proving only the pipeline's parsing/validation logic, "
-            "never real dataset usability. (SOURCE_NOT_USABLE is a third, defined label for a "
-            "real download that completes but fails validation badly — it is never assigned "
-            "when, as here, no real download succeeded at all; that case is always "
-            "FIXTURE_ONLY_VALIDATED.) See data_pipeline/FEASIBILITY_DECISION.md."
+            f"({attempted if attempted is not None else '0'} league-season file(s) actually "
+            f"attempted over the network, {skipped} more skipped by the circuit breaker once "
+            "a host-level denial was confirmed — see data_pipeline/retrieval_log.json's "
+            "failed_attempts[]/circuit_breaker). This report's source_attempts[] "
+            f"({len(source_attempts)} rows) is the real, honest per-(league, season) record — "
+            "it is NEVER populated from the hand-crafted test fixtures. Those fixtures prove "
+            "only the pipeline's parsing/validation logic, never real dataset usability, and "
+            "are reported separately in data_pipeline/reports/fixture_validation_report.json. "
+            "See data_pipeline/FEASIBILITY_DECISION.md."
         )
     report["note"] = note
 
     json_path = REPO_ROOT / "data_pipeline" / "reports" / "feasibility_report.json"
     markdown_path = REPO_ROOT / "data_pipeline" / "reports" / "feasibility_report.md"
-    write_report(report, json_path, markdown_path)
+    write_feasibility_report(report, json_path, markdown_path)
     print(note)
     print(f"Wrote {json_path} and {markdown_path}")
+
+    fixture_report = build_fixture_only_report()
+    fixture_report["note"] = (
+        "Every entry in this file is a hand-crafted test fixture "
+        f"(tests/fixtures/football_data/), identified only as '{TEST_FIXTURE_IDENTITY}' — "
+        "never a real league name. This file proves the schema-inspection/validation code's "
+        "PARSING BEHAVIOR only; it is never evidence of source compatibility or dataset "
+        "usability for any real league or season. See "
+        "data_pipeline/reports/feasibility_report.json for the real source-attempt record."
+    )
+    fixture_json_path = REPO_ROOT / "data_pipeline" / "reports" / "fixture_validation_report.json"
+    fixture_markdown_path = REPO_ROOT / "data_pipeline" / "reports" / "fixture_validation_report.md"
+    write_fixture_validation_report(fixture_report, fixture_json_path, fixture_markdown_path)
+    print(f"Wrote {fixture_json_path} and {fixture_markdown_path}")
 
 
 if __name__ == "__main__":
