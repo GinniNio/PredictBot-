@@ -92,6 +92,16 @@ temporal-integrity tests and leakage tests.
 Do not add pandas, NumPy, scikit-learn or another runtime dependency until the
 three-host dependency strategy is explicitly approved from runtime evidence.
 
+**Scope update:** Agent D's scope was expanded from football-only to a
+multi-sport platform covering every Bet9ja category before any football-only
+forecasting model was built. `src/pcbf_calculator/` now holds the Release A
+universal market-pricing engine, adapter framework, and PCBF decision layer
+described in `docs/MULTI_SPORT_ARCHITECTURE.md` (which supersedes
+`docs/CALCULATOR_KICKOFF.md`). Per-sport forecasting logic (soccer 1X2,
+tennis match-winner, basketball moneyline) remains out of scope until
+Release B/C, exactly as originally planned here — only the "football-only"
+framing changed, not the sequencing.
+
 ## Sequence gate
 
 1. Merge and build the runtime probe.

@@ -1,0 +1,133 @@
+# market-types-registry.yaml
+# Market-type facts per category: which price structures apply and what
+# settlement requires. 'id' cross-references sports-registry.yaml.
+
+categories:
+  - id: soccer
+    structures: [two_way, three_way, n_way]
+    markets: [1x2, double_chance, over_under, btts, correct_score]
+    settlement: Full-time regulation result unless the market states extra time or penalties count.
+  - id: players_soccer
+    structures: [two_way, n_way]
+    markets: [anytime_scorer, player_shots_over_under, player_cards]
+    settlement: Player prop settles on the named player's actual involvement; abandonment rules apply.
+  - id: specials_soccer
+    structures: [two_way, three_way, n_way]
+    markets: [specials]
+    settlement: Per the published rules of the individual special market.
+  - id: specials_combo
+    structures: [n_way]
+    markets: [combo_specials]
+    settlement: Every leg must settle under its own market rules; the combo settles on the joint outcome.
+  - id: antepost_soccer
+    structures: [n_way]
+    markets: [outright_winner, relegation_odds]
+    settlement: Settles at the conclusion of the competition or season.
+  - id: zoom_soccer
+    structures: [two_way, three_way, n_way]
+    markets: [1x2]
+    settlement: Virtual/accelerated fixture; settles immediately after the simulated match completes.
+  - id: players_zoom_soccer
+    structures: [two_way, n_way]
+    markets: [virtual_player_props]
+    settlement: Virtual fixture player prop; settles on the simulated result.
+  - id: tennis
+    structures: [two_way, n_way]
+    markets: [match_winner, set_betting, total_games]
+    settlement: Match must reach a completed result or the retirement rule for the market applies.
+  - id: zoom_tennis
+    structures: [two_way]
+    markets: [match_winner]
+    settlement: Virtual fixture; settles on the simulated result.
+  - id: basketball
+    structures: [two_way, n_way]
+    markets: [moneyline, spread, total_points]
+    settlement: Includes overtime unless the market states regulation time only.
+  - id: volleyball
+    structures: [two_way, n_way]
+    markets: [match_winner, set_betting]
+    settlement: Match winner decided by completed sets under the competition's set format.
+  - id: american_football
+    structures: [two_way, n_way]
+    markets: [moneyline, spread, total_points]
+    settlement: Includes overtime unless the market states regulation time only.
+  - id: players_american_football
+    structures: [two_way, n_way]
+    markets: [player_props]
+    settlement: Player prop settles on the named player's actual involvement.
+  - id: baseball
+    structures: [two_way, n_way]
+    markets: [moneyline, run_line, total_runs]
+    settlement: Nine innings unless the market states a shortened-game rule.
+  - id: handball
+    structures: [two_way, three_way, n_way]
+    markets: [1x2, total_goals]
+    settlement: Full-time regulation result unless the market states otherwise.
+  - id: rugby
+    structures: [two_way, three_way, n_way]
+    markets: [1x2, handicap, total_points]
+    settlement: Full-time regulation result unless the market states otherwise.
+  - id: motor_sports
+    structures: [n_way]
+    markets: [race_winner, podium_finish]
+    settlement: Official race classification published by the sanctioning body.
+  - id: ice_hockey
+    structures: [two_way, three_way, n_way]
+    markets: [moneyline, puck_line, total_goals]
+    settlement: Regulation plus overtime/shootout per the league's own rule.
+  - id: cycling
+    structures: [n_way]
+    markets: [stage_winner, general_classification_winner]
+    settlement: Official race classification published by the race organizer.
+  - id: alpine
+    structures: [n_way]
+    markets: [race_winner]
+    settlement: Official timed classification for the run/race.
+  - id: biathlon
+    structures: [n_way]
+    markets: [race_winner]
+    settlement: Official race classification including penalty-loop rules.
+  - id: cross_country
+    structures: [n_way]
+    markets: [race_winner]
+    settlement: Official race classification published by the race organizer.
+  - id: badminton
+    structures: [two_way, n_way]
+    markets: [match_winner, set_betting]
+    settlement: Match winner decided by completed sets/games.
+  - id: boxing
+    structures: [three_way, n_way]
+    markets: [match_winner, method_of_victory]
+    settlement: Official result including draw/no-contest per sanctioning body rules.
+  - id: cricket
+    structures: [two_way, three_way, n_way]
+    markets: [match_winner, total_runs]
+    settlement: Official match result including tie/no-result per the competition's playing conditions.
+  - id: darts
+    structures: [two_way, n_way]
+    markets: [match_winner]
+    settlement: Match winner decided by completed legs/sets.
+  - id: floorball
+    structures: [two_way, three_way, n_way]
+    markets: [1x2, total_goals]
+    settlement: Full-time regulation result unless the market states otherwise.
+  - id: futsal
+    structures: [two_way, three_way, n_way]
+    markets: [1x2, total_goals]
+    settlement: Full-time regulation result unless the market states otherwise.
+  - id: mma
+    structures: [two_way, n_way]
+    markets: [match_winner, method_of_victory]
+    settlement: Official result including no-contest per sanctioning body rules.
+  - id: snooker
+    structures: [two_way]
+    markets: [match_winner]
+    settlement: Match winner decided by completed frames.
+  - id: table_tennis
+    structures: [two_way, n_way]
+    markets: [match_winner, set_betting]
+    settlement: Match winner decided by completed sets/games.
+  - id: outrights
+    structures: [n_way]
+    markets: [tournament_winner]
+    settlement: Settles at the conclusion of the competition; a single, mutually exclusive field-wide market.

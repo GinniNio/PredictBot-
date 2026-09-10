@@ -1,4 +1,13 @@
-# PCBF Football Calculator — Kickoff
+# PCBF Football Calculator — Kickoff (superseded)
+
+**Superseded by `docs/MULTI_SPORT_ARCHITECTURE.md`.** This document records
+the scope decisions made when *starting* `src/pcbf_calculator/` as a
+football-only, `NOT_IMPLEMENTED`-only placeholder. That scaffold has since
+been replaced with the real Release A multi-sport pricing platform
+described in `docs/MULTI_SPORT_ARCHITECTURE.md` — the two decisions below
+(host-neutral interface, no Gemini workaround) still hold and are restated
+there; everything else on this page describes code that no longer exists.
+This page is kept for history only.
 
 This records the scope decisions made when starting the real deterministic
 football calculator (`src/pcbf_calculator/`), per `docs/DEVELOPER_HANDOFF.md`

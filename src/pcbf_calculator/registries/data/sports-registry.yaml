@@ -1,0 +1,199 @@
+# sports-registry.yaml
+# Sport-level facts: identity, product-family relationship, event shape.
+# Schema documented in docs/MULTI_SPORT_ARCHITECTURE.md.
+# Multi-valued fields use YAML flow-sequence syntax [a, b, c]; scalars are
+# unquoted unless they contain ':' or '#'.
+
+categories:
+  - id: soccer
+    display_name: Soccer
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: players_soccer
+    display_name: Players Soccer
+    kind: product_family
+    underlying: soccer
+    event_type: match
+    competitor: individual
+  - id: specials_soccer
+    display_name: Specials Soccer
+    kind: product_family
+    underlying: soccer
+    event_type: match
+    competitor: team
+  - id: specials_combo
+    display_name: Specials Combo
+    kind: product_family
+    underlying: null
+    event_type: combo
+    competitor: mixed
+  - id: antepost_soccer
+    display_name: Antepost Soccer
+    kind: product_family
+    underlying: soccer
+    event_type: futures
+    competitor: team
+  - id: zoom_soccer
+    display_name: Zoom Soccer
+    kind: product_family
+    underlying: soccer
+    event_type: match
+    competitor: team
+  - id: players_zoom_soccer
+    display_name: Players Zoom Soccer
+    kind: product_family
+    underlying: soccer
+    event_type: match
+    competitor: individual
+  - id: tennis
+    display_name: Tennis
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: individual
+  - id: zoom_tennis
+    display_name: Zoom Tennis
+    kind: product_family
+    underlying: tennis
+    event_type: match
+    competitor: individual
+  - id: basketball
+    display_name: Basketball
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: volleyball
+    display_name: Volleyball
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: american_football
+    display_name: American Football
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: players_american_football
+    display_name: Players American Football
+    kind: product_family
+    underlying: american_football
+    event_type: match
+    competitor: individual
+  - id: baseball
+    display_name: Baseball
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: handball
+    display_name: Handball
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: rugby
+    display_name: Rugby
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: motor_sports
+    display_name: Motor Sports
+    kind: sport
+    underlying: null
+    event_type: multi_competitor
+    competitor: individual
+  - id: ice_hockey
+    display_name: Ice Hockey
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: cycling
+    display_name: Cycling
+    kind: sport
+    underlying: null
+    event_type: multi_competitor
+    competitor: individual
+  - id: alpine
+    display_name: Alpine
+    kind: sport
+    underlying: null
+    event_type: individual
+    competitor: individual
+  - id: biathlon
+    display_name: Biathlon
+    kind: sport
+    underlying: null
+    event_type: multi_competitor
+    competitor: individual
+  - id: cross_country
+    display_name: Cross-Country
+    kind: sport
+    underlying: null
+    event_type: multi_competitor
+    competitor: individual
+  - id: badminton
+    display_name: Badminton
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: individual
+  - id: boxing
+    display_name: Boxing
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: individual
+  - id: cricket
+    display_name: Cricket
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: darts
+    display_name: Darts
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: individual
+  - id: floorball
+    display_name: Floorball
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: futsal
+    display_name: Futsal
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: team
+  - id: mma
+    display_name: MMA
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: individual
+  - id: snooker
+    display_name: Snooker
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: individual
+  - id: table_tennis
+    display_name: Table Tennis
+    kind: sport
+    underlying: null
+    event_type: match
+    competitor: individual
+  - id: outrights
+    display_name: Outrights
+    kind: product_family
+    underlying: null
+    event_type: futures
+    competitor: mixed

@@ -1,0 +1,134 @@
+# data-sources-registry.yaml
+# Data-source facts per category: whether layer 1 pricing can run today
+# (runtime_status) and what feeds it depends on. 'id' cross-references
+# sports-registry.yaml.
+
+categories:
+  - id: soccer
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: players_soccer
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: specials_soccer
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: specials_combo
+    runtime_status: RESEARCH_ONLY
+    runtime_unsupported_reason: COMBO_LEG_CORRELATION_NOT_MODELED
+    data_sources: [bet9ja_market_prices_feed]
+  - id: antepost_soccer
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: zoom_soccer
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: players_zoom_soccer
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: tennis
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: zoom_tennis
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: basketball
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: volleyball
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: american_football
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: players_american_football
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: baseball
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: handball
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: rugby
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: motor_sports
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: ice_hockey
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: cycling
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: alpine
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: biathlon
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: cross_country
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: badminton
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: boxing
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: cricket
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: darts
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: floorball
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: futsal
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: mma
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: snooker
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: table_tennis
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
+  - id: outrights
+    runtime_status: PRICING_SUPPORTED
+    runtime_unsupported_reason: null
+    data_sources: [bet9ja_market_prices_feed]
