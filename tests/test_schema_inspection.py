@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from data_pipeline.schema_inspection import column_drift, inspect_file, result_to_dict
+from data_pipeline.schema_inspection import column_drift, inspect_file, read_csv_rows, result_to_dict
 
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "football_data"
 
@@ -58,6 +58,27 @@ class SchemaInspectionModernFileTests(unittest.TestCase):
         self.assertIn("odds_columns_found", d)
         self.assertIsInstance(d["odds_columns_found"], list)
         self.assertIn("capture_timestamp_known", d["odds_columns_found"][0])
+
+
+class SchemaInspectionEncodingToleranceTests(unittest.TestCase):
+    """Reproduces a real crash found running this pipeline against actual
+    Football-Data content on GitHub Actions (the sandbox proxy blocks the
+    live download, but a GitHub-hosted runner does not): some files are not
+    valid UTF-8 (e.g. an accented character in a team name, encoded
+    Windows-1252/Latin-1). inspect_file must fall back and still parse the
+    file, not crash with UnicodeDecodeError."""
+
+    def test_cp1252_encoded_file_is_parsed_without_crashing(self):
+        result = inspect_file(FIXTURES / "cp1252_encoded_season.csv")
+        self.assertEqual(result.row_count, 1)
+        self.assertEqual(result.core_columns_present["home_team"], "HomeTeam")
+
+    def test_cp1252_encoded_accented_team_name_is_preserved(self):
+        # Confirms the fallback decode is actually cp1252, not e.g. errors=
+        # "replace" silently mangling the character into a placeholder.
+        rows = read_csv_rows(FIXTURES / "cp1252_encoded_season.csv")
+        away_teams = [row[4] for row in rows[1:]]
+        self.assertIn("Métz", away_teams)
 
 
 class SchemaInspectionOldFileTests(unittest.TestCase):

@@ -31,13 +31,13 @@ Stdlib only (csv, datetime). No new runtime dependency.
 
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass, field
 from datetime import datetime
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 
-from data_pipeline.schema_inspection import inspect_header
+from data_pipeline.schema_inspection import inspect_header, read_csv_rows
 
 VALID_RESULT_LABELS = {"H", "D", "A"}
 MAX_PLAUSIBLE_GOALS = 20  # anything at/above this is treated as a data-integrity bug, not a real scoreline
@@ -151,10 +151,17 @@ def _is_numeric_positive(raw: str) -> bool:
 
 def validate_file(csv_path: str | Path) -> FileValidationResult:
     csv_path = Path(csv_path)
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        header = reader.fieldnames or []
-        rows = list(reader)
+    raw_rows = read_csv_rows(csv_path)
+    header = raw_rows[0] if raw_rows else []
+    # zip_longest(fillvalue=None) matches csv.DictReader's default behavior
+    # for a short row (missing trailing fields become None, same as
+    # DictReader's restval=None) — a row with extra trailing fields beyond
+    # the header is truncated to the header's length, same as DictReader's
+    # default restkey=None extras never being consumed by this code either.
+    rows = [
+        {key: value for key, value in zip_longest(header, row, fillvalue=None) if key is not None}
+        for row in raw_rows[1:]
+    ]
 
     shape = inspect_header(header)
     core = shape["core_columns_present"]
