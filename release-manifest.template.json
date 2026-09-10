@@ -1,0 +1,10 @@
+{
+  "adapter_id": "PCBF_RUNTIME_PROBE",
+  "artifact_version": "0.0.1",
+  "cash_admitted": false,
+  "classification_ceiling": "RESEARCH-MODEL",
+  "git_commit": "REPLACE_WITH_FULL_COMMIT_SHA",
+  "package_file": "pcbf_football-0.0.1-py3-none-any.whl",
+  "package_sha256": "sha256:REPLACE_AFTER_BUILD",
+  "purpose": "Runtime compatibility proof only"
+}
