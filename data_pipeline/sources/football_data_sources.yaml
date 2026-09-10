@@ -1,0 +1,86 @@
+# football_data_sources.yaml
+#
+# Source manifest for the Soccer 1X2 data-feasibility pipeline
+# (docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md, "Next sequence" step 2).
+#
+# This is a DESIGN/CONFIG artifact for data_pipeline/download.py only — it
+# is not loaded by pcbf_calculator at runtime, is not a runtime registry,
+# and adds no new dependency (parsed by the same dependency-free
+# restricted-YAML reader as src/pcbf_calculator/registries/yamlmini.py;
+# see data_pipeline/sources/manifest_loader.py).
+#
+# Scope: the five leagues resolved by the operator
+# (SOCCER_1X2_ADAPTER_SPEC.md, "Unresolved / operator decisions" #4):
+# Premier League, Bundesliga, La Liga, Serie A, Ligue 1.
+#
+# Football-Data.co.uk publishes one CSV per league per season at a
+# predictable URL pattern:
+#   https://www.football-data.co.uk/mmz4281/<season_code>/<league_code>.csv
+# where <season_code> is a 4-digit code for "<end-of-first-year><end-of-
+# second-year>" (e.g. season 2023-24 is "2324") and <league_code> is
+# Football-Data's own per-league two/three-character code (NOT the same as
+# any code used elsewhere in this repo's registries — it is specific to
+# this one external source and must not be confused with, e.g., a Bet9ja
+# category code).
+#
+# Per the resolved operator decision ("acquire every consistently
+# formatted completed season available" — SOCCER_1X2_ADAPTER_SPEC.md
+# "Unresolved / operator decisions" #3), this manifest expresses a SEASON
+# RANGE TO ATTEMPT per league, not one hardcoded season. Football-Data's
+# main-league CSVs (the five leagues here) are consistently available back
+# to the 1993-94 season in this URL scheme; `first_season` below is set to
+# that earliest season the site is known to serve in this format.
+# download.py attempts every season in the closed range
+# [first_season, latest_completed_season] and reports each attempt's
+# outcome individually — a season that 404s or is not yet complete is a
+# per-file failure/skip, not a reason to abort the whole run.
+#
+# `latest_completed_season` is intentionally a few seasons back from
+# "today" in this file: a season that is still in progress is not a
+# completed season, and this manifest does not try to compute "which
+# season is currently live" from the clock — an operator updates this
+# field each close season. Leaving it conservative here means download.py
+# will simply report a 404/no-file outcome for any season attempted beyond
+# what Football-Data has actually published, which is safe and legible
+# either way.
+
+categories:
+  - league_code: "E0"
+    league_name: "English Premier League"
+    country: "England"
+    url_pattern: "https://www.football-data.co.uk/mmz4281/{season_code}/E0.csv"
+    file_type: "CSV"
+    first_season: "9394"
+    latest_completed_season: "2324"
+
+  - league_code: "D1"
+    league_name: "Bundesliga"
+    country: "Germany"
+    url_pattern: "https://www.football-data.co.uk/mmz4281/{season_code}/D1.csv"
+    file_type: "CSV"
+    first_season: "9394"
+    latest_completed_season: "2324"
+
+  - league_code: "SP1"
+    league_name: "La Liga"
+    country: "Spain"
+    url_pattern: "https://www.football-data.co.uk/mmz4281/{season_code}/SP1.csv"
+    file_type: "CSV"
+    first_season: "9394"
+    latest_completed_season: "2324"
+
+  - league_code: "I1"
+    league_name: "Serie A"
+    country: "Italy"
+    url_pattern: "https://www.football-data.co.uk/mmz4281/{season_code}/I1.csv"
+    file_type: "CSV"
+    first_season: "9394"
+    latest_completed_season: "2324"
+
+  - league_code: "F1"
+    league_name: "Ligue 1"
+    country: "France"
+    url_pattern: "https://www.football-data.co.uk/mmz4281/{season_code}/F1.csv"
+    file_type: "CSV"
+    first_season: "9394"
+    latest_completed_season: "2324"

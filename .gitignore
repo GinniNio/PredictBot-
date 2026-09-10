@@ -4,3 +4,9 @@ build/
 dist/
 *.egg-info/
 .venv/
+
+# data_pipeline: raw Football-Data downloads are large, third-party, and
+# not ours to redistribute — only the retrieval-log METADATA
+# (data_pipeline/retrieval_log.json: sha256/timestamp/URL per file) and the
+# generated reports are committed. Never commit the CSV content itself.
+data_pipeline/raw/
