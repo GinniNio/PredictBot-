@@ -20,6 +20,12 @@ MANIFEST_PATH = (
 
 REQUIRED_FIELDS = ("id", "required", "definition", "source", "availability_relative_to_kickoff")
 
+# Per the operator's merge gate: every MANDATORY feature must declare type,
+# unit, source, availability timestamp, null policy and validation rule.
+# (source and availability_relative_to_kickoff are already covered by
+# REQUIRED_FIELDS above; these are the remaining four.)
+MANDATORY_FEATURE_FIELDS = ("type", "unit", "null_policy", "validation_rule")
+
 # Mirrors adapters/soccer_1x2_stub.py::REQUIRED_FEATURE_IDS — kept as a
 # separate literal here (not an import) so this test also catches drift
 # between the stub's declared feature list and the manifest itself.
@@ -52,6 +58,22 @@ class SoccerFeatureManifestShapeTests(unittest.TestCase):
             for field in REQUIRED_FIELDS:
                 self.assertIn(field, row, f"feature row {row.get('id')} missing field '{field}'")
                 self.assertIsNotNone(row[field], f"feature row {row.get('id')} has null '{field}'")
+
+    def test_every_mandatory_feature_declares_type_unit_null_policy_and_validation_rule(self):
+        # Merge gate: a required (mandatory) feature is unusable in an
+        # implementation PR unless a contributor can tell what it is
+        # (type, unit), what to do when it's missing (null_policy), and
+        # how to sanity-check it (validation_rule) without re-deriving
+        # all of that from prose.
+        rows = _load_manifest()
+        for row in rows:
+            if row["required"] is True:
+                for field in MANDATORY_FEATURE_FIELDS:
+                    self.assertIn(field, row, f"mandatory feature '{row['id']}' missing field '{field}'")
+                    self.assertTrue(
+                        str(row[field]).strip(),
+                        f"mandatory feature '{row['id']}' has an empty '{field}'",
+                    )
 
     def test_required_field_is_boolean(self):
         rows = _load_manifest()

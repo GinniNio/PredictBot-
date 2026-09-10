@@ -14,9 +14,10 @@
 # reusing the parser's existing top-level key name rather than teaching it a
 # second one.
 #
-# Every row must declare: id, required (true/false), definition, source,
-# availability_relative_to_kickoff. leakage_note is optional and used only
-# for rows that need an explicit leakage callout (see spec section 7).
+# Every row must declare: id, required (true/false), definition, type,
+# unit, source, availability_relative_to_kickoff, null_policy,
+# validation_rule. leakage_note is optional and used only for rows that
+# need an explicit leakage callout (see spec section 7).
 # A row with availability_relative_to_kickoff containing "POST_MATCH_ONLY"
 # is a candidate the spec explicitly rules OUT of the feature set — kept
 # here (with required: false) as a documented rejection, not a usable
@@ -27,90 +28,142 @@ categories:
   - id: home_team_elo_pre_match
     required: true
     definition: "Home team's Elo-style rating computed only from matches completed strictly before this fixture's kickoff."
+    type: "float"
+    unit: "elo_points"
     source: "Derived in-house from a structured, dated match-results feed (see spec bucket 1: mandatory machine-readable inputs)."
     availability_relative_to_kickoff: "T-1h (recomputed after the most recent completed match; frozen at kickoff)."
+    null_policy: "No default value. If unavailable (e.g. team has zero prior recorded matches), fail closed with REQUIRED_FEATURE_MISSING rather than seed at a league-average rating."
+    validation_rule: "Must be a finite float in [1000, 2400]; a value outside this band means the Elo computation itself is broken and must fail closed, not clip silently."
     leakage_note: "Must be recomputed from a strictly-before-kickoff match cutoff; recomputing with same-day results after kickoff is a look-ahead leak."
 
   - id: away_team_elo_pre_match
     required: true
     definition: "Away team's Elo-style rating, same computation as home_team_elo_pre_match."
+    type: "float"
+    unit: "elo_points"
     source: "Same structured match-results feed as home_team_elo_pre_match."
     availability_relative_to_kickoff: "T-1h (frozen at kickoff)."
+    null_policy: "Same as home_team_elo_pre_match: no default, fail closed with REQUIRED_FEATURE_MISSING."
+    validation_rule: "Same bound as home_team_elo_pre_match: finite float in [1000, 2400]."
     leakage_note: "Same cutoff-discipline requirement as home_team_elo_pre_match."
 
   - id: home_team_rolling_goals_for_last_10
     required: true
     definition: "Home team's goals scored, mean over its last 10 completed matches strictly before this fixture."
+    type: "float"
+    unit: "goals_per_match"
     source: "Structured match-results feed (mandatory machine-readable input)."
     availability_relative_to_kickoff: "T-1h, updated once the team's most recent match result is final."
+    null_policy: "No default. If the team has fewer than 10 prior matches in the dataset, fail closed with REQUIRED_FEATURE_MISSING rather than average over a shorter or padded window — a shorter window is a different feature, not a null-filled version of this one."
+    validation_rule: "Must be a finite float in [0.0, 10.0]; a value outside this band signals a data or aggregation bug, not a legitimate extreme team."
     leakage_note: "A rolling window must exclude the current fixture and any match not yet completed; an off-by-one window boundary is a common look-ahead bug."
 
   - id: home_team_rolling_goals_against_last_10
     required: true
     definition: "Home team's goals conceded, mean over its last 10 completed matches strictly before this fixture."
+    type: "float"
+    unit: "goals_per_match"
     source: "Structured match-results feed (mandatory machine-readable input)."
     availability_relative_to_kickoff: "T-1h."
+    null_policy: "Same as home_team_rolling_goals_for_last_10: fail closed with REQUIRED_FEATURE_MISSING if fewer than 10 prior matches exist."
+    validation_rule: "Same bound as home_team_rolling_goals_for_last_10: finite float in [0.0, 10.0]."
     leakage_note: "Same rolling-window discipline as home_team_rolling_goals_for_last_10."
 
   - id: away_team_rolling_goals_for_last_10
     required: true
     definition: "Away team's goals scored, mean over its last 10 completed matches strictly before this fixture."
+    type: "float"
+    unit: "goals_per_match"
     source: "Structured match-results feed (mandatory machine-readable input)."
     availability_relative_to_kickoff: "T-1h."
+    null_policy: "Same as home_team_rolling_goals_for_last_10: fail closed with REQUIRED_FEATURE_MISSING if fewer than 10 prior matches exist."
+    validation_rule: "Same bound as home_team_rolling_goals_for_last_10: finite float in [0.0, 10.0]."
     leakage_note: "Same rolling-window discipline as home_team_rolling_goals_for_last_10."
 
   - id: away_team_rolling_goals_against_last_10
     required: true
     definition: "Away team's goals conceded, mean over its last 10 completed matches strictly before this fixture."
+    type: "float"
+    unit: "goals_per_match"
     source: "Structured match-results feed (mandatory machine-readable input)."
     availability_relative_to_kickoff: "T-1h."
+    null_policy: "Same as home_team_rolling_goals_for_last_10: fail closed with REQUIRED_FEATURE_MISSING if fewer than 10 prior matches exist."
+    validation_rule: "Same bound as home_team_rolling_goals_for_last_10: finite float in [0.0, 10.0]."
     leakage_note: "Same rolling-window discipline as home_team_rolling_goals_for_last_10."
 
   - id: market_closing_odds_1x2
     required: true
     definition: "The de-vigged fair 1X2 probabilities from pcbf_calculator's own pricing engine, computed from the closing market prices available before kickoff — used as the baseline model input (spec section 8), never as a training label."
+    type: "float triple (home, draw, away), each a probability"
+    unit: "probability (dimensionless, [0, 1], the three values sum to 1.0)"
     source: "This repository's own layer-1 pricing engine (pricing/engine.py), fed from the same odds feed the CLI request already carries."
     availability_relative_to_kickoff: "T-0 (closing line, immediately pre-kickoff); an earlier opening-line snapshot may be used instead if closing-line timestamps are not reliably captured, but the two must never be mixed within one training set."
+    null_policy: "No default. If the pricing engine itself returned a typed failure (e.g. INCOMPLETE_OPPOSING_PRICES) for this fixture's market, this feature is unavailable and the row must fail closed with REQUIRED_FEATURE_MISSING — never substitute a flat 1/3-1/3-1/3 prior."
+    validation_rule: "All three probabilities finite, each in [0, 1], summing to 1.0 within floating-point tolerance (1e-6); anything else means the upstream pricing call is broken, not that the market is unusual."
     leakage_note: "Only a pre-kickoff snapshot is valid; using odds movement that occurred during or after the match (in-play prices) is a hard leak."
 
   - id: days_since_last_match_home
     required: true
     definition: "Number of calendar days between the home team's previous completed match and this fixture's kickoff (fatigue/rotation proxy)."
+    type: "integer"
+    unit: "days"
     source: "Structured fixture-list feed (mandatory machine-readable input)."
     availability_relative_to_kickoff: "T-1h."
+    null_policy: "No default. If the team has no prior recorded match (e.g. first fixture in the dataset), fail closed with REQUIRED_FEATURE_MISSING rather than assume a default rest period."
+    validation_rule: "Must be a non-negative integer, in practice in [0, 365]; a larger value signals a data-gap in the fixture feed and must fail closed rather than be trusted."
     leakage_note: "None beyond the standard cutoff discipline; low leakage risk feature."
 
   - id: days_since_last_match_away
     required: true
     definition: "Number of calendar days between the away team's previous completed match and this fixture's kickoff."
+    type: "integer"
+    unit: "days"
     source: "Structured fixture-list feed (mandatory machine-readable input)."
     availability_relative_to_kickoff: "T-1h."
+    null_policy: "Same as days_since_last_match_home: fail closed with REQUIRED_FEATURE_MISSING if no prior match exists."
+    validation_rule: "Same bound as days_since_last_match_home: non-negative integer in [0, 365]."
     leakage_note: "None beyond the standard cutoff discipline; low leakage risk feature."
 
   - id: head_to_head_last_5_result_distribution
     required: false
     definition: "Distribution of {home_win, draw, away_win} outcomes over the last 5 meetings between these two teams, regardless of venue."
+    type: "integer triple (home_win_count, draw_count, away_win_count)"
+    unit: "match count (the three values sum to at most 5)"
     source: "Structured match-results feed (mandatory machine-readable input)."
     availability_relative_to_kickoff: "T-1h."
+    null_policy: "Optional feature: if the two teams have never met, this feature is simply absent for this row (not fabricated as an even 0-0-0 split) and the model must be able to train and predict without it for that fixture."
+    validation_rule: "Three non-negative integers summing to at most 5; a count above 5 means a query bug (too many historical meetings pulled)."
     leakage_note: "Small-sample feature (often n<5); document as high-variance, never treat as a strong prior."
 
   - id: confirmed_starting_lineup_strength_delta
     required: false
     definition: "Difference in a simple lineup-strength score (e.g. sum of player Elo/market-value proxies) between the two confirmed starting XIs."
+    type: "float"
+    unit: "lineup_strength_points (home minus away, same scale as the underlying per-player score, sport- and source-specific)"
     source: "Requires official lineup confirmation, typically published 45-75 minutes before kickoff; not reliably available from a single free structured feed at Bet9ja's full category coverage and volume today (see spec bucket 2: browser-research inputs)."
     availability_relative_to_kickoff: "T-45m at the earliest, and only once lineups are officially confirmed — never available further out, and unavailable at all for some fixtures/leagues."
+    null_policy: "Optional feature: MISSING (never backfilled) for any fixture where lineups were not confirmed by the model's declared feature-freeze time; the model must handle this feature being absent for a large fraction of fixtures."
+    validation_rule: "Finite float; no fixed bound is meaningful until the underlying per-player scoring method is chosen in a future implementation PR — flagged here as a design gap, not silently assumed unbounded."
     leakage_note: "Must be dropped (imputed as MISSING, never backfilled) for any fixture where lineups were not confirmed by the model's declared feature-freeze time; backfilling from full post-match squad lists is a leak."
 
   - id: weather_conditions_pre_match
     required: false
     definition: "Forecast (not observed) precipitation/wind/temperature at the venue for kickoff time."
+    type: "float triple (precipitation_mm, wind_kph, temperature_c)"
+    unit: "millimetres, kilometres-per-hour, degrees-celsius respectively"
     source: "Would require a structured weather-forecast feed keyed to venue and kickoff time; not currently wired to any source (see spec bucket 3: unavailable for admission)."
     availability_relative_to_kickoff: "T-24h forecast, if a source existed."
+    null_policy: "Not wired to any source at all today: this feature does not exist in practice yet, so the null policy is moot until bucket-3 status changes (see spec section on data-source buckets)."
+    validation_rule: "Not yet defined; no source exists to validate against. Documented here only so a future contributor sees this was considered and explicitly deferred, not overlooked."
     leakage_note: "Must be the pre-match forecast, never the observed in-match conditions; observed conditions are a look-ahead leak."
 
   - id: post_match_actual_goals_scored
     required: false
     definition: "REJECTED CANDIDATE, kept only as a documented leakage example: the fixture's own actual full-time goals scored by each side."
+    type: "integer pair (home_goals, away_goals)"
+    unit: "goals"
     source: "Structured match-results feed, but only populated after the match referenced by this very prediction has been played."
     availability_relative_to_kickoff: "POST_MATCH_ONLY — never available before kickoff for the fixture being predicted; this is the target variable's own outcome, not a usable pre-match feature."
+    null_policy: "N/A — this row exists only to document a rejected candidate; it must never be used as a feature, so no null policy for legitimate use applies."
+    validation_rule: "N/A for the same reason; any implementation that validates this as a usable feature has already reintroduced the leak this row documents."
     leakage_note: "Textbook leakage: this is what the model is trying to predict. Any pipeline bug that lets this fixture's own result feed back into its own feature vector must fail a leakage-control check (spec section 7) before training ever starts."
