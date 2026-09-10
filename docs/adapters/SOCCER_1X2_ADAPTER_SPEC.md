@@ -488,34 +488,57 @@ byte for byte"). Concretely for this adapter:
 
 ## 14. Backtest acceptance gates
 
-Concrete, checkable thresholds a model version must clear on the held-out
-test fold (section 6) before promotion to PAPER eligibility (i.e. before
-`adapter_status` may move to `FORECAST_ADAPTER_AVAILABLE` and the adapter
-gets registered in `_ADAPTER_IMPLEMENTATIONS`):
+> **Status: proposed, not approved.** Every numeric threshold in this
+> section is a candidate figure only — see
+> `docs/adapters/data/soccer_1x2_promotion_thresholds.yaml`, where each one
+> is recorded with `status: PROPOSED_OPERATOR_DECISION` and
+> `enforcement: DISABLED`, and `tests/test_soccer_1x2_promotion_thresholds.py`,
+> which proves both that no threshold has silently become approved and that
+> no runtime code reads or enforces any of them today. A concrete number
+> satisfies "this spec has a measurable gate" as a documentation-completeness
+> check; it does **not** make that number statistically sound or authorized
+> PCBF policy. These numbers require statistical review and explicit
+> operator approval (flipping the relevant row's `status` to `APPROVED`)
+> before any future implementation PR may wire them into an actual gate
+> check. Until that happens, `soccer` stays capped at `RESEARCH-MODEL`
+> regardless of what any backtest run against these candidate numbers would
+> show — the gate literally does not exist yet, only its proposed shape does.
 
-1. **Minimum sample size**: at least 500 fixtures in the test fold alone
-   (a subset of the 3,000-fixture dataset floor from section 5).
-2. **Date-range coverage**: the test fold must span at least one full
-   season (not a scattered sample of matchdays across seasons), so the
-   gate reflects performance over a complete competitive cycle including
-   its own seasonal home-advantage and form drift.
-3. **Calibration error bound**: expected calibration error (ECE), computed
-   over the same probability-decile bins used in section 10, must be
-   <= 0.05 (5 percentage points) on the test fold, post-recalibration.
-4. **Beats-baseline-by-X**: the model's log loss on the test fold must be
-   strictly lower than the market-implied baseline's (section 8) log loss
-   by at least 1%, **and** the model's Brier score must likewise be lower
-   by at least 1%. Both metrics must agree in direction — a model beating
-   the baseline on log loss but not Brier score (or vice versa) does not
-   clear the gate and needs further investigation before re-attempting
-   promotion.
-5. **No leakage-control failures**: every check in section 7's table must
-   have a passing automated test in the (future) implementation PR's test
-   suite — a backtest run on a codebase with a known-failing leakage check
-   cannot be used to clear this gate even if its numbers look good, since
-   the numbers themselves would be untrustworthy.
+Candidate, checkable thresholds a model version would need to clear on the
+held-out test fold (section 6) before promotion to PAPER eligibility (i.e.
+before `adapter_status` may move to `FORECAST_ADAPTER_AVAILABLE` and the
+adapter gets registered in `_ADAPTER_IMPLEMENTATIONS`) — pending the
+approval described above:
 
-Any model version failing any one of these gates stays capped at
+1. **Minimum sample size** *(proposed, unapproved)*: at least 500 fixtures
+   in the test fold alone (a subset of the 3,000-fixture dataset floor from
+   section 5).
+2. **Date-range coverage** *(proposed, unapproved)*: the test fold must
+   span at least one full season (not a scattered sample of matchdays
+   across seasons), so the gate reflects performance over a complete
+   competitive cycle including its own seasonal home-advantage and form
+   drift.
+3. **Calibration error bound** *(proposed, unapproved)*: expected
+   calibration error (ECE), computed over the same probability-decile bins
+   used in section 10, would need to be <= 0.05 (5 percentage points) on
+   the test fold, post-recalibration.
+4. **Beats-baseline-by-X** *(proposed, unapproved)*: the model's log loss
+   on the test fold would need to be strictly lower than the
+   market-implied baseline's (section 8) log loss by at least 1%, **and**
+   the model's Brier score would likewise need to be lower by at least 1%.
+   Both metrics agreeing in direction is a reasonable design intent, but
+   the specific "1%" figure is exactly the kind of number that needs
+   statistical review, not just documentation.
+5. **No leakage-control failures** *(this one is not a numeric threshold —
+   it is a structural requirement, not pending statistical approval)*:
+   every check in section 7's table must have a passing automated test in
+   the (future) implementation PR's test suite — a backtest run on a
+   codebase with a known-failing leakage check cannot be used to clear
+   this gate even if its numbers look good, since the numbers themselves
+   would be untrustworthy.
+
+Any model version failing any one of these gates — or, today, simply
+because none of them has been approved yet — stays capped at
 `RESEARCH-MODEL` classification ceiling (never `PAPER`, and certainly never
 `CASH`) — this mirrors the existing `specials_combo` pattern of a named,
 mechanical prerequisite blocking promotion (`pricing_supported_requires` in
@@ -524,6 +547,14 @@ mechanical prerequisite blocking promotion (`pricing_supported_requires` in
 ---
 
 ## 15. Prospective PAPER admission gates
+
+> **Status: proposed, not approved.** As with section 14, the specific
+> numeric thresholds below (150 fixtures, 98% availability) are unapproved
+> candidates — see `docs/adapters/data/soccer_1x2_promotion_thresholds.yaml`
+> and `tests/test_soccer_1x2_promotion_thresholds.py`. The 4-week minimum
+> window and the general shape of "backtest, then live shadow-mode, then
+> promote" are design intent, not pending numeric approval; the counts and
+> percentage are.
 
 Backtesting alone (section 14) proves a model *could* have worked
 historically; it does not prove the live data pipeline actually delivers
@@ -537,20 +568,25 @@ a model version that has cleared section 14 is registered as a live
   surfaced through the CLI's `forecast` field (a feature flag or a
   not-yet-registered `_ADAPTER_IMPLEMENTATIONS` entry keeps it inert to
   callers during this window, matching this PR's stub pattern).
-- **Minimum live fixture count**: at least 150 fixtures observed in shadow
-  mode, across at least 2 different weeks of fixtures (not one congested
-  midweek round), to avoid promoting on a lucky short streak.
-- **Live feature-availability rate**: required features (section 2) must
-  be successfully computed, on time (before the declared feature-freeze
-  cutoff, section 3), for at least 98% of eligible fixtures during the
-  shadow window — a live pipeline that frequently misses its own freeze
-  deadline is not ready even if its historical backtest was clean, since
-  that is exactly the operational gap backtesting cannot catch.
-- **Live calibration re-check**: the same ECE bound as section 14 (<=0.05),
-  recomputed on the shadow-mode fixtures only — this is the first check
-  entirely on data the model version never saw during development, and is
-  the closest thing this process has to a true out-of-sample guarantee.
-- Only once all four conditions hold does the adapter's dispatch entry get
+- **Minimum live fixture count** *(proposed, unapproved)*: at least 150
+  fixtures observed in shadow mode, across at least 2 different weeks of
+  fixtures (not one congested midweek round), to avoid promoting on a
+  lucky short streak.
+- **Live feature-availability rate** *(proposed, unapproved)*: required
+  features (section 2) would need to be successfully computed, on time
+  (before the declared feature-freeze cutoff, section 3), for at least 98%
+  of eligible fixtures during the shadow window — a live pipeline that
+  frequently misses its own freeze deadline is not ready even if its
+  historical backtest was clean, since that is exactly the operational gap
+  backtesting cannot catch.
+- **Live calibration re-check**: the same (also proposed, unapproved) ECE
+  bound as section 14, recomputed on the shadow-mode fixtures only — this
+  is the first check entirely on data the model version never saw during
+  development, and is the closest thing this process has to a true
+  out-of-sample guarantee.
+- Only once all four conditions hold, **and** every threshold they depend
+  on has been explicitly approved per the status ledger above, does the
+  adapter's dispatch entry get
   added to `_ADAPTER_IMPLEMENTATIONS` and `soccer`'s `adapter_status` move
   to `FORECAST_ADAPTER_AVAILABLE` in `adapter-registry.yaml`, with
   `classification_ceiling` moving from `PAPER` (unconditional cap while no
@@ -746,6 +782,16 @@ PR does not need them resolved to be complete as a specification:
 5. **Who the "specific human" in section 16's sign-off is**, and what
    internal review process (if any) sits around that sign-off beyond what
    this spec requires.
+6. **Statistical review and approval of the six numeric backtest/prospective
+   thresholds** proposed in sections 14-15 (500-fixture minimum, one full
+   season, ECE <= 0.05, >= 1% log loss/Brier improvement, 150 live
+   fixtures, 98% live feature-availability rate). Each is recorded in
+   `docs/adapters/data/soccer_1x2_promotion_thresholds.yaml` with
+   `status: PROPOSED_OPERATOR_DECISION` and `enforcement: DISABLED`. None
+   of the six authorizes anything until an operator, after statistical
+   review, explicitly changes its status to `APPROVED` — a decision this
+   spec deliberately does not make on its own, and one a future
+   implementation PR must not treat as already settled.
 
 ---
 
@@ -766,14 +812,21 @@ reasonable next-PR scope:
    comparison numbers working before touching a real candidate model.
 4. Implement the Elo-based logistic candidate (section 9's recommendation)
    and the Platt-scaling calibration step (section 10).
-5. Run the backtest and report against the section 14 gates honestly —
-   this PR's job is to produce that report, not to guarantee it passes.
-   `adapter_status` stays `DESIGN_IN_PROGRESS` (or moves to a new, still
-   pre-live status if one is added) until the gates in sections 14-16 are
-   actually cleared with a human sign-off — registering the adapter in
+5. Run the backtest and report the numbers honestly against section 14's
+   *proposed* thresholds — this PR's job is to produce that report, not to
+   guarantee it clears anything, and not to treat those proposed numbers
+   as approved. Before that implementation PR is opened, the six
+   thresholds in `docs/adapters/data/soccer_1x2_promotion_thresholds.yaml`
+   must have gone through statistical review and been explicitly marked
+   `APPROVED` by the operator — running a real backtest against
+   still-`PROPOSED_OPERATOR_DECISION` numbers produces a report with
+   nothing to honestly compare against. `adapter_status` stays
+   `DESIGN_IN_PROGRESS` (or moves to a new, still pre-live status if one is
+   added) until the now-approved gates in sections 14-16 are actually
+   cleared with a human sign-off — registering the adapter in
    `_ADAPTER_IMPLEMENTATIONS` and flipping to `FORECAST_ADAPTER_AVAILABLE`
    is explicitly **out of scope** for that PR unless the backtest report
-   clears every section 14 gate.
+   clears every approved section 14 gate.
 
 Shadow-mode monitoring (section 15) and live promotion are their own,
 later PR(s), gated on the implementation PR's backtest report actually
