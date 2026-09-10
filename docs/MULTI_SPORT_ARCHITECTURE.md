@@ -161,28 +161,76 @@ hardcoded or fake classifier; every threshold comes from the request JSON.
    non-fabricated de-vigged market math, just without a confidence bound.
    This is safe only because passing this rule can never by itself
    authorize `CASH` (see the fixed policy below) — at most it lets a
-   no-forecast category reach `PAPER`.
+   category reach `PAPER`, and only then subject to the model-admission
+   checks below.
 
-**Classification ceiling, once every rule passes — fixed, non-configurable
-policy, settled (not open for revision):**
-- if `forecast.forecast_available` is `False` (true for every category in
-  Release A, since no adapter exists yet), the ceiling is capped at
-  `PAPER`, unconditionally. There is no decision-input field, STOP-rule
-  combination, or evidence value that can move it. Rationale: market-implied
-  probabilities can support research and price comparison, but they cannot
-  prove a betting edge measured against the same market they were derived
-  from — that would be circular. Only an independently admitted forecast
-  (layer 2) can authorize `CASH`. This is enforced twice: once by the
-  branch order in `decision/engine.py::evaluate`, and again by a defensive
-  invariant assertion (`_assert_no_forecast_never_cash`) immediately before
-  the result is returned, so there is no code path — today or added later
-  by mistake — where a `forecast_available: false` category can reach
-  `CASH`. `tests/test_decision_engine.py` proves this cannot be bypassed
-  even when every STOP-rule input is made maximally generous.
-- otherwise, if `evidence.sample_size < evidence.cash_min_sample_size` (a
-  higher, optional bar than the STOP threshold; defaults to
-  `min_sample_size` when omitted), the ceiling is also capped at `PAPER`.
-- otherwise the ceiling is `CASH`.
+**Classification ceiling, once every rule passes — fixed, non-configurable,
+three-tier policy, settled (not open for revision).** *(Policy history:
+this was originally a two-tier "no-forecast caps at `PAPER`" rule; the
+operator has since reversed that specific cap to `RESEARCH-MODEL`, and
+separately tightened what it takes to reach `PAPER` at all — see below.)*
+
+- **Tier 1 — no forecast at all.** If `forecast.forecast_available` is
+  `False` (true for every category in Release A, since no adapter is
+  registered yet), the ceiling is capped at `RESEARCH-MODEL`,
+  unconditionally. There is no decision-input field, STOP-rule combination,
+  evidence value, or pricing output that can move it. Rationale:
+  market-implied probabilities can support research and price comparison,
+  but they cannot prove a betting edge measured against the same market
+  they were derived from — that would be circular. Only an independently
+  admitted forecast (layer 2), with its specific model version actually
+  cleared for promotion, can authorize anything above research use.
+- **Tier 2 — a forecast exists, but its model version is not admitted.** A
+  forecast merely existing (`forecast_available: True`) is **not**
+  sufficient for `PAPER`. `PAPER` requires probabilities from a
+  **registered** deterministic forecasting adapter whose **specific model
+  version** has an `APPROVED` row in the new
+  **model-admission registry** (`registries/data/model-admission-registry.yaml`,
+  see the dedicated section below) — keyed by the exact
+  `(adapter_id, model_version)` pair *and* a matching `model_artifact_hash`.
+  If no such row exists (the case for every category today — the registry
+  ships with zero admitted rows), the ceiling is *also* capped at
+  `RESEARCH-MODEL`. Gate approval is **never** read from a caller-supplied
+  field or from a boolean an adapter's own `ForecastResult` happens to
+  carry — it is resolved solely by this registry lookup, so a forged
+  "I am approved" claim anywhere else in the system has zero effect. Since
+  nothing is registered in `_ADAPTER_IMPLEMENTATIONS` and nothing has a row
+  in the admission registry, **every category in this release resolves to
+  `RESEARCH-MODEL` regardless of any caller-supplied
+  evidence/liquidity/STOP-rule input** — there is no live code path that
+  can produce `PAPER` today, and that is structural, not incidental.
+- **Tier 3 — a forecast exists and its model version is admitted for
+  backtest gates.** If `evidence.sample_size < evidence.cash_min_sample_size`
+  (a higher, optional bar than the STOP threshold; defaults to
+  `min_sample_size` when omitted) **or** the admission registry's
+  `cash_admission_status` for that exact row is not `APPROVED`, the ceiling
+  is capped at `PAPER`; otherwise the ceiling is `CASH`. A `cash_admission_status`
+  of `APPROVED` is a *mechanical* prerequisite only — it must itself only
+  ever be set following the spec's real manual CASH sign-off process
+  (decision 3 below still requires that human step; the registry field
+  does not replace it).
+
+This is enforced defensively as well as by branch order: a defensive
+invariant assertion (`_assert_no_forecast_never_cash`) immediately before
+the result is returned makes it structurally impossible for a
+`forecast_available: false` category, or one whose model version has no
+`APPROVED` admission row, to reach `PAPER` or `CASH` — today or added later
+by mistake. `tests/test_decision_engine.py` and
+`tests/test_platform_classification_invariant.py` prove this cannot be
+bypassed even when every STOP-rule input, and even forged approval-shaped
+fields, are made maximally generous.
+
+**Stake is tiered by classification, never a single zero/nonzero flag** —
+see `decision/engine.py`'s module docstring in full. Summary:
+`RESEARCH-MODEL` -> `cash_stake: 0` and `simulated_stake: 0`; `PAPER` ->
+`cash_stake: 0` always, `simulated_stake` may be nonzero (a hypothetical,
+paper-traded stake — kept in a distinctly named field so it can never be
+mistaken for a real-money authorization); `CASH` -> `cash_stake` may be
+nonzero, `simulated_stake: 0`. Enforced defensively
+(`_assert_cash_stake_only_for_cash`): `cash_stake` is provably zero for
+every classification except `CASH`. `stake` inside `market_profitability`
+(the pricing engine's own EV-sizing parameter, default 1.0) remains a
+distinct concept from both of these fields — see decision 3 below.
 
 **Forecast quality vs. market profitability stay separate, always.** The
 decision result carries both `forecast_quality` (the layer 2
@@ -190,11 +238,56 @@ decision result carries both `forecast_quality` (the layer 2
 pricing dict) as two distinct sub-objects, never merged into one score —
 this is asserted directly in `tests/test_decision_engine.py`.
 
-**Tests** (`tests/test_decision_engine.py`): one test per STOP rule proving
+**Tests** (`tests/test_decision_engine.py`, `tests/test_platform_classification_invariant.py`,
+`tests/test_model_admission_registry.py`): one test per STOP rule proving
 it actually stops with the correct typed rejection, a fully-passing input
-reaching `CASH` (with a forecast) and `PAPER` (without one, and when
-under the CASH sample-size bar), STOP-rule precedence, and typed
-`MISSING_DECISION_INPUT` errors for each missing/malformed required block.
+with an admitted model reaching `CASH` (and `PAPER` when under the CASH
+sample-size bar or cash-admission-unapproved), a fully-passing input with
+an *unadmitted* model or no forecast at all staying at `RESEARCH-MODEL`,
+forged-approval-field adversarial tests, model-admission hash-mismatch and
+unapproved-status adversarial tests, STOP-rule precedence, stake-tiering
+proofs, and typed `MISSING_DECISION_INPUT` errors for each missing/malformed
+required block.
+
+### Model-admission registry (`registries/data/model-admission-registry.yaml`)
+
+The single authoritative source the decision layer consults to decide
+whether a specific adapter's specific model version has cleared backtest
+gates, prospective validation, or CASH admission — introduced alongside the
+tier-2/tier-3 policy above so that "a forecast exists" and "a forecast is
+promotion-eligible" are never conflated. Loaded via
+`registries/model_admission.py` (same dependency-free `yamlmini` parser the
+other four registries use, but *not* one of the 32-category cross-validated
+registries — its rows are keyed by `(adapter_id, model_version)`, not by
+category id, and there can be zero, one, or many rows per adapter as model
+versions come and go).
+
+Row schema (every field required): `id`, `adapter_id`, `model_version`,
+`model_artifact_hash`, `backtest_gates_status`, `prospective_status`,
+`cash_admission_status` (each status one of `PENDING` / `APPROVED` /
+`REJECTED`), `rationale`.
+
+Lookup semantics (`resolve_model_admission(adapter_id, model_version,
+model_artifact_hash)`), always fail-closed:
+1. No row for the exact `(adapter_id, model_version)` pair -> every flag
+   `False`.
+2. A row exists but its stored `model_artifact_hash` does not match the
+   hash reported for the model actually run -> every flag `False` (a stale
+   registry row, or an attempt to piggyback an unapproved model build on an
+   approved version's identity — never trusted).
+3. Otherwise, each flag mirrors that row's corresponding status field being
+   exactly `APPROVED`.
+
+This file ships with **zero rows** in this release (Release A/B design: no
+adapter is registered in `_ADAPTER_IMPLEMENTATIONS`, so there is nothing to
+admit yet) — proving the mechanism exists and defaults safely closed, not
+that anything is admitted. Adding a row is itself a significant, reviewable
+diff (a committed file change, never a request-time or runtime-computed
+flag) — that is the entire point of routing gate approval through this file
+instead of trusting caller input. See
+`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md` sections 14 and 16 for how this
+registry's fields map onto that spec's backtest/CASH gates for the first
+adapter this platform admits.
 
 ## Registry schema design
 
@@ -260,7 +353,12 @@ All 32 required categories are present in every registry file
 statuses:
 
 - **31 categories**: `runtime_status = PRICING_SUPPORTED`,
-  `adapter_status = NOT_IMPLEMENTED`, `classification_ceiling = PAPER`.
+  `adapter_status = NOT_IMPLEMENTED`, `classification_ceiling = RESEARCH-MODEL`.
+  *(Policy history: this was originally `PAPER`; the operator reversed the
+  no-forecast cap platform-wide — see decision 3 below. This is a
+  **temporary** block, one shared by every category here, pending each
+  one's own Release B+ adapter admission — see the note distinguishing this
+  from `specials_combo`'s reason, immediately below.)*
 - **`specials_combo`**: `runtime_status = RESEARCH_ONLY`,
   `classification_ceiling = RESEARCH-MODEL`, and this stays fixed until a
   named engineering prerequisite is met — it is not a placeholder pending a
@@ -282,12 +380,28 @@ statuses:
   asserts both are present. Until then, the platform fail-closes this
   category at the CLI level (`UNSUPPORTED_INPUT`) rather than emit a pricing
   result that looks legitimate but is not.
+  **`specials_combo` and every other category now both land on
+  `RESEARCH-MODEL`, but for different reasons — do not read them as the
+  same kind of block:** `specials_combo`'s block is *structural and
+  permanent* (it cannot move to `PRICING_SUPPORTED`, let alone past
+  `RESEARCH-MODEL`, until a correlation-aware pricing method is designed
+  and implemented — a hard engineering prerequisite unrelated to any
+  adapter). Every other category's `RESEARCH-MODEL` ceiling is *temporary*,
+  a direct consequence of no admitted forecast (or no admission-registry
+  row) yet existing for that category — it moves the moment a Release B+
+  adapter for that sport is registered **and** actually gets a row in
+  `registries/data/model-admission-registry.yaml`. `specials_combo`'s
+  pricing itself (`runtime_status`) is also blocked (`RESEARCH_ONLY`,
+  `UNSUPPORTED_INPUT` at the CLI); the other 31 categories' pricing runs
+  fine (`PRICING_SUPPORTED`) — only their classification ceiling is capped.
 - **`outrights`**: deliberately kept at `PRICING_SUPPORTED` /
-  `PAPER` — unlike a combo, an outright market ("who wins the tournament")
-  is a single mutually-exclusive, exhaustive N-way market over the entire
-  field, which is exactly what the layer 1 engine already handles. No
-  special-casing needed beyond noting its long-horizon settlement in
-  `market-types-registry.yaml`.
+  `RESEARCH-MODEL` — unlike a combo, an outright market ("who wins the
+  tournament") is a single mutually-exclusive, exhaustive N-way market over
+  the entire field, which is exactly what the layer 1 engine already
+  handles. No special-casing needed beyond noting its long-horizon
+  settlement in `market-types-registry.yaml`; its `RESEARCH-MODEL` ceiling
+  is the same temporary, no-admitted-forecast block every other
+  `PRICING_SUPPORTED` category carries, not a structural one.
 
 ## Typed failure catalogue (`pcbf_calculator/errors.py`)
 
@@ -365,13 +479,31 @@ and why, for future contributors, rather than flagging them as pending.
    that no admitted adapter supplies real uncertainty data yet, and the
    schema (the optional `uncertainty` parameter to `analyze_market`) is
    ready to carry real calibrated data the moment one does.
-3. **No-forecast implies `PAPER` ceiling, never `CASH`** — settled, fixed,
-   non-configurable policy (see layer 3 above). Market-implied probabilities
-   can support research and price comparison, but cannot prove a betting
-   edge measured against the same market they were derived from; that would
-   be circular. There is no code path, decision-input value, or STOP-rule
-   combination that can move a no-forecast category to `CASH`, and this is
-   asserted defensively at runtime in addition to being tested.
+3. **No-forecast implies `RESEARCH-MODEL` ceiling, never `PAPER` or `CASH`;
+   an unadmitted forecast implies the same** — settled, fixed,
+   non-configurable, three-tier policy (see layer 3 above and the dedicated
+   "Model-admission registry" section above it).
+   **Policy correction (post-original-integrity-fix-PR):** the original
+   version of this decision capped a no-forecast category at `PAPER`. The
+   operator has reversed that specifically — `PAPER` is meant to signal
+   "this model version has cleared its approved backtest gates," which is
+   not true when there is no model at all, so the correct cap for "no
+   admitted forecast" is `RESEARCH-MODEL`. Separately (not merely a
+   renaming of the same rule), reaching `PAPER` at all was also tightened:
+   a forecast *existing* (`forecast_available: True`) is no longer, by
+   itself, sufficient — `PAPER` additionally requires that forecast's exact
+   `(adapter_id, model_version, model_artifact_hash)` to resolve `APPROVED`
+   backtest gates in the committed model-admission registry (never a
+   caller-supplied or adapter-reported approval claim). Market-implied
+   probabilities can support research and price comparison, but cannot
+   prove a betting edge measured against the same market they were derived
+   from; that would be circular. There is no code path, decision-input
+   value, STOP-rule combination, or forged approval-shaped field that can
+   move an un-admitted category to `PAPER` or `CASH`, and this is asserted
+   defensively at runtime (`_assert_no_forecast_never_cash`,
+   `_assert_cash_stake_only_for_cash`) in addition to being tested
+   (`tests/test_decision_engine.py`,
+   `tests/test_platform_classification_invariant.py`).
 4. **`specials_combo` marked `RESEARCH_ONLY` rather than
    `PRICING_SUPPORTED`** — settled: it stays `RESEARCH_ONLY` until a
    correlation-aware combo pricing method is designed and implemented; the

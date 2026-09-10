@@ -111,7 +111,10 @@ class RegistryConsistencyTests(unittest.TestCase):
         registries = load_all_registries()
         soccer_adapter_row = registries["adapters"]["soccer"]
         self.assertEqual(soccer_adapter_row["adapter_status"], "DESIGN_IN_PROGRESS")
-        self.assertEqual(soccer_adapter_row["classification_ceiling"], "PAPER")
+        # Platform-wide policy reversal: a no-forecast category's ceiling is
+        # RESEARCH-MODEL, not PAPER (see docs/MULTI_SPORT_ARCHITECTURE.md
+        # decision 3 and decision/engine.py's module docstring).
+        self.assertEqual(soccer_adapter_row["classification_ceiling"], "RESEARCH-MODEL")
         self.assertIn("DESIGN_IN_PROGRESS", ALLOWED_ADAPTER_STATUSES)
 
     def test_specials_combo_names_its_correlation_aware_pricing_prerequisite(self):

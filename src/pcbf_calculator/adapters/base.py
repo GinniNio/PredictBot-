@@ -71,6 +71,20 @@ class ForecastResult:
     model_version: str | None
     uncertainty_method: str | None
     no_forecast_reason: str | None
+    model_artifact_hash: str | None = None
+    """Content hash (e.g. ``"sha256:<hex>"``) of the specific trained model
+    artifact this forecast actually ran, if any. This is a plain *fact the
+    adapter reports about itself* — never an approval claim. The decision
+    layer (``decision/engine.py``) never trusts a boolean "I am approved"
+    flag from anywhere; it takes this hash (together with ``sport_id`` as
+    the adapter id and ``model_version``) and looks up the committed,
+    versioned ``registries/data/model-admission-registry.yaml`` (via
+    ``registries/model_admission.py``) to resolve whether *that exact*
+    ``(adapter_id, model_version, hash)`` triple has actually cleared
+    backtest/prospective/CASH gates — see the decision engine's module
+    docstring ("three-tier classification" / "model-admission registry").
+    Defaults to ``None`` (no model, or a model whose adapter does not
+    report a hash — both resolve to "not approved" at lookup time)."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,4 +94,5 @@ class ForecastResult:
             "model_version": self.model_version,
             "uncertainty_method": self.uncertainty_method,
             "no_forecast_reason": self.no_forecast_reason,
+            "model_artifact_hash": self.model_artifact_hash,
         }

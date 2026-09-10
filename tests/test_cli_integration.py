@@ -29,7 +29,11 @@ class CliIntegrationTests(unittest.TestCase):
         self.assertIsNone(result["failure"])
         self.assertEqual(result["pricing"]["market_structure"], "two_way")
         self.assertFalse(result["forecast"]["forecast_available"])
-        self.assertEqual(result["classification_ceiling"], "PAPER")
+        self.assertEqual(result["classification_ceiling"], "RESEARCH-MODEL")
+        # No-forecast category: structurally impossible to surface a
+        # nonzero stake of either kind.
+        self.assertEqual(result["cash_stake"], 0)
+        self.assertEqual(result["simulated_stake"], 0)
 
     def test_three_way_request_end_to_end(self):
         result = run_calculator(THREE_WAY_REQUEST)
@@ -65,7 +69,7 @@ class CliIntegrationTests(unittest.TestCase):
             result["forecast"]["no_forecast_reason"],
             "FORECASTING_ADAPTER_DESIGN_IN_PROGRESS_NOT_YET_BUILT",
         )
-        self.assertEqual(result["classification_ceiling"], "PAPER")
+        self.assertEqual(result["classification_ceiling"], "RESEARCH-MODEL")
 
     def test_missing_event_id_fails_typed(self):
         result = run_calculator({"category": "soccer", "market_prices": {"home": 1.9, "away": 2.0}})
@@ -105,9 +109,11 @@ class CliIntegrationTests(unittest.TestCase):
         result = run_calculator(request)
         self.assertEqual(result["status"], "OK")
         self.assertIsNotNone(result["decision"])
-        # No forecast available for soccer (Release A) -> capped at PAPER
+        # No forecast available for soccer (Release A) -> capped at RESEARCH-MODEL
         # regardless of how clean the STOP-rule inputs are.
-        self.assertEqual(result["classification_ceiling"], "PAPER")
+        self.assertEqual(result["classification_ceiling"], "RESEARCH-MODEL")
+        self.assertEqual(result["cash_stake"], 0)
+        self.assertEqual(result["simulated_stake"], 0)
 
     def test_decision_layer_missing_block_fails_typed(self):
         request = dict(THREE_WAY_REQUEST)

@@ -23,10 +23,22 @@ Input shape::
 
 Output always carries ``status``, ``failure`` (null on success),
 ``classification_ceiling`` (the host-contract field every project host
-checks), plus ``pricing``, ``forecast`` and ``decision`` sub-objects (each
-null when not computed/applicable). ``pricing`` and ``forecast`` are always
-kept as two distinct objects — market profitability is never conflated with
-forecast quality.
+checks), and two distinctly-named stake fields, ``cash_stake`` and
+``simulated_stake`` (see ``decision/engine.py``'s module docstring,
+"Stake is tiered by classification"): ``RESEARCH-MODEL`` -> both ``0``;
+``PAPER`` -> ``cash_stake: 0`` but ``simulated_stake`` may be nonzero (a
+hypothetical, paper-traded stake, never a real-money one); ``CASH`` ->
+``cash_stake`` may be nonzero, ``simulated_stake: 0``. When layer 3
+(``decision``) never ran and the registry-default ceiling is not
+``RESEARCH-MODEL`` either, both are ``null`` (no stake authorization
+decision was made at all). Both fields are a distinct concept from
+``pricing``'s own per-outcome ``stake`` (the EV-sizing parameter Release
+A's pricing math uses, default 1.0) — they answer "should any stake, real
+or simulated, be authorized/tracked for this result," never "how big is the
+stake used inside the EV formula." ``pricing``, ``forecast`` and
+``decision`` sub-objects are each null when not computed/applicable, and
+``pricing`` and ``forecast`` are always kept as two distinct objects —
+market profitability is never conflated with forecast quality.
 """
 
 from __future__ import annotations
@@ -86,6 +98,27 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
         forecast: dict[str, Any] | None = None,
         decision: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if decision is not None:
+            # The decision layer (layer 3) is the single source of truth for
+            # cash_stake/simulated_stake once it has run — never
+            # recomputed here.
+            cash_stake = decision.get("cash_stake")
+            simulated_stake = decision.get("simulated_stake")
+        elif classification_ceiling == "RESEARCH-MODEL":
+            # No decision_input was supplied, but the registry-default
+            # ceiling for this category (no admitted forecast, or a
+            # forecast whose model version has no APPROVED model-admission
+            # row) is already RESEARCH-MODEL — structurally impossible to
+            # surface a nonzero stake of either kind here either, mirroring
+            # decision/engine.py's own hard lock.
+            cash_stake = 0
+            simulated_stake = 0
+        else:
+            # Layer 3 was never invoked, so no real stake authorization
+            # decision was made either way.
+            cash_stake = None
+            simulated_stake = None
+
         payload = {
             "artifact_id": ARTIFACT_ID,
             "artifact_version": ARTIFACT_VERSION,
@@ -95,6 +128,8 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
             "status": status,
             "failure": failure,
             "classification_ceiling": classification_ceiling,
+            "cash_stake": cash_stake,
+            "simulated_stake": simulated_stake,
             "pricing": pricing,
             "forecast": forecast,
             "decision": decision,

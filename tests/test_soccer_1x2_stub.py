@@ -26,7 +26,7 @@ PLAUSIBLE_FULL_FIXTURE = {
     "home_team_rolling_goals_against_last_10": 0.9,
     "away_team_rolling_goals_for_last_10": 1.3,
     "away_team_rolling_goals_against_last_10": 1.1,
-    "market_closing_odds_1x2": {"home_win": 0.5, "draw": 0.3, "away_win": 0.2},
+    "market_snapshot_odds_1x2": {"home_win": 0.5, "draw": 0.3, "away_win": 0.2},
     "days_since_last_match_home": 6,
     "days_since_last_match_away": 4,
 }
@@ -88,8 +88,11 @@ class SoccerOneXTwoStubTests(unittest.TestCase):
         }
         result = evaluate_decision(decision_input, market_profitability, forecast_quality)
         self.assertEqual(result["status"], "PASSED")
-        self.assertEqual(result["classification"], "PAPER")
+        self.assertEqual(result["classification"], "RESEARCH-MODEL")
         self.assertNotEqual(result["classification"], "CASH")
+        self.assertNotEqual(result["classification"], "PAPER")
+        self.assertEqual(result["cash_stake"], 0)
+        self.assertEqual(result["simulated_stake"], 0)
 
     def test_stub_is_not_registered_in_the_live_dispatch_table(self):
         # DESIGN_IN_PROGRESS must not accidentally unlock new runtime

@@ -1,6 +1,6 @@
-"""Proves the six numeric backtest/prospective thresholds proposed in
-docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md sections 14-15 cannot promote the
-soccer adapter to PAPER or CASH.
+"""Proves every numeric backtest/prospective/dataset/monitoring threshold
+proposed in docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md (sections 4, 5, 14, 15,
+17) cannot promote the soccer adapter to PAPER or CASH.
 
 Two things must both hold, independently:
 
@@ -35,6 +35,16 @@ EXPECTED_THRESHOLD_IDS = {
     "backtest_beats_baseline_by_percent",
     "prospective_minimum_live_fixture_count",
     "prospective_live_feature_availability_rate",
+    # Correction 3: newly ledgered rows.
+    "dataset_minimum_seasons",
+    "dataset_minimum_fixture_count",
+    "dataset_minimum_feature_coverage_rate",
+    "feature_staleness_tolerance_hours",
+    "prospective_minimum_shadow_period_weeks",
+    "rollback_calibration_error_bound",
+    "rollback_feature_availability_threshold",
+    "rollback_baseline_comparison_window_fixtures",
+    "monitoring_calibration_window_and_cadence",
 }
 
 
@@ -48,7 +58,7 @@ class SoccerPromotionThresholdStatusTests(unittest.TestCase):
         rows = _load_thresholds()
         self.assertGreater(len(rows), 0)
 
-    def test_all_six_thresholds_are_present(self):
+    def test_all_expected_thresholds_are_present(self):
         rows = _load_thresholds()
         ids = {row["id"] for row in rows}
         self.assertEqual(ids, EXPECTED_THRESHOLD_IDS)

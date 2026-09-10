@@ -44,7 +44,10 @@ REQUIRED_FEATURE_IDS: tuple[str, ...] = (
     "home_team_rolling_goals_against_last_10",
     "away_team_rolling_goals_for_last_10",
     "away_team_rolling_goals_against_last_10",
-    "market_closing_odds_1x2",
+    # market_snapshot_odds_1x2 (never market_closing_odds_1x2 — see spec
+    # Correction 1): decision-time market snapshot, not the closing line,
+    # which is not observable at a real pre-match decision horizon.
+    "market_snapshot_odds_1x2",
     "days_since_last_match_home",
     "days_since_last_match_away",
 )
