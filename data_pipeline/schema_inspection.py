@@ -19,6 +19,34 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# Football-Data's older season files are not always UTF-8: a handful use
+# Windows-1252/Latin-1 (e.g. an accented character in a team or referee
+# name), which contains byte sequences (like 0xA0) that are invalid UTF-8.
+# Try UTF-8 first (the common case, and BOM-tolerant via utf-8-sig) and
+# fall back to cp1252 — which can decode any single byte, so this never
+# raises — only when the file is genuinely not valid UTF-8. This mirrors a
+# well-known, documented quirk of this specific data source, not a general
+# assumption about arbitrary CSV input.
+_CSV_ENCODING_ATTEMPTS = ("utf-8-sig", "cp1252")
+
+
+def read_csv_rows(csv_path: str | Path) -> list[list[str]]:
+    """Read every row (header included) from a Football-Data CSV file,
+    tolerating the encoding quirks described above. Returns the raw rows
+    exactly as `csv.reader` would, just with a resilient text decode."""
+    csv_path = Path(csv_path)
+    last_error: UnicodeDecodeError | None = None
+    for encoding in _CSV_ENCODING_ATTEMPTS:
+        try:
+            with csv_path.open("r", encoding=encoding, newline="") as handle:
+                return list(csv.reader(handle))
+        except UnicodeDecodeError as exc:
+            last_error = exc
+            continue
+    # cp1252 can decode any byte, so this should be unreachable — but never
+    # silently swallow a genuine failure if every attempt somehow fails.
+    raise last_error  # type: ignore[misc]
+
 # Canonical "core" columns Football-Data files are expected to carry, and
 # the exact header spellings this pipeline recognizes for each. Multiple
 # spellings are listed because Football-Data's own header names have not
@@ -196,13 +224,9 @@ def inspect_header(header: list[str]) -> dict[str, Any]:
 
 def inspect_file(csv_path: str | Path) -> SchemaInspectionResult:
     csv_path = Path(csv_path)
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.reader(handle)
-        try:
-            header = next(reader)
-        except StopIteration:
-            header = []
-        row_count = sum(1 for _ in reader)
+    rows = iter(read_csv_rows(csv_path))
+    header = next(rows, [])
+    row_count = sum(1 for _ in rows)
 
     shape = inspect_header(header)
     return SchemaInspectionResult(

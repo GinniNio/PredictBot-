@@ -123,5 +123,15 @@ class ResultToDictShapeTests(unittest.TestCase):
                 self.assertIn(issue["reason"], RejectionReason.ALL)
 
 
+class EncodingToleranceTests(unittest.TestCase):
+    """Same real crash as schema_inspection's equivalent test — validate_file
+    has its own file-reading path and needs the same fallback."""
+
+    def test_cp1252_encoded_file_validates_without_crashing(self):
+        result = validate_file(FIXTURES / "cp1252_encoded_season.csv")
+        self.assertEqual(result.total_rows, 1)
+        self.assertEqual(result.rejected_fixtures, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
