@@ -20,6 +20,23 @@ INVALID_PRICE_VALUE = "INVALID_PRICE_VALUE"
 """An outcome's price was not a finite number greater than 1.0 (this
 includes booleans, strings, null, NaN, infinity, and prices <= 1.0)."""
 
+UNSUPPORTED_DE_VIG_METHOD = "UNSUPPORTED_DE_VIG_METHOD"
+"""The requested ``de_vig_method`` is not one of the approved, registered
+methods (Release A: only ``multiplicative_proportional``). The de-vig method
+is pluggable so a future Release B+ adapter can register another approved
+method, but an unrecognized name still fails closed rather than silently
+falling back to the default."""
+
+UNCERTAINTY_UNAVAILABLE = "UNCERTAINTY_UNAVAILABLE"
+"""No real, calibrated uncertainty data (sample size, variance, or whatever
+the applicable ``uncertainty_method`` needs) exists for this outcome, so the
+pricing engine will not compute a confidence-bounded (``lower_bound_ev``)
+estimate. This is the correct answer for every category in Release A, since
+no admitted forecasting adapter exists yet to supply that data. It replaces
+a previous placeholder that computed a Wilson-score bound from an invented
+``effective_sample_size=200`` — that was fabricated differentiation between
+outcomes, not real uncertainty, and has been removed."""
+
 # --- CLI-level request validation -------------------------------------------
 
 INVALID_REQUEST = "INVALID_REQUEST"
@@ -74,6 +91,8 @@ ALL_CODES = frozenset(
     {
         INCOMPLETE_OPPOSING_PRICES,
         INVALID_PRICE_VALUE,
+        UNSUPPORTED_DE_VIG_METHOD,
+        UNCERTAINTY_UNAVAILABLE,
         INVALID_REQUEST,
         UNSUPPORTED_INPUT,
         UNSUPPORTED_SPORT_MARKET_COMBINATION,

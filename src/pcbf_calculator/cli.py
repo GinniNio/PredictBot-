@@ -208,7 +208,14 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
     selected_outcome = fixture.get("selected_outcome")
     outcomes_by_name = {item["outcome"]: item for item in pricing_result["outcomes"]}
     if selected_outcome is None:
-        selected_outcome = pricing_result["ranking_by_point_ev"][0]
+        # Arbitrary, non-recommendation default: the first outcome in the
+        # caller's own market_prices order. Release A must never pick a
+        # "best" outcome by point EV here — that would be exactly the
+        # per-outcome betting recommendation decision 5 forbids without an
+        # independent admitted forecast. A caller that cares which outcome
+        # is evaluated by the decision layer should pass selected_outcome
+        # explicitly.
+        selected_outcome = next(iter(outcomes_by_name))
     if selected_outcome not in outcomes_by_name:
         return build(
             "FAILED",

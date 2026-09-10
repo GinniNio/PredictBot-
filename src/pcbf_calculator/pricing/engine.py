@@ -14,14 +14,17 @@ full rationale and the judgement calls made where the spec was open):
   (stake included) for a 1-unit stake on a winning outcome.
 - Implied probability: ``p_implied = 1 / price``.
 - Bookmaker margin (overround): ``sum(p_implied) - 1``.
-- De-vigging method: **multiplicative / proportional** (the standard default
-  method) — ``p_fair_i = p_implied_i / sum(p_implied)``. This is chosen as
-  the documented default per the task's instructions; it is the simplest
-  method that guarantees the fair probabilities sum to exactly 1 and is
-  the most common baseline in the sports-pricing literature. Shin's method
-  (which apportions margin according to an assumed insider-trading share)
-  is a reasonable alternative for very large fields but is not implemented
-  in Release A — noted as a possible Release B+ enhancement.
+- De-vigging method: **multiplicative / proportional** is the Release A
+  default and the only method implemented today —
+  ``p_fair_i = p_implied_i / sum(p_implied)``. It is the simplest method
+  that guarantees the fair probabilities sum to exactly 1 and is the most
+  common baseline in the sports-pricing literature. The method is selected
+  through the ``de_vig_method`` parameter (a small registry, see
+  ``_DE_VIG_METHODS`` below) rather than hardcoded inline, so a future
+  Release B+ adapter can register and select an alternative approved method
+  (e.g. Shin's method) without changing this engine's call sites. Every
+  calculation result records which method actually ran via ``de_vig_method``
+  in the output.
 - Fair odds: ``odds_fair_i = 1 / p_fair_i``.
 - Point EV per 1 unit of stake, using the *fair* (de-vigged) probability
   against the *original offered* price (this is the actual edge available to
@@ -29,26 +32,35 @@ full rationale and the judgement calls made where the spec was open):
   - 1)``. This follows from ``EV = p * payout - (1 - p) * stake`` with
   ``payout = stake * price`` (decimal odds already include stake return):
   ``EV = p*stake*price - (1-p)*stake = stake*(p*price - 1)``.
-- Lower-bound EV: a Wilson-score lower confidence bound is computed on the
-  fair probability estimate and then propagated through the same EV formula
-  in place of the point estimate. The de-vigged probability is treated as if
-  it were the observed proportion of an ``effective_sample_size`` Bernoulli
-  trials — a documented judgement call (default ``n=200``,
-  ``z=1.645`` i.e. a 95% one-sided lower bound), since there is no real
-  historical win/loss ledger wired into this layer yet. A larger
-  ``effective_sample_size`` should be substituted once real historical
-  calibration data is available (see the architecture doc's open
-  questions).
+- Lower-bound EV: **requires real calibrated uncertainty** (a sample size,
+  variance, or whatever a specific ``uncertainty_method`` needs) about the
+  fair probability estimate. Proportional de-vig by construction drives
+  point EV to be nearly identical across every outcome in a market — it
+  carries no information about how *confident* that estimate is. Release A
+  ships no admitted forecasting adapter, so there is no source of real
+  uncertainty data anywhere in this codebase, and this engine will **not**
+  invent one (a previous version substituted a hardcoded
+  ``effective_sample_size`` into a Wilson-score bound; that fabricated
+  differentiation between outcomes that looked like signal but was actually
+  an arbitrary constant, and has been removed — do not reintroduce it).
+  Callers may pass ``uncertainty`` — a mapping of outcome name to a
+  calibration dict a future admitted adapter actually supplies (e.g.
+  ``{"sample_size": N, "z": Z}``) — and when present for an outcome, a
+  Wilson-score lower bound is computed from that *real* data. When absent
+  (every case in Release A), the outcome's ``lower_bound_ev`` and
+  ``lower_bound_probability`` are ``null`` and ``lower_bound_ev_reason`` is
+  the typed code ``UNCERTAINTY_UNAVAILABLE``.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
-DEFAULT_WILSON_Z = 1.645  # one-sided 95% confidence lower bound
-DEFAULT_EFFECTIVE_SAMPLE_SIZE = 200
+from ..errors import UNCERTAINTY_UNAVAILABLE, UNSUPPORTED_DE_VIG_METHOD
+
+DEFAULT_DE_VIG_METHOD = "multiplicative_proportional"
 
 
 class PricingFailure(Exception):
@@ -96,9 +108,34 @@ def _validate_outcomes(outcomes: Any) -> dict[str, float]:
     return dict(outcomes)
 
 
-def _wilson_lower_bound(p_hat: float, n: int, z: float) -> float:
+def _multiplicative_proportional_de_vig(implied: dict[str, float]) -> dict[str, float]:
+    """Release A's only de-vig method: normalize implied probabilities to
+    sum to 1. Kept as a standalone function (rather than inlined) so it can
+    sit in ``_DE_VIG_METHODS`` alongside a future alternative method without
+    changing ``analyze_market``'s call site."""
+    total = sum(implied.values())
+    return {name: value / total for name, value in implied.items()}
+
+
+# Pluggable de-vig method registry. Release A registers exactly one method
+# and it is the universal default for every category; the seam exists so a
+# future, explicitly-approved Release B+ method (e.g. Shin's method for very
+# large outright fields) can be added and selected per-adapter without any
+# engine call site changing. Do not silently swap the default here — a new
+# default requires updating docs/MULTI_SPORT_ARCHITECTURE.md.
+_DE_VIG_METHODS: dict[str, Callable[[dict[str, float]], dict[str, float]]] = {
+    "multiplicative_proportional": _multiplicative_proportional_de_vig,
+}
+
+
+def _wilson_lower_bound(p_hat: float, n: float, z: float) -> float:
+    """Wilson-score lower confidence bound on a proportion ``p_hat`` observed
+    over ``n`` real Bernoulli trials. This is generic, correct statistics —
+    the fabrication problem the previous version had was never this formula,
+    it was calling it with an invented ``n``. Callers must only pass a real,
+    adapter-calibrated sample size."""
     if n <= 0:
-        raise ValueError("effective_sample_size must be positive")
+        raise ValueError("sample_size must be positive")
     denom = 1.0 + (z * z) / n
     center = (p_hat + (z * z) / (2 * n)) / denom
     spread = (z * math.sqrt((p_hat * (1.0 - p_hat) + (z * z) / (4 * n)) / n)) / denom
@@ -114,8 +151,10 @@ class OutcomePricing:
     fair_probability: float
     fair_odds: float
     point_ev: float
-    lower_bound_ev: float
-    lower_bound_probability: float
+    lower_bound_ev: float | None
+    lower_bound_probability: float | None
+    uncertainty_method: str | None
+    lower_bound_ev_reason: str | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -127,40 +166,105 @@ class OutcomePricing:
             "point_ev": self.point_ev,
             "lower_bound_ev": self.lower_bound_ev,
             "lower_bound_probability": self.lower_bound_probability,
+            "uncertainty_method": self.uncertainty_method,
+            "lower_bound_ev_reason": self.lower_bound_ev_reason,
         }
+
+
+def _market_quality(margin: float, outcome_count: int) -> dict[str, Any]:
+    """Market-level quality signals Release A is allowed to rank markets by:
+    completeness, margin, and evidence quality (see
+    ``docs/MULTI_SPORT_ARCHITECTURE.md`` decision 5). These describe *this
+    market's* pricing data, never an outcome's betting merit, and are safe
+    to compute without any forecast because they are derived purely from the
+    offered prices themselves.
+
+    ``research_priority_score`` is a deterministic combination of the two
+    (more outcomes and a tighter/more-competitive margin score higher) meant
+    to help a host prioritize which markets are worth research attention
+    across many CLI calls; it is a market-comparison signal, not a
+    per-outcome recommendation.
+    """
+    if margin < 0:
+        evidence_quality = "ANOMALOUS_NEGATIVE_MARGIN"
+    elif margin > 0.5:
+        evidence_quality = "LOW_EVIDENCE_HIGH_MARGIN"
+    else:
+        evidence_quality = "NORMAL"
+
+    tightness = max(0.0, 1.0 - min(margin, 1.0))
+    research_priority_score = round(tightness * outcome_count, 6)
+
+    return {
+        "completeness": "COMPLETE",
+        "bookmaker_margin": margin,
+        "evidence_quality": evidence_quality,
+        "research_priority_score": research_priority_score,
+    }
 
 
 def analyze_market(
     outcomes: dict[str, float],
     stake: float = 1.0,
-    wilson_z: float = DEFAULT_WILSON_Z,
-    effective_sample_size: int = DEFAULT_EFFECTIVE_SAMPLE_SIZE,
+    de_vig_method: str = DEFAULT_DE_VIG_METHOD,
+    uncertainty: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Price a complete N-way (>=2 outcome) market. Raises ``PricingFailure``
-    on incomplete or invalid opposing prices; never returns a partial or
-    fabricated result.
+    on incomplete or invalid opposing prices, or an unrecognized
+    ``de_vig_method``; never returns a partial or fabricated result.
+
+    ``uncertainty`` is an optional mapping of outcome name to a calibration
+    dict (``{"sample_size": N, "z": Z}``) a future admitted forecasting
+    adapter supplies. Release A never supplies this (no adapter is admitted
+    yet), so by default every outcome's ``lower_bound_ev`` is ``null`` with
+    ``lower_bound_ev_reason: "UNCERTAINTY_UNAVAILABLE"`` — this is not a
+    placeholder value, it is the correct, honest answer until real
+    calibrated uncertainty exists.
 
     Returns a dict with ``market_structure`` (``two_way``/``three_way``/
     ``n_way``, derived purely from outcome count — a label, not a different
-    code path), ``margin``, ``de_vig_method``, and ``outcomes`` (a list of
-    per-outcome pricing dicts, insertion order preserved), plus a
-    market-derived ``ranking`` of outcome names ordered by descending point
-    EV (highest edge first).
+    code path), ``margin``, ``de_vig_method``, ``outcomes`` (a list of
+    per-outcome pricing dicts, insertion order preserved), and
+    ``market_quality`` (market-level completeness/margin/evidence-quality
+    signals Release A may use to rank *markets*, never outcomes — see
+    decision 5 in ``docs/MULTI_SPORT_ARCHITECTURE.md``).
     """
     validated = _validate_outcomes(outcomes)
+
+    de_vig_fn = _DE_VIG_METHODS.get(de_vig_method)
+    if de_vig_fn is None:
+        raise PricingFailure(
+            UNSUPPORTED_DE_VIG_METHOD,
+            "de_vig_method",
+            f"'{de_vig_method}' is not an approved de-vig method. Approved methods: "
+            f"{sorted(_DE_VIG_METHODS)}.",
+        )
 
     implied = {name: 1.0 / price for name, price in validated.items()}
     total_implied = sum(implied.values())
     margin = total_implied - 1.0
-    fair = {name: value / total_implied for name, value in implied.items()}
+    fair = de_vig_fn(implied)
 
     results: list[OutcomePricing] = []
     for name, price in validated.items():
         fair_prob = fair[name]
         fair_odds = 1.0 / fair_prob
         point_ev = stake * (fair_prob * price - 1.0)
-        lower_prob = _wilson_lower_bound(fair_prob, effective_sample_size, wilson_z)
-        lower_ev = stake * (lower_prob * price - 1.0)
+
+        outcome_uncertainty = (uncertainty or {}).get(name)
+        if outcome_uncertainty and "sample_size" in outcome_uncertainty:
+            n = outcome_uncertainty["sample_size"]
+            z = outcome_uncertainty.get("z", 1.645)
+            lower_prob = _wilson_lower_bound(fair_prob, n, z)
+            lower_ev = stake * (lower_prob * price - 1.0)
+            uncertainty_method = outcome_uncertainty.get("method", "wilson_score")
+            lower_ev_reason = None
+        else:
+            lower_prob = None
+            lower_ev = None
+            uncertainty_method = None
+            lower_ev_reason = UNCERTAINTY_UNAVAILABLE
+
         results.append(
             OutcomePricing(
                 outcome=name,
@@ -171,6 +275,8 @@ def analyze_market(
                 point_ev=point_ev,
                 lower_bound_ev=lower_ev,
                 lower_bound_probability=lower_prob,
+                uncertainty_method=uncertainty_method,
+                lower_bound_ev_reason=lower_ev_reason,
             )
         )
 
@@ -182,19 +288,12 @@ def analyze_market(
     else:
         structure = "n_way"
 
-    ranking = [
-        item.outcome
-        for item in sorted(results, key=lambda item: item.point_ev, reverse=True)
-    ]
-
     return {
         "market_structure": structure,
         "outcome_count": outcome_count,
-        "de_vig_method": "multiplicative_proportional",
+        "de_vig_method": de_vig_method,
         "bookmaker_margin": margin,
         "stake": stake,
-        "wilson_z": wilson_z,
-        "effective_sample_size": effective_sample_size,
         "outcomes": [item.to_dict() for item in results],
-        "ranking_by_point_ev": ranking,
+        "market_quality": _market_quality(margin, outcome_count),
     }

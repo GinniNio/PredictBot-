@@ -90,6 +90,16 @@ class RegistryConsistencyTests(unittest.TestCase):
             else:
                 self.assertEqual(row["runtime_status"], "PRICING_SUPPORTED")
 
+    def test_specials_combo_names_its_correlation_aware_pricing_prerequisite(self):
+        # specials_combo can never just reuse the universal N-way de-vig math
+        # (it ignores leg correlation entirely) — the registry must name the
+        # concrete prerequisite mechanically, not leave it as tribal
+        # knowledge, so it is discoverable by a future contributor.
+        registries = load_all_registries()
+        row = registries["data_sources"]["specials_combo"]
+        self.assertEqual(row["runtime_status"], "RESEARCH_ONLY")
+        self.assertEqual(row.get("pricing_supported_requires"), "CORRELATION_AWARE_COMBO_PRICING_METHOD")
+
     def test_underlying_sport_cross_reference_resolves(self):
         registries = load_all_registries()
         sports = registries["sports"]

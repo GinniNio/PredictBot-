@@ -9,15 +9,28 @@ Rule evaluation order (first match wins, each is a hard STOP):
 2. ``STOP_INSUFFICIENT_EVIDENCE`` — ``evidence.sample_size < evidence.min_sample_size``
 3. ``STOP_INSUFFICIENT_LIQUIDITY`` — ``liquidity.available_stake < liquidity.min_required_stake``
 4. ``STOP_EXCESSIVE_UNCERTAINTY`` — ``uncertainty.width > uncertainty.max_width``
-5. ``STOP_NEGATIVE_EV`` — the priced outcome's ``lower_bound_ev`` (layer 1) is <= 0
+5. ``STOP_NEGATIVE_EV`` — the priced outcome's confidence-bounded EV is <= 0.
+   Layer 1 only produces a real ``lower_bound_ev`` once an admitted adapter
+   supplies calibrated uncertainty (Release A: never). When
+   ``lower_bound_ev`` is ``null`` this rule evaluates the outcome's
+   ``point_ev`` instead — still real, non-fabricated de-vigged market math,
+   just without a confidence bound around it. This is safe specifically
+   because passing this rule can never by itself authorize ``CASH`` (see
+   rule below); at most it lets a no-forecast category reach ``PAPER``.
 
-If every rule passes, a classification ceiling is assigned:
+**Fixed, non-configurable policy — no admitted forecast can ever reach
+``CASH``.** Once every STOP rule passes:
 
-- ``forecast.forecast_available is False`` -> ceiling is capped at ``PAPER``.
-  **Judgement call**: this platform will never let market-derived pricing
-  alone (no independent forecast) authorize real capital (``CASH``) — see
-  the architecture doc's open-questions section. This is treated as a
-  product/risk decision, not a math one, and is flagged as such.
+- ``forecast.forecast_available is False`` -> ceiling is capped at
+  ``PAPER``, unconditionally. This is not a tunable default and there is no
+  decision-input field, STOP-rule outcome, or evidence value that can move
+  it: market-implied probabilities (layer 1) can support research and price
+  comparison, but proving a betting edge by measuring market-derived EV
+  against the very same market it was derived from is circular — it cannot
+  be used to authorize real capital. Only an independently admitted
+  forecast (layer 2) can do that. This is enforced again as a defensive
+  invariant right before the result is returned (see
+  ``_assert_no_forecast_never_cash`` below), not only by the branch order.
 - otherwise, if ``evidence.sample_size < evidence.cash_min_sample_size``
   (a higher bar than the STOP threshold, defaulting to the STOP threshold
   when unset) the ceiling is also capped at ``PAPER``.
@@ -85,10 +98,10 @@ def evaluate(
     liquidity = _require_block(decision_input, "liquidity", ("available_stake", "min_required_stake"))
     uncertainty = _require_block(decision_input, "uncertainty", ("width", "max_width"))
 
-    if "lower_bound_ev" not in market_profitability:
+    if "lower_bound_ev" not in market_profitability or "point_ev" not in market_profitability:
         raise DecisionInputError(
             "market_profitability.lower_bound_ev",
-            "market_profitability must include lower_bound_ev from the pricing engine.",
+            "market_profitability must include lower_bound_ev and point_ev from the pricing engine.",
         )
     if "forecast_available" not in forecast_quality:
         raise DecisionInputError(
@@ -133,19 +146,35 @@ def evaluate(
             f"uncertainty width {uncertainty['width']} exceeds max_width {uncertainty['max_width']}.",
         )
 
-    if market_profitability["lower_bound_ev"] <= 0:
+    lower_bound_ev = market_profitability["lower_bound_ev"]
+    ev_basis = "lower_bound_ev"
+    effective_ev = lower_bound_ev
+    if effective_ev is None:
+        # No calibrated uncertainty (Release A: always). Fall back to the
+        # still-real, non-fabricated point EV rather than inventing a
+        # confidence bound. Safe because forecast_available False (the only
+        # case where lower_bound_ev is ever null today) already caps the
+        # ceiling at PAPER below, regardless of how this rule resolves.
+        effective_ev = market_profitability["point_ev"]
+        ev_basis = "point_ev"
+
+    if effective_ev <= 0:
         return rejected(
             STOP_NEGATIVE_EV,
-            f"lower_bound_ev {market_profitability['lower_bound_ev']} is not positive.",
+            f"{ev_basis} {effective_ev} is not positive.",
         )
 
-    classification = "CASH"
-    if not forecast_quality.get("forecast_available"):
+    forecast_available = bool(forecast_quality.get("forecast_available"))
+    if not forecast_available:
+        # HARD, non-configurable: no admitted forecast can ever authorize
+        # CASH. Market-implied probabilities alone cannot prove a betting
+        # edge measured against the same market they were derived from.
         classification = "PAPER"
     else:
         cash_min_sample_size = evidence.get("cash_min_sample_size", evidence["min_sample_size"])
-        if evidence["sample_size"] < cash_min_sample_size:
-            classification = "PAPER"
+        classification = "PAPER" if evidence["sample_size"] < cash_min_sample_size else "CASH"
+
+    _assert_no_forecast_never_cash(forecast_available, classification)
 
     return {
         "status": "PASSED",
@@ -155,3 +184,15 @@ def evaluate(
         "forecast_quality": forecast_quality,
         "market_profitability": market_profitability,
     }
+
+
+def _assert_no_forecast_never_cash(forecast_available: bool, classification: str) -> None:
+    """Defense-in-depth invariant, independent of the branch above: it must
+    be structurally impossible for a no-forecast category to come out of
+    this function classified ``CASH``. If this ever fires it is a bug in
+    this engine, not a caller input problem."""
+    if not forecast_available and classification == "CASH":
+        raise AssertionError(
+            "Policy violation: forecast_available is False but classification "
+            "resolved to CASH. No admitted forecast can ever authorize CASH."
+        )

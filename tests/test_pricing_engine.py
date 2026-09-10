@@ -26,7 +26,7 @@ class PricingEngineTests(unittest.TestCase):
         self.assertEqual(result["outcome_count"], 8)
         probs = {o["outcome"]: o["fair_probability"] for o in result["outcomes"]}
         self.assertAlmostEqual(sum(probs.values()), 1.0, places=9)
-        self.assertEqual(len(result["ranking_by_point_ev"]), 8)
+        self.assertEqual(len(result["outcomes"]), 8)
 
     def test_incomplete_prices_fails_typed(self):
         with self.assertRaises(PricingFailure) as ctx:
@@ -85,10 +85,62 @@ class PricingEngineTests(unittest.TestCase):
             # A heavily vigged market should show negative edge on the offered price.
             self.assertLess(outcome["point_ev"], 0.0)
 
-    def test_lower_bound_ev_is_never_above_point_ev(self):
+    def test_lower_bound_ev_is_null_without_calibrated_uncertainty(self):
+        # No admitted forecasting adapter supplies calibrated uncertainty in
+        # Release A, so the engine must never fabricate a confidence bound
+        # (e.g. from an invented sample size) — lower_bound_ev must be null,
+        # typed as UNCERTAINTY_UNAVAILABLE, for every outcome.
         result = analyze_market({"home": 3.0, "away": 1.5})
         for outcome in result["outcomes"]:
-            self.assertLessEqual(outcome["lower_bound_ev"], outcome["point_ev"] + 1e-12)
+            self.assertIsNone(outcome["lower_bound_ev"])
+            self.assertIsNone(outcome["lower_bound_probability"])
+            self.assertIsNone(outcome["uncertainty_method"])
+            self.assertEqual(outcome["lower_bound_ev_reason"], "UNCERTAINTY_UNAVAILABLE")
+
+    def test_lower_bound_ev_computed_when_real_uncertainty_supplied(self):
+        # Once a future admitted adapter supplies real calibrated
+        # uncertainty (never an invented constant), the engine can and must
+        # compute a real confidence-bounded EV from it.
+        result = analyze_market(
+            {"home": 3.0, "away": 1.5},
+            uncertainty={"home": {"sample_size": 500, "z": 1.645}},
+        )
+        by_name = {o["outcome"]: o for o in result["outcomes"]}
+        home = by_name["home"]
+        away = by_name["away"]
+        self.assertIsNotNone(home["lower_bound_ev"])
+        self.assertIsNone(home["lower_bound_ev_reason"])
+        self.assertEqual(home["uncertainty_method"], "wilson_score")
+        self.assertLessEqual(home["lower_bound_ev"], home["point_ev"] + 1e-12)
+        # away had no uncertainty data supplied -> still unavailable.
+        self.assertIsNone(away["lower_bound_ev"])
+        self.assertEqual(away["lower_bound_ev_reason"], "UNCERTAINTY_UNAVAILABLE")
+
+    def test_unsupported_de_vig_method_fails_typed(self):
+        with self.assertRaises(PricingFailure) as ctx:
+            analyze_market({"home": 1.9, "away": 2.0}, de_vig_method="shin")
+        self.assertEqual(ctx.exception.code, "UNSUPPORTED_DE_VIG_METHOD")
+
+    def test_de_vig_method_recorded_on_result(self):
+        result = analyze_market({"home": 1.9, "away": 2.0})
+        self.assertEqual(result["de_vig_method"], "multiplicative_proportional")
+
+    def test_market_quality_fields_present_and_computed(self):
+        # Release A may rank markets (never outcomes) by completeness,
+        # margin, and evidence quality.
+        result = analyze_market({"home": 1.9, "draw": 3.4, "away": 4.3})
+        quality = result["market_quality"]
+        self.assertEqual(quality["completeness"], "COMPLETE")
+        self.assertAlmostEqual(quality["bookmaker_margin"], result["bookmaker_margin"], places=9)
+        self.assertIn(quality["evidence_quality"], {"NORMAL", "LOW_EVIDENCE_HIGH_MARGIN", "ANOMALOUS_NEGATIVE_MARGIN"})
+        self.assertIsInstance(quality["research_priority_score"], float)
+
+    def test_no_outcome_level_ranking_field_exists(self):
+        # ranking_by_point_ev implied a per-outcome betting recommendation
+        # from proportional-de-vig EV alone; it must not exist in Release A
+        # output.
+        result = analyze_market({"home": 1.9, "draw": 3.4, "away": 4.3})
+        self.assertNotIn("ranking_by_point_ev", result)
 
     def test_deterministic_repeat(self):
         prices = {"home": 2.1, "draw": 3.4, "away": 3.9}
