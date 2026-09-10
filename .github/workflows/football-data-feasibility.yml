@@ -1,0 +1,114 @@
+name: Football-Data feasibility (live)
+
+# Manual invocation only for this first version — no push/pull_request/schedule
+# trigger. This workflow performs a real, potentially long-running network
+# download of the full 165-entry Football-Data source manifest
+# (data_pipeline/sources/football_data_sources.yaml) and is not meant to run
+# on every commit or PR.
+on:
+  workflow_dispatch:
+
+# Read-only at the top level — this workflow only checks out the repo,
+# downloads third-party CSVs into an untracked/gitignored directory, and
+# uploads evidence as a build artifact. It never writes back to the repo
+# (no git commit/push step) and needs no elevated permission.
+permissions:
+  contents: read
+
+jobs:
+  live-feasibility-run:
+    runs-on: ubuntu-latest
+    # Single job, single step invocation of data_pipeline/download.py's run() —
+    # never a matrix over leagues/seasons. The circuit breaker
+    # (HOST_BLOCK_FAILURE_THRESHOLD) keeps its cross-file "is this host
+    # blocked" memory only within one process's run() call, so splitting
+    # leagues/seasons across matrix jobs would silently defeat it (each job
+    # would re-discover the block from scratch instead of sharing it).
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run standard-library tests
+        run: PYTHONPATH=src python -m unittest discover -s tests -v
+
+      - name: Record run metadata (commit, Python, runner, timestamp)
+        run: |
+          mkdir -p data_pipeline/reports
+          python - <<'PY'
+          import json
+          import platform
+          import subprocess
+          import sys
+          from datetime import datetime, timezone
+
+          metadata = {
+              "commit_sha": "${{ github.sha }}",
+              "workflow_ref": "${{ github.ref }}",
+              "run_id": "${{ github.run_id }}",
+              "run_attempt": "${{ github.run_attempt }}",
+              "run_started_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "python_version": sys.version,
+              "python_version_output": subprocess.run(
+                  [sys.executable, "--version"], capture_output=True, text=True
+              ).stdout.strip()
+              or subprocess.run([sys.executable, "--version"], capture_output=True, text=True).stderr.strip(),
+              "runner_os": "${{ runner.os }}",
+              "runner_arch": "${{ runner.arch }}",
+              "platform_platform": platform.platform(),
+              "platform_release": platform.release(),
+              "platform_version": platform.version(),
+          }
+          with open("data_pipeline/reports/run_metadata.json", "w", encoding="utf-8") as fh:
+              json.dump(metadata, fh, indent=2)
+              fh.write("\n")
+          print(json.dumps(metadata, indent=2))
+          PY
+
+      - name: Download full Football-Data source manifest (165 entries, live)
+        run: python -m data_pipeline.download
+
+      - name: Run schema inspection + validation and generate feasibility reports
+        run: python -m data_pipeline.report
+
+      - name: Write evidence summary to job summary
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("data_pipeline/reports/feasibility_report.json").read_text(encoding="utf-8"))
+          attempts_summary = report.get("source_attempts_summary", {})
+          label_counts = attempts_summary.get("source_label_counts", {})
+          total = attempts_summary.get("total_rows", 0)
+
+          print("## Football-Data feasibility — live run evidence")
+          print("")
+          print(f"Commit `${{ github.sha }}` — {total} manifest (league, season) rows evaluated.")
+          print("")
+          print("| source_label | count |")
+          print("|---|---:|")
+          for label in ("LIVE_SOURCE_VALIDATED", "FIXTURE_ONLY_VALIDATED", "SOURCE_NOT_USABLE", "SOURCE_NOT_LISTED"):
+              print(f"| {label} | {label_counts.get(label, 0)} |")
+          print("")
+          print(f"> {report.get('note', '')}")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: football-data-feasibility-evidence
+          # Explicit file list only — never a directory glob. Raw downloaded
+          # CSVs (data_pipeline/raw/, gitignored) are deliberately excluded:
+          # only retrieval metadata (hashes/timestamps/URLs, no CSV content),
+          # the source-attempt/feasibility report, the fixture-validation
+          # report, and this run's metadata are uploaded.
+          path: |
+            data_pipeline/retrieval_log.json
+            data_pipeline/reports/feasibility_report.json
+            data_pipeline/reports/feasibility_report.md
+            data_pipeline/reports/fixture_validation_report.json
+            data_pipeline/reports/fixture_validation_report.md
+            data_pipeline/reports/run_metadata.json
+          if-no-files-found: error
