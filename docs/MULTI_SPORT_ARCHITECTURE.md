@@ -114,9 +114,15 @@ every outcome shows negative point EV against the offered price).
 
 Framework only. `SportAdapter` (`base.py`) is the abstract interface a
 future per-sport forecasting adapter must implement, declaring:
-`sport_id`, `valid_markets`, `settlement_units`, `feature_requirements`,
-`data_sources`, `uncertainty_method`, `model_version` — exactly the fields
-required by the task spec, as an `AdapterInterfaceDeclaration` dataclass.
+`sport_id`, `adapter_id`, `valid_markets`, `settlement_units`,
+`feature_requirements`, `data_sources`, `uncertainty_method`,
+`model_version` — exactly the fields required by the task spec, as an
+`AdapterInterfaceDeclaration` dataclass. `sport_id` and `adapter_id` are
+distinct on purpose: `sport_id` identifies the underlying sport for
+pricing/routing, `adapter_id` identifies the specific admitted forecasting
+adapter for model-admission-registry purposes — a sport can have multiple
+adapters (e.g. soccer's eventual 1X2, totals/over-under, and BTTS adapters),
+each with its own distinct `adapter_id`.
 
 `registry.py` dispatches by category id read from the registries:
 - **Category not present in any registry at all** →
@@ -200,15 +206,58 @@ separately tightened what it takes to reach `PAPER` at all — see below.)*
   evidence/liquidity/STOP-rule input** — there is no live code path that
   can produce `PAPER` today, and that is structural, not incidental.
 - **Tier 3 — a forecast exists and its model version is admitted for
-  backtest gates.** If `evidence.sample_size < evidence.cash_min_sample_size`
-  (a higher, optional bar than the STOP threshold; defaults to
-  `min_sample_size` when omitted) **or** the admission registry's
-  `cash_admission_status` for that exact row is not `APPROVED`, the ceiling
-  is capped at `PAPER`; otherwise the ceiling is `CASH`. A `cash_admission_status`
-  of `APPROVED` is a *mechanical* prerequisite only — it must itself only
-  ever be set following the spec's real manual CASH sign-off process
-  (decision 3 below still requires that human step; the registry field
-  does not replace it).
+  backtest gates.** `CASH` is reachable only when **all three** admission
+  flags hold: `backtest_gates_approved`, `prospective_approved` (the spec's
+  prospective/shadow-mode gate, section 15 — a model still `PENDING` or
+  `REJECTED` there must never reach `CASH` even with backtest gates and
+  CASH sign-off both `APPROVED`), and `cash_admission_approved` (the spec's
+  manual CASH sign-off, section 16). If `evidence.sample_size <
+  evidence.cash_min_sample_size` (a higher, optional bar than the STOP
+  threshold; defaults to `min_sample_size` when omitted) **or** any of
+  those three flags is not `True`, the ceiling is capped at `PAPER`;
+  otherwise the ceiling is `CASH`. A `cash_admission_status` of `APPROVED`
+  is a *mechanical* prerequisite only — it must itself only ever be set
+  following the spec's real manual CASH sign-off process (decision 3 below
+  still requires that human step; the registry field does not replace it).
+
+**Independent of the tier logic above, the entire admission lookup's
+authority is currently withheld by `TRUSTED_EXECUTION_PROVENANCE_AVAILABLE`**
+(`decision/trusted_provenance.py`), fixed to `False` in this release: this
+codebase has no mechanism yet that independently verifies the
+`adapter_id`/`model_version`/`model_artifact_hash` fields it reads out of a
+caller-facing `forecast_quality` dict actually describe what executed, so
+those self-reported identity fields are not trustworthy enough to authorize
+`PAPER` or `CASH` regardless of what the model-admission registry contains.
+While this flag is `False`, `evaluate()` still calls
+`resolve_model_admission` (so the lookup mechanism itself stays exercised
+and testable) but discards its result and treats admission as fully closed.
+See that module's docstring for the exact conditions (adapter-dispatch-
+resolved `adapter_id`, a cross-checked `declaration.model_version`, and a
+trusted-runner-computed `model_artifact_hash`) that would need to be true
+before a future PR could flip it to `True`. This flag is a **temporary kill
+switch, never a trust mechanism**: nothing in this codebase reads an
+environment variable, a CLI argument, or any request/`decision_input`/
+`forecast_quality` field to determine its value or to bypass it — it is a
+single hardcoded module constant.
+
+**Eventual replacement, which deletes this flag rather than flipping it.**
+The global boolean above is retired outright, not set `True` and left in
+place, once the decision engine instead requires and verifies a **trusted
+execution receipt on every single adapter invocation** — a per-call
+guarantee a static, platform-wide flag can never actually provide (a global
+`True` would wrongly vouch for every future adapter forever, not just a
+verified one). That receipt carries: the registered adapter id resolved
+from `_ADAPTER_IMPLEMENTATIONS`'s actual registration key (never the
+adapter's own self-reported field); the invoking adapter's own
+`declaration.model_version`, cross-checked against its `ForecastResult`
+with any mismatch a hard error; an artifact hash computed by the trusted
+runner itself over the actual loaded model file/config at execution time
+(never adapter/caller-stated); an input hash over the actual fixture/request
+data fed to that call; and an output hash over the actual forecast produced
+for that call — the last two proving the receipt corresponds to this exact
+invocation and result, not a replayed or substituted one. None of this is
+built in this release; see `decision/trusted_provenance.py` for the
+authoritative version of this design.
 
 This is enforced defensively as well as by branch order: a defensive
 invariant assertion (`_assert_no_forecast_never_cash`) immediately before

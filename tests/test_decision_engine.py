@@ -18,6 +18,7 @@ FORECAST_UNAVAILABLE = {"forecast_available": False}
 FORECAST_AVAILABLE_UNADMITTED = {
     "forecast_available": True,
     "sport_id": "soccer",
+    "adapter_id": "soccer_1x2",
     "model_version": "soccer_1x2_v1.0.0_2027-06-30",
     "model_artifact_hash": "sha256:deadbeef",
 }

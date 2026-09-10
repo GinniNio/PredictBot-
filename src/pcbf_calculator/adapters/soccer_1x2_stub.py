@@ -31,6 +31,11 @@ from typing import Any
 from .base import AdapterInterfaceDeclaration, ForecastResult, SportAdapter
 
 SPORT_ID = "soccer"
+ADAPTER_ID = "soccer_1x2"
+"""Distinct from ``SPORT_ID``: this is the admission-registry identity for
+this specific adapter. Soccer will eventually have other adapters
+(totals/over-under, BTTS, ...) sharing ``sport_id: soccer`` but each with
+their own distinct ``adapter_id``."""
 
 # Mirrors the "Required features" list in
 # docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md section 2. Declared here only so
@@ -70,6 +75,7 @@ class SoccerOneXTwoAdapter(SportAdapter):
     def declaration(self) -> AdapterInterfaceDeclaration:
         return AdapterInterfaceDeclaration(
             sport_id=SPORT_ID,
+            adapter_id=ADAPTER_ID,
             valid_markets=("1x2",),
             settlement_units="full_time_result",
             feature_requirements=REQUIRED_FEATURE_IDS,
@@ -86,6 +92,7 @@ class SoccerOneXTwoAdapter(SportAdapter):
         # where none exists. Fail closed unconditionally.
         return ForecastResult(
             sport_id=SPORT_ID,
+            adapter_id=ADAPTER_ID,
             forecast_available=False,
             probabilities=None,
             model_version=None,

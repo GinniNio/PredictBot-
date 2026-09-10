@@ -37,6 +37,12 @@ class NoForecastAdapter(SportAdapter):
     def declaration(self) -> AdapterInterfaceDeclaration:
         return AdapterInterfaceDeclaration(
             sport_id=self._sport_id,
+            # No concrete adapter is registered for this category, so there
+            # is no distinct admitted adapter identity yet either — falls
+            # back to the category id, same as sport_id, which is harmless
+            # here because NoForecastAdapter never reaches the
+            # model-admission lookup (forecast_available is always False).
+            adapter_id=self._sport_id,
             valid_markets=(),
             settlement_units="undeclared_no_adapter",
             feature_requirements=(),
@@ -48,6 +54,7 @@ class NoForecastAdapter(SportAdapter):
     def forecast(self, fixture: dict[str, Any]) -> ForecastResult:
         return ForecastResult(
             sport_id=self._sport_id,
+            adapter_id=self._sport_id,
             forecast_available=False,
             probabilities=None,
             model_version=None,

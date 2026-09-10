@@ -26,18 +26,33 @@ engine never trusts a caller-supplied "I am approved" flag, wherever it
 might appear (a ``decision_input`` field, or a boolean embedded in an
 adapter's own ``ForecastResult``). Instead it takes three plain facts the
 adapter reports about the forecast it actually produced —
-``forecast_quality.sport_id`` (the adapter id), ``forecast_quality.model_version``,
+``forecast_quality.adapter_id`` (never ``sport_id`` — a sport can have
+multiple adapters, e.g. soccer's eventual 1X2/totals/BTTS adapters, each
+with its own distinct admission identity), ``forecast_quality.model_version``,
 and ``forecast_quality.model_artifact_hash`` — and looks up that exact
 triple in the committed, versioned
 ``registries/data/model-admission-registry.yaml`` via
 ``registries/model_admission.py::resolve_model_admission``. That lookup
 resolves fully closed (nothing approved) unless a row exists for the exact
-``(sport_id, model_version)`` pair *and* that row's stored
+``(adapter_id, model_version)`` pair *and* that row's stored
 ``model_artifact_hash`` matches the one reported — a mismatch (stale row,
 or an attempt to piggyback an unapproved model build on an approved
 version's identity) is never trusted. The registry ships with **zero**
 admitted rows in this release, so every lookup resolves closed today,
 structurally, regardless of what any adapter or caller claims.
+
+**Independent of the registry lookup itself, this engine additionally
+refuses to trust the *identity fields* it reads that lookup with at all.**
+``TRUSTED_EXECUTION_PROVENANCE_AVAILABLE`` (``decision/trusted_provenance.py``)
+is fixed to ``False`` in this release: nothing in this codebase yet
+independently verifies that ``forecast_quality``'s ``adapter_id``,
+``model_version``, and ``model_artifact_hash`` actually describe what
+executed, so while this flag is ``False`` the admission lookup's result is
+never trusted to authorize anything — see that module for exactly what
+would need to be true before it could ever flip to ``True``. This is a
+second, independent safety layer: even a hypothetical fully-populated,
+fully-``APPROVED``, hash-matched registry row cannot reach ``PAPER`` or
+``CASH`` while this flag is ``False``.
 
 **Fixed, non-configurable policy — three-tier classification, no admitted
 forecast can ever reach ``CASH``, and PAPER requires more than a forecast
@@ -76,15 +91,20 @@ merely existing.** Once every STOP rule passes:
   contain** — there is no live code path that can produce ``PAPER`` today,
   and that is structural, not incidental.
 - **Tier 3 — a forecast exists and ``backtest_gates_approved`` resolves
-  ``True``** -> if ``evidence.sample_size < evidence.cash_min_sample_size``
-  (a higher bar than the STOP threshold, defaulting to the STOP threshold
-  when unset) **or** the model-admission lookup's
-  ``cash_admission_approved`` is not ``True``, the ceiling is capped at
-  ``PAPER``; otherwise the ceiling is ``CASH``. ``cash_admission_approved``
-  being ``True`` in the registry is a *mechanical* prerequisite only — it
-  must itself only ever be set following the spec's actual manual human
-  sign-off process (section 16); this engine does not perform or replace
-  that sign-off.
+  ``True``** -> ``CASH`` is reachable only when **all three** of the
+  model-admission lookup's flags hold: ``backtest_gates_approved``,
+  ``prospective_approved`` (the spec's prospective/shadow-mode admission
+  gate, section 15 — a model that has cleared backtest gates but is still
+  ``PENDING`` or ``REJECTED`` prospective validation must never reach
+  ``CASH``), **and** ``cash_admission_approved`` (the spec's manual CASH
+  sign-off, section 16). If ``evidence.sample_size <
+  evidence.cash_min_sample_size`` (a higher bar than the STOP threshold,
+  defaulting to the STOP threshold when unset) **or** any of those three
+  flags is not ``True``, the ceiling is capped at ``PAPER``; otherwise the
+  ceiling is ``CASH``. ``cash_admission_approved`` being ``True`` in the
+  registry is a *mechanical* prerequisite only — it must itself only ever be
+  set following the spec's actual manual human sign-off process (section
+  16); this engine does not perform or replace that sign-off.
 
 Both cap points (tier 1 and tier 2) are enforced again as a defensive
 invariant right before the result is returned (see
@@ -138,6 +158,7 @@ from ..errors import (
     STOP_STALE_DATA,
 )
 from ..registries.model_admission import resolve_model_admission
+from .trusted_provenance import TRUSTED_EXECUTION_PROVENANCE_AVAILABLE
 
 REQUIRED_BLOCKS = ("evidence", "freshness", "liquidity", "uncertainty")
 
@@ -190,7 +211,7 @@ def evaluate(
     ``market_profitability`` is one outcome's pricing dict from
     ``pricing.engine.analyze_market`` (must contain ``lower_bound_ev``).
     ``forecast_quality`` is a ``ForecastResult.to_dict()`` from layer 2
-    (must contain ``forecast_available``; ``sport_id``, ``model_version``
+    (must contain ``forecast_available``; ``adapter_id``, ``model_version``
     and ``model_artifact_hash``, when present, are used — never trusted
     blindly — to look up gate approval in the committed model-admission
     registry; see the module docstring). Raises ``DecisionInputError`` if a
@@ -282,12 +303,29 @@ def evaluate(
     # model-admission registry, looked up by the plain facts the adapter
     # reports about the model it actually ran. Any other key a caller or
     # adapter stuffs into forecast_quality (e.g. a forged
-    # "backtest_approved": true) is simply never read below.
+    # "backtest_approved": true) is simply never read below. The lookup key
+    # is adapter_id, never sport_id — a sport can have multiple adapters
+    # (soccer's eventual 1X2/totals/BTTS adapters), each with its own
+    # distinct admission identity.
     admission = resolve_model_admission(
-        forecast_quality.get("sport_id"),
+        forecast_quality.get("adapter_id"),
         forecast_quality.get("model_version"),
         forecast_quality.get("model_artifact_hash"),
     )
+    if not TRUSTED_EXECUTION_PROVENANCE_AVAILABLE:
+        # Independent safety layer (see decision/trusted_provenance.py): the
+        # lookup above still runs (so the lookup mechanism itself stays
+        # exercised and independently testable), but its result is not yet
+        # trusted to authorize anything — nothing today independently
+        # verifies that forecast_quality's adapter_id/model_version/
+        # model_artifact_hash describe what actually executed. Treat
+        # admission as fully closed regardless of what the registry
+        # resolved, until that verification exists.
+        admission = {
+            "backtest_gates_approved": False,
+            "prospective_approved": False,
+            "cash_admission_approved": False,
+        }
     backtest_gates_approved = forecast_available and admission["backtest_gates_approved"]
 
     if not forecast_available or not backtest_gates_approved:
@@ -299,7 +337,15 @@ def evaluate(
     else:
         cash_min_sample_size = evidence.get("cash_min_sample_size", evidence["min_sample_size"])
         below_cash_sample_bar = evidence["sample_size"] < cash_min_sample_size
-        if below_cash_sample_bar or not admission["cash_admission_approved"]:
+        # CASH requires all three admission flags, not just the last one:
+        # backtest gates approved, prospective/shadow-mode approved, AND
+        # cash admission approved.
+        cash_eligible = (
+            admission["backtest_gates_approved"]
+            and admission["prospective_approved"]
+            and admission["cash_admission_approved"]
+        )
+        if below_cash_sample_bar or not cash_eligible:
             classification = "PAPER"
         else:
             classification = "CASH"
