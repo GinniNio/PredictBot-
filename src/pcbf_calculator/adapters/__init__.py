@@ -6,6 +6,7 @@ No per-sport forecasting logic lives here. See
 
 from .base import AdapterInterfaceDeclaration, ForecastResult, SportAdapter
 from .registry import get_adapter, run_forecast
+from .soccer_1x2_stub import SoccerOneXTwoAdapter
 
 __all__ = [
     "AdapterInterfaceDeclaration",
@@ -13,4 +14,7 @@ __all__ = [
     "SportAdapter",
     "get_adapter",
     "run_forecast",
+    # Contract-shape stub only — see soccer_1x2_stub.py. Not registered in
+    # adapters/registry.py::_ADAPTER_IMPLEMENTATIONS.
+    "SoccerOneXTwoAdapter",
 ]

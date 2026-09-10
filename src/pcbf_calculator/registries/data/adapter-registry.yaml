@@ -5,12 +5,28 @@
 # Release A: every category is NOT_IMPLEMENTED (no forecasting adapter yet).
 
 categories:
+  # soccer: a design spec for the first admitted forecasting adapter exists
+  # (docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md, pre-match 1X2 only) and is
+  # under review. No adapter code has been written or trained — this status
+  # is documentation/tracking only and is treated identically to
+  # NOT_IMPLEMENTED at runtime (no entry in adapters/registry.py's
+  # _ADAPTER_IMPLEMENTATIONS, so dispatch still resolves to
+  # NoForecastAdapter and the classification ceiling stays PAPER).
   - id: soccer
-    adapter_status: NOT_IMPLEMENTED
-    adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET
+    adapter_status: DESIGN_IN_PROGRESS
+    adapter_unsupported_reason: FORECASTING_ADAPTER_DESIGN_IN_PROGRESS_NOT_YET_BUILT
     classification_ceiling: PAPER
     feature_requirements: []
     uncertainty_method: null
+  # players_soccer, specials_soccer, antepost_soccer, zoom_soccer and
+  # players_zoom_soccer all sit on top of the same underlying `soccer`
+  # 1X2 result (see sports-registry.yaml's `underlying: soccer`), so a
+  # future soccer 1X2 model may eventually inform them (e.g. correct-score
+  # or BTTS markets derived from the same goal-scoring model). None of them
+  # are covered by docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md, which scopes
+  # itself to pre-match 1X2 only — they stay NOT_IMPLEMENTED until each
+  # gets its own design spec naming its own prediction target, features and
+  # acceptance gates.
   - id: players_soccer
     adapter_status: NOT_IMPLEMENTED
     adapter_unsupported_reason: NO_FORECASTING_ADAPTER_BUILT_YET

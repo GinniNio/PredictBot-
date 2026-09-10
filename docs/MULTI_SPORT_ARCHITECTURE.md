@@ -246,9 +246,12 @@ Every non-`sports-registry.yaml` row's `id` must resolve to a
 resolve to a `kind: sport` row.
 
 **Allowed status enum** (used verbatim for both `runtime_status` and
-`adapter_status` — one shared five-value enum, not two different ones):
+`adapter_status` — one shared enum, not two different ones):
 `PRICING_SUPPORTED`, `FORECAST_ADAPTER_AVAILABLE`, `RESEARCH_ONLY`,
-`UNSUPPORTED_INPUT`, `NOT_IMPLEMENTED`.
+`UNSUPPORTED_INPUT`, `NOT_IMPLEMENTED`, and `DESIGN_IN_PROGRESS` (added by
+the soccer-1X2 design-spec PR — a documentation/tracking value only,
+treated identically to `NOT_IMPLEMENTED` at runtime; see
+`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`).
 
 ## Registry contents — Release A statuses
 
@@ -324,7 +327,16 @@ quality can never be mistaken for ticket profitability.
 - **Release B (future)**: soccer 1X2 forecasting adapter — the first
   concrete `SportAdapter` subclass, registered in
   `adapters/registry.py::_ADAPTER_IMPLEMENTATIONS`, with `soccer`'s
-  `adapter-registry.yaml` row moving to `FORECAST_ADAPTER_AVAILABLE`.
+  `adapter-registry.yaml` row moving to `FORECAST_ADAPTER_AVAILABLE`. The
+  full design spec for this adapter — prediction target, feature
+  requirements, leakage controls, backtest/promotion gates, and the
+  manual CASH sign-off process — is written up in
+  `docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`; `soccer`'s `adapter_status`
+  is `DESIGN_IN_PROGRESS` until that spec's Release-B implementation
+  actually clears the spec's own gates. A contract-shape-only stub,
+  `SoccerOneXTwoAdapter`, exists to prove the `SportAdapter` interface is
+  implementable against that spec, but is not registered and does not
+  change any runtime behavior.
 - **Release C (future)**: tennis match-winner and basketball moneyline
   adapters, same pattern.
 - **Later releases (future)**: adapter priority is decided by actual

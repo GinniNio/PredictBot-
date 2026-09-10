@@ -32,9 +32,21 @@ ALLOWED_STATUSES = {
     "RESEARCH_ONLY",
     "UNSUPPORTED_INPUT",
     "NOT_IMPLEMENTED",
+    # DESIGN_IN_PROGRESS is a documentation/tracking status only (added
+    # alongside docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md): a design spec for
+    # a forecasting adapter exists and is being reviewed, but no adapter
+    # code has been written or trained yet. It must be treated identically
+    # to NOT_IMPLEMENTED for every runtime purpose — the adapter dispatch
+    # framework (adapters/registry.py) does not branch on adapter_status at
+    # all, only on whether a concrete class is registered in
+    # _ADAPTER_IMPLEMENTATIONS (empty for soccer), so this status cannot by
+    # itself unlock PAPER/CASH or any forecast output. See
+    # tests/test_registries.py and tests/test_adapters.py for the
+    # behavior-unchanged proof.
+    "DESIGN_IN_PROGRESS",
 }
 # Both runtime_status (data-sources-registry) and adapter_status
-# (adapter-registry) are drawn from the same five-value enum.
+# (adapter-registry) are drawn from the same shared enum.
 ALLOWED_RUNTIME_STATUSES = ALLOWED_STATUSES
 ALLOWED_ADAPTER_STATUSES = ALLOWED_STATUSES
 
