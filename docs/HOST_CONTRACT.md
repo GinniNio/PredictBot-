@@ -58,3 +58,34 @@ The portable failure record is:
 
 No host may replace a failed or unavailable calculation with an LLM-generated
 probability.
+
+## Supported Hosts
+
+Based on the independent, in-host evidence recorded in
+[HOST_TEST_RESULTS_MATRIX.md](HOST_TEST_RESULTS_MATRIX.md), each project host
+is declared as one of two support levels:
+
+- **`runtime_supported`** — the host can retain the wheel/manifest/input for
+  the session, execute Python, install the wheel offline
+  (`--no-index --no-deps`), and run the CLI twice with byte-identical,
+  hash-verified output. A `runtime_supported` host can carry out the full
+  contract in this document end to end.
+- **`orchestration_supported` / `runtime_unsupported`** — the host can drive
+  the JSON contract and prompt flow (assemble inputs, request a run, parse
+  and relay the resulting JSON) but cannot itself execute the Python wheel.
+  Such a host must delegate execution to a `runtime_supported` host or a
+  human operator, and must emit the `HOST_RUNTIME_UNAVAILABLE` failure record
+  above rather than approximate a result.
+
+| Host | Support level |
+|---|---|
+| ChatGPT Project | `runtime_supported` |
+| Claude Cowork Project | `runtime_supported` |
+| Gemini Project | `orchestration_supported`, `runtime_unsupported` |
+
+Gemini Project can orchestrate the PCBF prompt/JSON flow but cannot execute
+the Python wheel itself (Gemini Projects have no Python execution or offline
+package installation available). No hosted API workaround is being built to
+make Gemini runtime-capable — see `docs/CALCULATOR_KICKOFF.md` for that
+decision and its rationale. This declaration must be revisited only when new
+in-host evidence is added to `HOST_TEST_RESULTS_MATRIX.md`.

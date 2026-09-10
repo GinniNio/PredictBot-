@@ -22,7 +22,7 @@ deterministic JSON, complete opposing-price validation and typed failure.
 
 ## Agent work packages
 
-### Agent A Runtime verification
+### Agent A Runtime verification — DONE
 
 Test the built wheel separately in ChatGPT, Claude Cowork and Gemini.
 
@@ -36,6 +36,15 @@ For each host, record:
 - Any file-retention or upload limitation
 
 Do not share a pass result between hosts. Each host has its own evidence record.
+
+**Status: complete.** All three intended hosts were independently tested.
+ChatGPT Project and Claude Cowork Project each passed (offline install,
+matching SHA-256, byte-identical repeated runs). Gemini Project cannot
+execute Python or install a wheel and correctly reported
+`HOST_RUNTIME_UNAVAILABLE`. There is no formal GitHub milestone tracking this
+work (none exists in this repository), so this line is the closure record.
+Full per-host evidence: `docs/HOST_TEST_RESULTS_MATRIX.md`. Resulting support
+declaration: `docs/HOST_CONTRACT.md` ("Supported Hosts").
 
 ### Agent B Governance integration
 
