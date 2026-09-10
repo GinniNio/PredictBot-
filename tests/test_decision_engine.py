@@ -89,6 +89,39 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(result["market_profitability"], POSITIVE_MARKET)
         self.assertEqual(result["forecast_quality"], FORECAST_AVAILABLE)
 
+    def test_no_forecast_can_never_reach_cash_even_with_perfect_stop_inputs(self):
+        # Hard, non-configurable policy: try every lever a caller controls
+        # (STOP-rule thresholds, evidence sample size, cash_min_sample_size)
+        # to force CASH for a no-forecast category, and confirm none of them
+        # can. Market-implied probabilities alone can never authorize CASH.
+        generous_input = {
+            "evidence": {"sample_size": 1_000_000, "min_sample_size": 1, "cash_min_sample_size": 1},
+            "freshness": {"data_age_seconds": 0, "max_age_seconds": 999999},
+            "liquidity": {"available_stake": 1_000_000, "min_required_stake": 1},
+            "uncertainty": {"width": 0.0, "max_width": 999},
+        }
+        result = evaluate(generous_input, POSITIVE_MARKET, FORECAST_UNAVAILABLE)
+        self.assertEqual(result["status"], "PASSED")
+        self.assertEqual(result["classification"], "PAPER")
+        self.assertNotEqual(result["classification"], "CASH")
+
+    def test_stop_negative_ev_falls_back_to_point_ev_when_lower_bound_unavailable(self):
+        # Release A: lower_bound_ev is null (no admitted adapter supplies
+        # calibrated uncertainty). The rule must still function, using the
+        # real (non-fabricated) point_ev instead of raising or silently
+        # passing.
+        no_lower_bound_market = {"lower_bound_ev": None, "point_ev": -0.01}
+        result = evaluate(PASSING_INPUT, no_lower_bound_market, FORECAST_UNAVAILABLE)
+        self.assertEqual(result["status"], "REJECTED")
+        self.assertEqual(result["stop_rule"], "STOP_NEGATIVE_EV")
+
+    def test_stop_negative_ev_passes_on_positive_point_ev_when_lower_bound_unavailable(self):
+        no_lower_bound_market = {"lower_bound_ev": None, "point_ev": 0.03}
+        result = evaluate(PASSING_INPUT, no_lower_bound_market, FORECAST_UNAVAILABLE)
+        self.assertEqual(result["status"], "PASSED")
+        # Still capped at PAPER: no forecast available.
+        self.assertEqual(result["classification"], "PAPER")
+
     def test_rule_order_stale_data_wins_over_later_rules(self):
         # Both freshness and liquidity fail; STOP_STALE_DATA must fire first.
         broken = dict(PASSING_INPUT)

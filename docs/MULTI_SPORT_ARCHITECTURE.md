@@ -51,30 +51,58 @@ Point EV derivation: `EV = p*payout - (1-p)*stake`, and a decimal price
 already returns the stake on a win (`payout = stake * price`), so
 `EV = p*stake*price - (1-p)*stake = stake*(p*price - 1)`.
 
-**De-vigging method — judgement call, documented as required by the task**:
-the **multiplicative/proportional** method is implemented and is the
-Release A default: normalize implied probabilities to sum to 1. It is the
-simplest method that guarantees a valid probability distribution and is the
-standard baseline in the sports-pricing literature. Shin's method
-(apportioning margin by an assumed insider-trading share) is a reasonable
-alternative for very large outright fields and is noted here as a possible
-Release B+ enhancement, but is **not** implemented in Release A.
+**De-vigging method**: the **multiplicative/proportional** method is
+implemented and is the universal Release A default for every category:
+normalize implied probabilities to sum to 1. It is the simplest method that
+guarantees a valid probability distribution and is the standard baseline in
+the sports-pricing literature. It is selected through a small pluggable
+registry (`_DE_VIG_METHODS` in `pricing/engine.py`) rather than hardcoded
+inline, so a future, explicitly-approved Release B+ method (e.g. Shin's
+method, which apportions margin by an assumed insider-trading share — a
+reasonable alternative for very large outright fields) can be registered
+and selected per-adapter without changing this engine's call sites. An
+unrecognized `de_vig_method` fails closed with the typed
+`UNSUPPORTED_DE_VIG_METHOD` code rather than silently falling back to the
+default. Every calculation result records which method actually ran via
+`de_vig_method`.
 
-**Lower-bound EV method — judgement call, documented as required by the
-task**: a Wilson-score lower confidence bound is computed on the fair
-probability and substituted into the same EV formula. There is no real
-historical win/loss ledger wired into this layer yet, so the de-vigged
-probability is treated as if it were an observed proportion from an
-`effective_sample_size` of Bernoulli trials. Release A defaults to
-`effective_sample_size=200`, `z=1.645` (a 95% one-sided lower bound). These
-are conservative, arbitrary-but-documented defaults; once a real historical
-calibration ledger exists, `effective_sample_size` should be replaced with
-an evidence-derived value (this is exactly the kind of adapter-provided
-uncertainty method layer 2 will supply in Release B/C).
+**Lower-bound EV — resolved decision: unavailable until an admitted adapter
+supplies real uncertainty.** A previous version of this engine computed a
+Wilson-score lower confidence bound by treating the de-vigged probability as
+an observed proportion from an *invented* `effective_sample_size=200`
+(`z=1.645`). That was a bug, not a conservative default: proportional de-vig
+by construction makes point EV nearly identical across every outcome in a
+market, and layering a confidence bound derived from a hardcoded constant on
+top of it manufactured the *appearance* of differentiated signal between
+outcomes where none of it was real — the differentiation came entirely from
+the arbitrary constant, not from any actual uncertainty data. That code path
+has been removed outright; it must not be reintroduced in any form (no
+Wilson bound, or any other confidence bound, computed from an invented or
+hardcoded sample size, anywhere in this codebase).
 
-**Market-derived ranking**: outcomes are additionally ranked by descending
-point EV (`ranking_by_point_ev`). This ranks market value only — it is never
-a sport prediction.
+The correct behavior, and what Release A now does: a real Wilson-score
+lower bound needs real calibrated uncertainty (a sample size, variance, or
+whatever the applicable `uncertainty_method` actually requires) about the
+fair-probability estimate, and no admitted forecasting adapter exists yet to
+supply that (see layer 2 below — every category resolves to
+`NoForecastAdapter` in Release A). So for every category, every outcome's
+`lower_bound_ev` and `lower_bound_probability` are `null`, and
+`lower_bound_ev_reason` carries the typed code `UNCERTAINTY_UNAVAILABLE`.
+This is not a placeholder pending a decision — it is the honest, resolved
+answer given the current state of the world.
+
+The schema still leaves room for the real thing: `analyze_market` accepts an
+optional `uncertainty` mapping (outcome name -> `{"sample_size": N, "z": Z}`)
+that a future admitted adapter can populate with data it actually calibrated
+(e.g. a real historical win/loss ledger). When that mapping supplies an
+outcome's real sample size, the engine computes a genuine Wilson-score bound
+from it, sets `uncertainty_method` (e.g. `"wilson_score"`), and clears
+`lower_bound_ev_reason` to `null`. Release A's CLI never populates this
+mapping, because no admitted adapter exists yet to calibrate it.
+
+**Market-derived ranking**: see decision 5 below (`market_quality`) —
+Release A ranks *markets*, by completeness/margin/evidence-quality signals,
+never outcomes.
 
 **Tests** (`tests/test_pricing_engine.py`): two-way, three-way, N-way (8
 outcomes), incomplete prices, invalid price types (string/null/bool/NaN/
@@ -126,15 +154,31 @@ hardcoded or fake classifier; every threshold comes from the request JSON.
 2. `STOP_INSUFFICIENT_EVIDENCE` — `evidence.sample_size < evidence.min_sample_size`
 3. `STOP_INSUFFICIENT_LIQUIDITY` — `liquidity.available_stake < liquidity.min_required_stake`
 4. `STOP_EXCESSIVE_UNCERTAINTY` — `uncertainty.width > uncertainty.max_width`
-5. `STOP_NEGATIVE_EV` — the priced outcome's `lower_bound_ev` (layer 1) is `<= 0`
+5. `STOP_NEGATIVE_EV` — the priced outcome's confidence-bounded EV is `<= 0`.
+   Layer 1 only produces a real `lower_bound_ev` once an admitted adapter
+   supplies calibrated uncertainty (Release A: never). When `lower_bound_ev`
+   is `null`, this rule evaluates `point_ev` instead — still real,
+   non-fabricated de-vigged market math, just without a confidence bound.
+   This is safe only because passing this rule can never by itself
+   authorize `CASH` (see the fixed policy below) — at most it lets a
+   no-forecast category reach `PAPER`.
 
-**Classification ceiling, once every rule passes** — **judgement call**:
+**Classification ceiling, once every rule passes — fixed, non-configurable
+policy, settled (not open for revision):**
 - if `forecast.forecast_available` is `False` (true for every category in
   Release A, since no adapter exists yet), the ceiling is capped at
-  `PAPER`. Rationale: this is a product/risk decision, not a math one —
-  market-derived profitability alone, without an independently validated
-  forecast, should never authorize real capital. Flagged explicitly as a
-  business judgement call rather than an engineering necessity.
+  `PAPER`, unconditionally. There is no decision-input field, STOP-rule
+  combination, or evidence value that can move it. Rationale: market-implied
+  probabilities can support research and price comparison, but they cannot
+  prove a betting edge measured against the same market they were derived
+  from — that would be circular. Only an independently admitted forecast
+  (layer 2) can authorize `CASH`. This is enforced twice: once by the
+  branch order in `decision/engine.py::evaluate`, and again by a defensive
+  invariant assertion (`_assert_no_forecast_never_cash`) immediately before
+  the result is returned, so there is no code path — today or added later
+  by mistake — where a `forecast_available: false` category can reach
+  `CASH`. `tests/test_decision_engine.py` proves this cannot be bypassed
+  even when every STOP-rule input is made maximally generous.
 - otherwise, if `evidence.sample_size < evidence.cash_min_sample_size` (a
   higher, optional bar than the STOP threshold; defaults to
   `min_sample_size` when omitted), the ceiling is also capped at `PAPER`.
@@ -191,7 +235,10 @@ sensibly rather than repeat everything everywhere):
 - `data-sources-registry.yaml` — data-source facts: `id`, `runtime_status`
   (one of the five allowed statuses — whether layer 1 pricing can run
   today), `runtime_unsupported_reason`, `data_sources` (flow list of
-  required feed ids).
+  required feed ids), and an optional `pricing_supported_requires` present
+  only on rows held below `PRICING_SUPPORTED` pending a named engineering
+  prerequisite (Release A: `specials_combo` only, naming
+  `CORRELATION_AWARE_COMBO_PRICING_METHOD`).
 
 Every non-`sports-registry.yaml` row's `id` must resolve to a
 `sports-registry.yaml` row (the cross-reference check); every
@@ -211,17 +258,27 @@ statuses:
 
 - **31 categories**: `runtime_status = PRICING_SUPPORTED`,
   `adapter_status = NOT_IMPLEMENTED`, `classification_ceiling = PAPER`.
-- **`specials_combo`** (judgement call, explicitly called out by the task
-  as possibly needing special handling): `runtime_status = RESEARCH_ONLY`,
-  `classification_ceiling = RESEARCH-MODEL`. Rationale: the universal N-way
-  de-vig math assumes one mutually-exclusive, exhaustive market. A combo/
-  parlay is a product of correlated legs, potentially spanning multiple
-  sports and market types at once; treating its combined price as a single
-  N-way market and de-vigging it the same way would silently misstate the
-  fair probability (it ignores leg correlation entirely). Until a
-  correlation-aware combo pricing method is designed, the platform
-  fail-closes this category at the CLI level (`UNSUPPORTED_INPUT`) rather
-  than emit a pricing result that looks legitimate but is not.
+- **`specials_combo`**: `runtime_status = RESEARCH_ONLY`,
+  `classification_ceiling = RESEARCH-MODEL`, and this stays fixed until a
+  named engineering prerequisite is met — it is not a placeholder pending a
+  product decision. Rationale: the universal N-way de-vig math assumes one
+  mutually-exclusive, exhaustive market. A combo/parlay is a product of
+  correlated legs, potentially spanning multiple sports and market types at
+  once; treating its combined price as a single N-way market and de-vigging
+  it the same way would silently misstate the fair probability (it ignores
+  leg correlation entirely). `specials_combo` may only move to
+  `PRICING_SUPPORTED` once a **correlation-aware** calculation method exists
+  and is implemented — the same N-way math this engine already runs for
+  every other category is explicitly not sufficient and must never be
+  applied to this category as-is. This requirement is recorded mechanically,
+  not just here: `data-sources-registry.yaml`'s `specials_combo` row carries
+  `pricing_supported_requires: CORRELATION_AWARE_COMBO_PRICING_METHOD`
+  alongside its existing `runtime_unsupported_reason:
+  COMBO_LEG_CORRELATION_NOT_MODELED`, and
+  `tests/test_registries.py::test_specials_combo_names_its_correlation_aware_pricing_prerequisite`
+  asserts both are present. Until then, the platform fail-closes this
+  category at the CLI level (`UNSUPPORTED_INPUT`) rather than emit a pricing
+  result that looks legitimate but is not.
 - **`outrights`**: deliberately kept at `PRICING_SUPPORTED` /
   `PAPER` — unlike a combo, an outright market ("who wins the tournament")
   is a single mutually-exclusive, exhaustive N-way market over the entire
@@ -235,6 +292,8 @@ statuses:
 |---|---|---|
 | `INCOMPLETE_OPPOSING_PRICES` | 1 | Fewer than two outcomes, or no price map at all. |
 | `INVALID_PRICE_VALUE` | 1 | A price was non-numeric, boolean, non-finite, or `<= 1.0`. |
+| `UNSUPPORTED_DE_VIG_METHOD` | 1 | Requested `de_vig_method` is not one of the approved, registered methods. |
+| `UNCERTAINTY_UNAVAILABLE` | 1 | Per-outcome reason (not a CLI failure): no admitted adapter has supplied real calibrated uncertainty, so `lower_bound_ev`/`lower_bound_probability` are `null`. True for every category in Release A. |
 | `INVALID_REQUEST` | CLI | A required top-level field (`event_id`, `category`, `stake`, `selected_outcome`) was missing or malformed. |
 | `UNSUPPORTED_INPUT` | CLI/registries | Category resolves but its `runtime_status` is not `PRICING_SUPPORTED` (Release A: `specials_combo`). |
 | `UNSUPPORTED_SPORT_MARKET_COMBINATION` | 2 | Category id is not present in any registry at all. |
@@ -273,32 +332,52 @@ quality can never be mistaken for ticket profitability.
   platform only records the sequence already agreed with the task, it does
   not re-prioritize it.
 
-## Open questions / judgement calls made in this PR (flagged, not blocking)
+## Settled decisions (corrected in the integrity-fix PR)
 
-These were treated as reasonable defaults per the task's instruction not to
-block on ambiguity, but are flagged here as points a human may want to
-revisit:
+A previous version of this document listed several of these as "open
+questions... a human may want to revisit." Decisions 1-4 below are now
+resolved policy, not placeholders — this section records what was decided
+and why, for future contributors, rather than flagging them as pending.
 
-1. **De-vig method**: multiplicative/proportional chosen as the documented
-   default over Shin's method (math choice, low risk either way for
-   Release A's purposes; see layer 1 section above).
-2. **Lower-bound EV uncertainty model**: Wilson score bound with
-   `effective_sample_size=200`, `z=1.645`. These constants are arbitrary in
-   the absence of a real ledger and should be replaced with ledger-derived
-   values as soon as one exists (product decision: how conservative should
-   the platform be before any real settlement history exists?).
-3. **No-forecast implies PAPER ceiling, never CASH** — a business/risk
-   decision, not a math one. An alternative design could let a
-   sufficiently profitable market-only price reach `CASH` without any
-   forecast; this PR intentionally does not allow that.
+1. **De-vig method**: multiplicative/proportional is the universal Release A
+   default over Shin's method, and is implemented through a pluggable
+   registry (`_DE_VIG_METHODS`) rather than hardcoded — a future,
+   explicitly-approved Release B+ method can be added without changing
+   engine call sites. No change to the core de-vig math itself. See layer 1
+   above.
+2. **Lower-bound EV**: resolved as `null` with typed reason
+   `UNCERTAINTY_UNAVAILABLE` for every category in Release A, replacing the
+   removed Wilson-score-from-invented-`effective_sample_size=200` bug (see
+   layer 1 above for the full rationale). This is not conservative-but-
+   arbitrary the way the old constant was — it is the honest answer given
+   that no admitted adapter supplies real uncertainty data yet, and the
+   schema (the optional `uncertainty` parameter to `analyze_market`) is
+   ready to carry real calibrated data the moment one does.
+3. **No-forecast implies `PAPER` ceiling, never `CASH`** — settled, fixed,
+   non-configurable policy (see layer 3 above). Market-implied probabilities
+   can support research and price comparison, but cannot prove a betting
+   edge measured against the same market they were derived from; that would
+   be circular. There is no code path, decision-input value, or STOP-rule
+   combination that can move a no-forecast category to `CASH`, and this is
+   asserted defensively at runtime in addition to being tested.
 4. **`specials_combo` marked `RESEARCH_ONLY` rather than
-   `PRICING_SUPPORTED`** — a product decision about whether the platform
-   should attempt (documented, imperfect) combo pricing now versus waiting
-   for a correlation-aware method. This PR chose to wait and fail closed.
-5. **Category id taxonomy** (e.g. `cross_country`, `alpine` as separate
+   `PRICING_SUPPORTED`** — settled: it stays `RESEARCH_ONLY` until a
+   correlation-aware combo pricing method is designed and implemented; the
+   registry names this prerequisite mechanically
+   (`pricing_supported_requires: CORRELATION_AWARE_COMBO_PRICING_METHOD`)
+   rather than leaving it as tribal knowledge. See the layer-1 registry
+   section above.
+5. **Ranking scope**: Release A may rank *markets* (by completeness, margin,
+   evidence quality — the `market_quality` object every `analyze_market`
+   result carries) but must never rank *outcomes* within a market as
+   implied betting recommendations without an independent admitted
+   forecast. The previous `ranking_by_point_ev` field (a descending-point-EV
+   ordering of outcomes) has been removed for exactly that reason: point EV
+   under proportional de-vig alone does not represent a validated edge, and
+   presenting it as an ordered "best bet" list implied one. See layer 1
+   above.
+6. **Category id taxonomy** (e.g. `cross_country`, `alpine` as separate
    sport ids rather than sub-disciplines of one "skiing" sport) follows the
    Bet9ja category list literally as given in the task rather than
-   imposing an additional taxonomy layer.
-
-None of the above blocked shipping this PR; all are explicit, documented
-defaults rather than silent guesses.
+   imposing an additional taxonomy layer — still an open, low-risk
+   judgement call, unaffected by this PR.

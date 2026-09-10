@@ -2,6 +2,13 @@
 # Data-source facts per category: whether layer 1 pricing can run today
 # (runtime_status) and what feeds it depends on. 'id' cross-references
 # sports-registry.yaml.
+#
+# 'pricing_supported_requires' is an optional field, present only on rows
+# that are held below PRICING_SUPPORTED pending a named engineering
+# prerequisite (Release A: specials_combo only). It exists so the blocker is
+# mechanical, not tribal knowledge: a future contributor must resolve the
+# named prerequisite (build and land the named method) before flipping
+# runtime_status to PRICING_SUPPORTED for that row.
 
 categories:
   - id: soccer
@@ -20,6 +27,7 @@ categories:
     runtime_status: RESEARCH_ONLY
     runtime_unsupported_reason: COMBO_LEG_CORRELATION_NOT_MODELED
     data_sources: [bet9ja_market_prices_feed]
+    pricing_supported_requires: CORRELATION_AWARE_COMBO_PRICING_METHOD
   - id: antepost_soccer
     runtime_status: PRICING_SUPPORTED
     runtime_unsupported_reason: null
