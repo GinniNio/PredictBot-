@@ -1,0 +1,15 @@
+{
+  "artifact_id": "PCBF_RUNTIME_PROBE",
+  "artifact_version": "0.0.1",
+  "calculation_hash": "sha256:9ace3d778f6f24a478d17a737f9e53c5f1ed50d932b07f78dc43dedea8e424aa",
+  "classification_ceiling": "RESEARCH-MODEL",
+  "event_id": "runtime-proof-001",
+  "failure": null,
+  "input_hash": "sha256:d5fbe65ee32f7fdfdd22c2af532a118aa314c081bb94f5ed3b4c0e353cf14cf5",
+  "probabilities": {
+    "away": 0.27,
+    "draw": 0.28,
+    "home": 0.45
+  },
+  "status": "RUNTIME_PROBE"
+}

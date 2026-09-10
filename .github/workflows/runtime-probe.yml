@@ -1,0 +1,30 @@
+name: Runtime probe
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run standard-library tests
+        run: PYTHONPATH=src python -m unittest discover -s tests -v
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Test offline wheel installation
+        run: |
+          python -m venv runtime-test
+          runtime-test/bin/python -m pip install --no-index --no-deps dist/*.whl
+          runtime-test/bin/python -m pcbf_football examples/mock-fixture.json result-a.json
+          runtime-test/bin/python -m pcbf_football examples/mock-fixture.json result-b.json
+          cmp result-a.json result-b.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pcbf-runtime-probe-wheel
+          path: dist/*.whl
