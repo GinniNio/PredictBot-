@@ -15,16 +15,41 @@ jobs:
           python-version: "3.11"
       - name: Run standard-library tests
         run: PYTHONPATH=src python -m unittest discover -s tests -v
-      - name: Build wheel
+      - name: Build wheel (single build step)
         run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Generate completed release manifest
+        run: |
+          wheel_file="$(ls dist/*.whl)"
+          python scripts/generate_manifest.py \
+            --wheel "$wheel_file" \
+            --commit-sha "${{ github.sha }}" \
+            --output release-manifest.json
+      - name: Verify manifest against the built wheel
+        run: |
+          wheel_file="$(ls dist/*.whl)"
+          python scripts/verify_artifact.py "$wheel_file" release-manifest.json
       - name: Test offline wheel installation
         run: |
+          wheel_file="$(ls dist/*.whl)"
           python -m venv runtime-test
-          runtime-test/bin/python -m pip install --no-index --no-deps dist/*.whl
+          runtime-test/bin/python -m pip install --no-index --no-deps "$wheel_file"
           runtime-test/bin/python -m pcbf_football examples/mock-fixture.json result-a.json
           runtime-test/bin/python -m pcbf_football examples/mock-fixture.json result-b.json
           cmp result-a.json result-b.json
+          cmp result-a.json examples/expected-result.json
+      - name: Assemble host test pack
+        run: |
+          wheel_file="$(ls dist/*.whl)"
+          mkdir -p host-test-pack
+          cp "$wheel_file" host-test-pack/
+          cp release-manifest.json host-test-pack/
+          cp scripts/verify_artifact.py host-test-pack/
+          cp docs/HOST_CONTRACT.md host-test-pack/
+          cp docs/HOST_TEST_CHECKLIST.md host-test-pack/
+          cp docs/HOST_TEST_RESULTS_MATRIX.md host-test-pack/
+          cp examples/mock-fixture.json host-test-pack/
+          cp examples/expected-result.json host-test-pack/
       - uses: actions/upload-artifact@v4
         with:
-          name: pcbf-runtime-probe-wheel
-          path: dist/*.whl
+          name: pcbf-runtime-host-test-pack
+          path: host-test-pack/*
