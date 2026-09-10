@@ -1,0 +1,1512 @@
+{
+  "summary_table": [],
+  "label_counts": {
+    "LIVE_SOURCE_VALIDATED": 0,
+    "FIXTURE_ONLY_VALIDATED": 0,
+    "SOURCE_NOT_USABLE": 0
+  },
+  "column_drift_findings": [],
+  "entries": [],
+  "source_attempts": [
+    {
+      "league_code": "E0",
+      "season": "9394",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "CONNECTION_ERROR",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "9495",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "CONNECTION_ERROR",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "9596",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "9697",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "9798",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "9899",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "9900",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0001",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0102",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0203",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0304",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0405",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0506",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0607",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0708",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0809",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "0910",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1011",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1112",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1213",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1314",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1415",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1516",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1617",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1718",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1819",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "1920",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "2021",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "2122",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "2223",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "2324",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "2425",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "E0",
+      "season": "2526",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "9394",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "9495",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "9596",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "9697",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "9798",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "9899",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "9900",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0001",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0102",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0203",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0304",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0405",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0506",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0607",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0708",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0809",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "0910",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1011",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1112",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1213",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1314",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1415",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1516",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1617",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1718",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1819",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "1920",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "2021",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "2122",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "2223",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "2324",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "2425",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "D1",
+      "season": "2526",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "9394",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "9495",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "9596",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "9697",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "9798",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "9899",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "9900",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0001",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0102",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0203",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0304",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0405",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0506",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0607",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0708",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0809",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "0910",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1011",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1112",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1213",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1314",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1415",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1516",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1617",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1718",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1819",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "1920",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "2021",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "2122",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "2223",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "2324",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "2425",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "SP1",
+      "season": "2526",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "9394",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "9495",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "9596",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "9697",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "9798",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "9899",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "9900",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0001",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0102",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0203",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0304",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0405",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0506",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0607",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0708",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0809",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "0910",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1011",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1112",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1213",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1314",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1415",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1516",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1617",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1718",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1819",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "1920",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "2021",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "2122",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "2223",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "2324",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "2425",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "I1",
+      "season": "2526",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "9394",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "9495",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "9596",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "9697",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "9798",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "9899",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "9900",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0001",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0102",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0203",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0304",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0405",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0506",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0607",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0708",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0809",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "0910",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1011",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1112",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1213",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1314",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1415",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1516",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1617",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1718",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1819",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "1920",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "2021",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "2122",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "2223",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "2324",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_ATTEMPTED_HOST_BLOCKED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "2425",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    },
+    {
+      "league_code": "F1",
+      "season": "2526",
+      "source_label": "SOURCE_NOT_LISTED",
+      "download_status": "SOURCE_NOT_LISTED",
+      "validation_status": "NOT_RUN",
+      "total_rows": null,
+      "usable_fixtures": null
+    }
+  ],
+  "source_attempts_summary": {
+    "total_rows": 165,
+    "download_status_counts": {
+      "CONNECTION_ERROR": 2,
+      "NOT_ATTEMPTED_HOST_BLOCKED": 153,
+      "SOURCE_NOT_LISTED": 10
+    },
+    "source_label_counts": {
+      "LIVE_SOURCE_VALIDATED": 0,
+      "FIXTURE_ONLY_VALIDATED": 155,
+      "SOURCE_NOT_USABLE": 0,
+      "SOURCE_NOT_LISTED": 10
+    }
+  },
+  "note": "No real football-data.co.uk download succeeded in this environment (2 league-season file(s) actually attempted over the network, 153 more skipped by the circuit breaker once a host-level denial was confirmed \u2014 see data_pipeline/retrieval_log.json's failed_attempts[]/circuit_breaker). This report's source_attempts[] (165 rows) is the real, honest per-(league, season) record \u2014 it is NEVER populated from the hand-crafted test fixtures. Those fixtures prove only the pipeline's parsing/validation logic, never real dataset usability, and are reported separately in data_pipeline/reports/fixture_validation_report.json. See data_pipeline/FEASIBILITY_DECISION.md."
+}
