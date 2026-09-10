@@ -18,17 +18,38 @@ Every league-season row is explicitly labeled with exactly one of:
                             downloaded from football-data.co.uk in this
                             environment and run through schema-inspection/
                             validation against that real, live-fetched
-                            file.
+                            file, and that real content passed validation
+                            well enough to be usable.
   FIXTURE_ONLY_VALIDATED  — this league-season was only exercised against
                             a small hand-crafted test fixture, or a real
-                            download attempt failed/was blocked.
+                            download attempt failed/was blocked (i.e. no
+                            real Football-Data content was ever obtained
+                            to judge one way or the other).
+  SOURCE_NOT_USABLE       — a live download DID complete with real
+                            Football-Data content for this league-season,
+                            but that real content fails validation badly
+                            enough to be unusable (e.g. required odds
+                            columns missing entirely, a garbled/unparseable
+                            format, or insufficient row volume). This is a
+                            genuine NEGATIVE FINDING about the source
+                            itself, only ever assigned from real observed
+                            evidence of a real downloaded file — never used
+                            as a stand-in for "we couldn't test it" (that
+                            case is always FIXTURE_ONLY_VALIDATED, never
+                            SOURCE_NOT_USABLE, even if the reason is a
+                            failed/blocked download).
 
 A hand-crafted test fixture can only ever prove the PARSER's behavior
 (does the code correctly detect a duplicate fixture, a bad date format,
 missing odds, etc.) — it can never prove SOURCE COMPATIBILITY or DATASET
 USABILITY for a real league/season. `FIXTURE_ONLY_VALIDATED` rows must
 never be read as "this league-season is usable" — see
-`data_pipeline/FEASIBILITY_DECISION.md`.
+`data_pipeline/FEASIBILITY_DECISION.md`. As of this pipeline's most recent
+run, zero real downloads succeeded (see FEASIBILITY_DECISION.md), so no
+report row has ever actually been assigned `SOURCE_NOT_USABLE` yet — the
+label is defined and validated here so a future run against real
+downloaded-but-bad data has somewhere correct to land, per its own
+merits, rather than being forced into one of the other two labels.
 
 Stdlib only (json). No new runtime dependency.
 """
@@ -50,21 +71,73 @@ from data_pipeline.validation import validate_file
 
 LIVE_SOURCE_VALIDATED = "LIVE_SOURCE_VALIDATED"
 FIXTURE_ONLY_VALIDATED = "FIXTURE_ONLY_VALIDATED"
+SOURCE_NOT_USABLE = "SOURCE_NOT_USABLE"
+
+# The complete, closed set of valid `source_label` values for a feasibility
+# report entry. See the module docstring above for what each one means and
+# when it may (and may not) be assigned.
+VALID_SOURCE_LABELS = (LIVE_SOURCE_VALIDATED, FIXTURE_ONLY_VALIDATED, SOURCE_NOT_USABLE)
 
 
-def build_entry(
+def _validate_label(label: str) -> None:
+    if label not in VALID_SOURCE_LABELS:
+        raise ValueError(
+            f"label must be one of {', '.join(VALID_SOURCE_LABELS)}, got {label!r}"
+        )
+
+
+# Core columns without which a downloaded file cannot even identify a
+# fixture or its result at all — their absence is the bright line between
+# "a real file that's merely imperfect" (still LIVE_SOURCE_VALIDATED,
+# individual rows rejected as usual) and "a real file that cannot support
+# this pipeline's minimum needs" (SOURCE_NOT_USABLE).
+_MINIMUM_REQUIRED_CORE_COLUMNS = (
+    "home_team",
+    "away_team",
+    "full_time_result",
+    "full_time_home_goals",
+    "full_time_away_goals",
+)
+
+
+def classify_live_download(
+    schema_result_core_columns_absent: list[str],
+    total_rows: int,
+    usable_fixtures: int,
+) -> str:
+    """Decide LIVE_SOURCE_VALIDATED vs. SOURCE_NOT_USABLE for a file that
+    WAS actually downloaded from a real source (never called for a fixture-
+    only run — that path always uses FIXTURE_ONLY_VALIDATED directly).
+
+    Only ever invoked on real observed validation evidence from a real
+    downloaded file — this is what lets a future run with real
+    downloaded-but-bad data land on SOURCE_NOT_USABLE correctly, rather
+    than being forced into LIVE_SOURCE_VALIDATED (which would overstate
+    usability) or FIXTURE_ONLY_VALIDATED (which would understate that a
+    real download actually happened)."""
+
+    missing_identity_columns = [c for c in _MINIMUM_REQUIRED_CORE_COLUMNS if c in schema_result_core_columns_absent]
+    if missing_identity_columns:
+        return SOURCE_NOT_USABLE
+    if total_rows == 0:
+        return SOURCE_NOT_USABLE
+    if usable_fixtures == 0:
+        # Every single row failed validation — the file is real, but
+        # nothing in it is usable for this pipeline.
+        return SOURCE_NOT_USABLE
+    return LIVE_SOURCE_VALIDATED
+
+
+def _assemble_entry(
     league_code: str,
     league_name: str,
     season_label: str,
     csv_path: Path,
     label: str,
+    schema_result,
+    validation_result,
 ) -> dict[str, Any]:
-    if label not in (LIVE_SOURCE_VALIDATED, FIXTURE_ONLY_VALIDATED):
-        raise ValueError(f"label must be one of LIVE_SOURCE_VALIDATED/FIXTURE_ONLY_VALIDATED, got {label!r}")
-
-    schema_result = inspect_file(csv_path)
-    validation_result = validate_file(csv_path)
-
+    _validate_label(label)
     return {
         "league_code": league_code,
         "league_name": league_name,
@@ -81,6 +154,50 @@ def build_entry(
         "core_columns_absent": schema_result.core_columns_absent,
         "header": schema_result.header,
     }
+
+
+def build_entry(
+    league_code: str,
+    league_name: str,
+    season_label: str,
+    csv_path: Path,
+    label: str,
+) -> dict[str, Any]:
+    """Build one feasibility-report entry with an EXPLICIT, caller-supplied
+    label (one of `VALID_SOURCE_LABELS`). Use this for `FIXTURE_ONLY_VALIDATED`
+    entries (the label is known in advance — it's a fixture, not a live
+    download) or when the caller has already independently decided the
+    label. For a file that was actually downloaded from a real source, use
+    `build_live_entry` instead, which classifies LIVE_SOURCE_VALIDATED vs.
+    SOURCE_NOT_USABLE from the real validation evidence rather than
+    assuming success."""
+
+    schema_result = inspect_file(csv_path)
+    validation_result = validate_file(csv_path)
+    return _assemble_entry(league_code, league_name, season_label, csv_path, label, schema_result, validation_result)
+
+
+def build_live_entry(
+    league_code: str,
+    league_name: str,
+    season_label: str,
+    csv_path: Path,
+) -> dict[str, Any]:
+    """Build one feasibility-report entry for a file that WAS actually
+    downloaded from football-data.co.uk. The label is never assumed to be
+    LIVE_SOURCE_VALIDATED just because a download succeeded — it is
+    classified from the real schema-inspection/validation evidence via
+    `classify_live_download`, landing on SOURCE_NOT_USABLE when the real
+    downloaded content is too broken/incomplete to use."""
+
+    schema_result = inspect_file(csv_path)
+    validation_result = validate_file(csv_path)
+    label = classify_live_download(
+        schema_result.core_columns_absent,
+        validation_result.total_rows,
+        validation_result.usable_fixtures,
+    )
+    return _assemble_entry(league_code, league_name, season_label, csv_path, label, schema_result, validation_result)
 
 
 def build_report(entries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -101,7 +218,7 @@ def build_report(entries: list[dict[str, Any]]) -> dict[str, Any]:
         for e in entries
     ]
 
-    label_counts = {LIVE_SOURCE_VALIDATED: 0, FIXTURE_ONLY_VALIDATED: 0}
+    label_counts = {label: 0 for label in VALID_SOURCE_LABELS}
     for e in entries:
         label_counts[e["source_label"]] = label_counts.get(e["source_label"], 0) + 1
 
@@ -140,15 +257,21 @@ def write_report(report: dict[str, Any], json_path: Path, markdown_path: Path) -
 
     lines = ["# Football-Data feasibility report", ""]
     lines.append(
-        "Every row below is labeled `LIVE_SOURCE_VALIDATED` (a real football-data.co.uk "
-        "download, run through this pipeline in this environment) or `FIXTURE_ONLY_VALIDATED` "
-        "(only a hand-crafted test fixture was exercised, or the real download failed/was "
-        "blocked — this label never implies real-world source compatibility or dataset "
-        "usability for that league-season). See `data_pipeline/FEASIBILITY_DECISION.md`."
+        "Every row below is labeled with exactly one of three defined values: "
+        "`LIVE_SOURCE_VALIDATED` (a real football-data.co.uk download, run through this "
+        "pipeline in this environment, that passed validation well enough to be usable), "
+        "`FIXTURE_ONLY_VALIDATED` (only a hand-crafted test fixture was exercised, or the "
+        "real download failed/was blocked — no real Football-Data content was ever obtained "
+        "to judge this league-season one way or the other), or `SOURCE_NOT_USABLE` (a real "
+        "download DID complete with real Football-Data content, but that real content fails "
+        "validation badly enough to be unusable — a genuine negative finding about the "
+        "source itself, never a stand-in for \"couldn't test it\", which stays "
+        "`FIXTURE_ONLY_VALIDATED`). See `data_pipeline/FEASIBILITY_DECISION.md`."
     )
     lines.append("")
     lines.append(f"LIVE_SOURCE_VALIDATED rows: {report['label_counts'].get(LIVE_SOURCE_VALIDATED, 0)}")
     lines.append(f"FIXTURE_ONLY_VALIDATED rows: {report['label_counts'].get(FIXTURE_ONLY_VALIDATED, 0)}")
+    lines.append(f"SOURCE_NOT_USABLE rows: {report['label_counts'].get(SOURCE_NOT_USABLE, 0)}")
     lines.append("")
     lines.append("## League x season x label summary")
     lines.append("")
@@ -223,21 +346,28 @@ def main() -> None:
         for d in retrieval_log.get("downloads", []):
             raw_path = REPO_ROOT / d["raw_path"]
             if raw_path.exists():
+                # Never assume a completed download is automatically
+                # usable — build_live_entry classifies LIVE_SOURCE_VALIDATED
+                # vs. SOURCE_NOT_USABLE from the real validation evidence.
                 entries.append(
-                    build_entry(
+                    build_live_entry(
                         d["league_code"],
                         d["league_name"],
                         d["season_code"],
                         raw_path,
-                        LIVE_SOURCE_VALIDATED,
                     )
                 )
 
     if entries:
         report = build_report(entries)
+        live_count = sum(1 for e in entries if e["source_label"] == LIVE_SOURCE_VALIDATED)
+        not_usable_count = sum(1 for e in entries if e["source_label"] == SOURCE_NOT_USABLE)
         note = (
-            f"{len(entries)} league-season file(s) were LIVE_SOURCE_VALIDATED from a real "
-            "football-data.co.uk download in this environment; see data_pipeline/retrieval_log.json."
+            f"{len(entries)} league-season file(s) were actually downloaded from "
+            f"football-data.co.uk in this environment: {live_count} classified "
+            f"LIVE_SOURCE_VALIDATED, {not_usable_count} classified SOURCE_NOT_USABLE "
+            "(real content downloaded, but too broken/incomplete to use). "
+            "See data_pipeline/retrieval_log.json."
         )
     else:
         report = build_fixture_only_report()
@@ -245,7 +375,10 @@ def main() -> None:
             "No real football-data.co.uk download succeeded in this environment "
             "(see data_pipeline/retrieval_log.json's failed_attempts[]) — every entry below is "
             "FIXTURE_ONLY_VALIDATED, proving only the pipeline's parsing/validation logic, "
-            "never real dataset usability. See data_pipeline/FEASIBILITY_DECISION.md."
+            "never real dataset usability. (SOURCE_NOT_USABLE is a third, defined label for a "
+            "real download that completes but fails validation badly — it is never assigned "
+            "when, as here, no real download succeeded at all; that case is always "
+            "FIXTURE_ONLY_VALIDATED.) See data_pipeline/FEASIBILITY_DECISION.md."
         )
     report["note"] = note
 

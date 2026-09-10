@@ -57,7 +57,8 @@
   ],
   "label_counts": {
     "LIVE_SOURCE_VALIDATED": 0,
-    "FIXTURE_ONLY_VALIDATED": 6
+    "FIXTURE_ONLY_VALIDATED": 6,
+    "SOURCE_NOT_USABLE": 0
   },
   "column_drift_findings": [
     {
@@ -575,5 +576,5 @@
       ]
     }
   ],
-  "note": "No real football-data.co.uk download succeeded in this environment (see data_pipeline/retrieval_log.json's failed_attempts[]) \u2014 every entry below is FIXTURE_ONLY_VALIDATED, proving only the pipeline's parsing/validation logic, never real dataset usability. See data_pipeline/FEASIBILITY_DECISION.md."
+  "note": "No real football-data.co.uk download succeeded in this environment (see data_pipeline/retrieval_log.json's failed_attempts[]) \u2014 every entry below is FIXTURE_ONLY_VALIDATED, proving only the pipeline's parsing/validation logic, never real dataset usability. (SOURCE_NOT_USABLE is a third, defined label for a real download that completes but fails validation badly \u2014 it is never assigned when, as here, no real download succeeded at all; that case is always FIXTURE_ONLY_VALIDATED.) See data_pipeline/FEASIBILITY_DECISION.md."
 }

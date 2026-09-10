@@ -1,9 +1,10 @@
 # Football-Data feasibility report
 
-Every row below is labeled `LIVE_SOURCE_VALIDATED` (a real football-data.co.uk download, run through this pipeline in this environment) or `FIXTURE_ONLY_VALIDATED` (only a hand-crafted test fixture was exercised, or the real download failed/was blocked — this label never implies real-world source compatibility or dataset usability for that league-season). See `data_pipeline/FEASIBILITY_DECISION.md`.
+Every row below is labeled with exactly one of three defined values: `LIVE_SOURCE_VALIDATED` (a real football-data.co.uk download, run through this pipeline in this environment, that passed validation well enough to be usable), `FIXTURE_ONLY_VALIDATED` (only a hand-crafted test fixture was exercised, or the real download failed/was blocked — no real Football-Data content was ever obtained to judge this league-season one way or the other), or `SOURCE_NOT_USABLE` (a real download DID complete with real Football-Data content, but that real content fails validation badly enough to be unusable — a genuine negative finding about the source itself, never a stand-in for "couldn't test it", which stays `FIXTURE_ONLY_VALIDATED`). See `data_pipeline/FEASIBILITY_DECISION.md`.
 
 LIVE_SOURCE_VALIDATED rows: 0
 FIXTURE_ONLY_VALIDATED rows: 6
+SOURCE_NOT_USABLE rows: 0
 
 ## League x season x label summary
 

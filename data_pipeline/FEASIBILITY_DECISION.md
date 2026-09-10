@@ -55,28 +55,46 @@ placeholder. One representative entry:
 }
 ```
 
-## Required labeling: LIVE_SOURCE_VALIDATED vs. FIXTURE_ONLY_VALIDATED
+## Required labeling: LIVE_SOURCE_VALIDATED vs. FIXTURE_ONLY_VALIDATED vs. SOURCE_NOT_USABLE
 
 Every league-season entry in `data_pipeline/reports/feasibility_report.{md,json}`
-carries exactly one of these two labels, as a structured field
-(`source_label`), never only as prose:
+carries exactly one of these three labels, as a structured field
+(`source_label`, validated by `data_pipeline/report.py::_validate_label`
+against `VALID_SOURCE_LABELS`), never only as prose:
 
 - **`LIVE_SOURCE_VALIDATED`** — this league-season's file was actually
-  downloaded from football-data.co.uk in this run and inspected/validated
-  against that real, live-fetched file.
+  downloaded from football-data.co.uk in this run, inspected/validated
+  against that real, live-fetched file, and that real content passed
+  validation well enough to be usable.
 - **`FIXTURE_ONLY_VALIDATED`** — this league-season was only exercised
   against a small, hand-crafted test fixture (`tests/fixtures/football_data/`),
   never a real downloaded file — either because no live download was
   attempted for it, or because the live download attempt failed/was
-  blocked (as it was, universally, in this sandbox — see above).
+  blocked (as it was, universally, in this sandbox — see above). This is
+  also the label for "we couldn't test it" in every case, including a
+  failed/blocked download — it is never replaced by `SOURCE_NOT_USABLE`
+  just because a download failed.
+- **`SOURCE_NOT_USABLE`** — a live download DID complete with real
+  Football-Data content for this league-season, but that real content
+  fails validation badly enough to be unusable (missing required
+  identity/result columns entirely, zero rows, or every row rejected by
+  `validation.py`). This is a genuine negative finding about the source
+  itself (see `data_pipeline/report.py::classify_live_download`), only
+  ever assigned from real observed evidence of a real downloaded file —
+  never as a stand-in for "couldn't test it."
 
 **Given the network block above, every row in this run's feasibility
 report is `FIXTURE_ONLY_VALIDATED`.** Zero rows are
-`LIVE_SOURCE_VALIDATED` in this sandbox run. See
+`LIVE_SOURCE_VALIDATED` and zero rows are `SOURCE_NOT_USABLE` in this
+sandbox run — `SOURCE_NOT_USABLE` can only ever be assigned when a real
+download actually completes, which never happened here. See
 `data_pipeline/reports/feasibility_report.md`'s summary table for the
 per-file breakdown (all six hand-crafted fixtures, all labeled
 `FIXTURE_ONLY_VALIDATED`, standing in for one league as a parser-logic
 proof only — not as a stand-in for any real league/season's actual data).
+All three labels are fully defined, validated, and tested in this PR
+(`tests/test_report.py`) so a future run against real downloaded content —
+whether it turns out usable or not — has somewhere correct to land.
 
 ## What the fixture-only run actually proves, and what it does NOT prove
 
@@ -137,8 +155,9 @@ because:
    sandbox** (outbound access to the host is blocked by this
    environment's proxy policy, confirmed and documented above, not merely
    assumed).
-2. Therefore **zero league-seasons carry the `LIVE_SOURCE_VALIDATED`
-   label** — every row in this run's feasibility report is
+2. Therefore **zero league-seasons carry the `LIVE_SOURCE_VALIDATED` or
+   `SOURCE_NOT_USABLE` labels** (both require a real download to have
+   actually completed) — every row in this run's feasibility report is
    `FIXTURE_ONLY_VALIDATED`.
 3. **Source compatibility and dataset usability for Premier League,
    Bundesliga, La Liga, Serie A, and Ligue 1 remain UNVERIFIED**, not
