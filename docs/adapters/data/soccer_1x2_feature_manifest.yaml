@@ -1,0 +1,116 @@
+# soccer_1x2_feature_manifest.yaml
+#
+# Structured companion to docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md section 2
+# ("Required and optional features") and section 3 ("Source and
+# availability timestamp for every feature"). This is a DESIGN artifact,
+# not a runtime registry: it is not loaded by pcbf_calculator at runtime,
+# is not part of the CLI contract, and adds no new runtime dependency.
+#
+# Written in the same restricted YAML subset as
+# src/pcbf_calculator/registries/yamlmini.py (flat block-mapping list items
+# under one top-level `categories` key, so the existing dependency-free
+# parser can validate its shape in tests/test_soccer_1x2_feature_manifest.py
+# without adding a second parser). "categories" here means "feature rows",
+# reusing the parser's existing top-level key name rather than teaching it a
+# second one.
+#
+# Every row must declare: id, required (true/false), definition, source,
+# availability_relative_to_kickoff. leakage_note is optional and used only
+# for rows that need an explicit leakage callout (see spec section 7).
+# A row with availability_relative_to_kickoff containing "POST_MATCH_ONLY"
+# is a candidate the spec explicitly rules OUT of the feature set — kept
+# here (with required: false) as a documented rejection, not a usable
+# feature, so a future contributor does not propose it again without
+# reading why it was rejected.
+
+categories:
+  - id: home_team_elo_pre_match
+    required: true
+    definition: "Home team's Elo-style rating computed only from matches completed strictly before this fixture's kickoff."
+    source: "Derived in-house from a structured, dated match-results feed (see spec bucket 1: mandatory machine-readable inputs)."
+    availability_relative_to_kickoff: "T-1h (recomputed after the most recent completed match; frozen at kickoff)."
+    leakage_note: "Must be recomputed from a strictly-before-kickoff match cutoff; recomputing with same-day results after kickoff is a look-ahead leak."
+
+  - id: away_team_elo_pre_match
+    required: true
+    definition: "Away team's Elo-style rating, same computation as home_team_elo_pre_match."
+    source: "Same structured match-results feed as home_team_elo_pre_match."
+    availability_relative_to_kickoff: "T-1h (frozen at kickoff)."
+    leakage_note: "Same cutoff-discipline requirement as home_team_elo_pre_match."
+
+  - id: home_team_rolling_goals_for_last_10
+    required: true
+    definition: "Home team's goals scored, mean over its last 10 completed matches strictly before this fixture."
+    source: "Structured match-results feed (mandatory machine-readable input)."
+    availability_relative_to_kickoff: "T-1h, updated once the team's most recent match result is final."
+    leakage_note: "A rolling window must exclude the current fixture and any match not yet completed; an off-by-one window boundary is a common look-ahead bug."
+
+  - id: home_team_rolling_goals_against_last_10
+    required: true
+    definition: "Home team's goals conceded, mean over its last 10 completed matches strictly before this fixture."
+    source: "Structured match-results feed (mandatory machine-readable input)."
+    availability_relative_to_kickoff: "T-1h."
+    leakage_note: "Same rolling-window discipline as home_team_rolling_goals_for_last_10."
+
+  - id: away_team_rolling_goals_for_last_10
+    required: true
+    definition: "Away team's goals scored, mean over its last 10 completed matches strictly before this fixture."
+    source: "Structured match-results feed (mandatory machine-readable input)."
+    availability_relative_to_kickoff: "T-1h."
+    leakage_note: "Same rolling-window discipline as home_team_rolling_goals_for_last_10."
+
+  - id: away_team_rolling_goals_against_last_10
+    required: true
+    definition: "Away team's goals conceded, mean over its last 10 completed matches strictly before this fixture."
+    source: "Structured match-results feed (mandatory machine-readable input)."
+    availability_relative_to_kickoff: "T-1h."
+    leakage_note: "Same rolling-window discipline as home_team_rolling_goals_for_last_10."
+
+  - id: market_closing_odds_1x2
+    required: true
+    definition: "The de-vigged fair 1X2 probabilities from pcbf_calculator's own pricing engine, computed from the closing market prices available before kickoff — used as the baseline model input (spec section 8), never as a training label."
+    source: "This repository's own layer-1 pricing engine (pricing/engine.py), fed from the same odds feed the CLI request already carries."
+    availability_relative_to_kickoff: "T-0 (closing line, immediately pre-kickoff); an earlier opening-line snapshot may be used instead if closing-line timestamps are not reliably captured, but the two must never be mixed within one training set."
+    leakage_note: "Only a pre-kickoff snapshot is valid; using odds movement that occurred during or after the match (in-play prices) is a hard leak."
+
+  - id: days_since_last_match_home
+    required: true
+    definition: "Number of calendar days between the home team's previous completed match and this fixture's kickoff (fatigue/rotation proxy)."
+    source: "Structured fixture-list feed (mandatory machine-readable input)."
+    availability_relative_to_kickoff: "T-1h."
+    leakage_note: "None beyond the standard cutoff discipline; low leakage risk feature."
+
+  - id: days_since_last_match_away
+    required: true
+    definition: "Number of calendar days between the away team's previous completed match and this fixture's kickoff."
+    source: "Structured fixture-list feed (mandatory machine-readable input)."
+    availability_relative_to_kickoff: "T-1h."
+    leakage_note: "None beyond the standard cutoff discipline; low leakage risk feature."
+
+  - id: head_to_head_last_5_result_distribution
+    required: false
+    definition: "Distribution of {home_win, draw, away_win} outcomes over the last 5 meetings between these two teams, regardless of venue."
+    source: "Structured match-results feed (mandatory machine-readable input)."
+    availability_relative_to_kickoff: "T-1h."
+    leakage_note: "Small-sample feature (often n<5); document as high-variance, never treat as a strong prior."
+
+  - id: confirmed_starting_lineup_strength_delta
+    required: false
+    definition: "Difference in a simple lineup-strength score (e.g. sum of player Elo/market-value proxies) between the two confirmed starting XIs."
+    source: "Requires official lineup confirmation, typically published 45-75 minutes before kickoff; not reliably available from a single free structured feed at Bet9ja's full category coverage and volume today (see spec bucket 2: browser-research inputs)."
+    availability_relative_to_kickoff: "T-45m at the earliest, and only once lineups are officially confirmed — never available further out, and unavailable at all for some fixtures/leagues."
+    leakage_note: "Must be dropped (imputed as MISSING, never backfilled) for any fixture where lineups were not confirmed by the model's declared feature-freeze time; backfilling from full post-match squad lists is a leak."
+
+  - id: weather_conditions_pre_match
+    required: false
+    definition: "Forecast (not observed) precipitation/wind/temperature at the venue for kickoff time."
+    source: "Would require a structured weather-forecast feed keyed to venue and kickoff time; not currently wired to any source (see spec bucket 3: unavailable for admission)."
+    availability_relative_to_kickoff: "T-24h forecast, if a source existed."
+    leakage_note: "Must be the pre-match forecast, never the observed in-match conditions; observed conditions are a look-ahead leak."
+
+  - id: post_match_actual_goals_scored
+    required: false
+    definition: "REJECTED CANDIDATE, kept only as a documented leakage example: the fixture's own actual full-time goals scored by each side."
+    source: "Structured match-results feed, but only populated after the match referenced by this very prediction has been played."
+    availability_relative_to_kickoff: "POST_MATCH_ONLY — never available before kickoff for the fixture being predicted; this is the target variable's own outcome, not a usable pre-match feature."
+    leakage_note: "Textbook leakage: this is what the model is trying to predict. Any pipeline bug that lets this fixture's own result feed back into its own feature vector must fail a leakage-control check (spec section 7) before training ever starts."

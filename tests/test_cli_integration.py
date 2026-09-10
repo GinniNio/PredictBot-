@@ -51,6 +51,22 @@ class CliIntegrationTests(unittest.TestCase):
         # two objects are always separate.
         self.assertNotEqual(result["pricing"], result["forecast"])
 
+    def test_soccer_design_in_progress_still_produces_no_forecast(self):
+        # soccer's adapter_status is DESIGN_IN_PROGRESS (a design spec
+        # exists, docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md), but that status
+        # must be pure documentation/tracking: dispatch is unaffected since
+        # no class is registered in _ADAPTER_IMPLEMENTATIONS, so runtime
+        # behavior is byte-for-byte identical to NOT_IMPLEMENTED.
+        result = run_calculator(THREE_WAY_REQUEST)
+        self.assertEqual(result["status"], "OK")
+        self.assertFalse(result["forecast"]["forecast_available"])
+        self.assertIsNone(result["forecast"]["probabilities"])
+        self.assertEqual(
+            result["forecast"]["no_forecast_reason"],
+            "FORECASTING_ADAPTER_DESIGN_IN_PROGRESS_NOT_YET_BUILT",
+        )
+        self.assertEqual(result["classification_ceiling"], "PAPER")
+
     def test_missing_event_id_fails_typed(self):
         result = run_calculator({"category": "soccer", "market_prices": {"home": 1.9, "away": 2.0}})
         self.assertEqual(result["status"], "FAILED")

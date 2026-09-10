@@ -15,7 +15,10 @@ class AdapterFrameworkTests(unittest.TestCase):
         result = adapter.forecast({})
         self.assertFalse(result.forecast_available)
         self.assertIsNone(result.probabilities)
-        self.assertEqual(result.no_forecast_reason, "NO_FORECASTING_ADAPTER_BUILT_YET")
+        # soccer carries its own DESIGN_IN_PROGRESS reason string (a design
+        # spec exists, docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md) — still
+        # NoForecastAdapter, still no fabricated forecast.
+        self.assertEqual(result.no_forecast_reason, "FORECASTING_ADAPTER_DESIGN_IN_PROGRESS_NOT_YET_BUILT")
 
     def test_run_forecast_never_fabricates_a_probability(self):
         result = run_forecast("basketball", {"home_team": "A", "away_team": "B"})
