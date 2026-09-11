@@ -1,7 +1,7 @@
 # Host Runtime Test Checklist
 
 Use this checklist when testing the `pcbf-runtime-host-test-pack` artifact in
-a project host (ChatGPT Project, Claude Cowork Project, Gemini Project, or a
+a project host (ChatGPT Project, Claude Cowork Project, Gemini orchestration host, or a
 local/generic environment). Record the outcome for each item in the
 [results matrix](HOST_TEST_RESULTS_MATRIX.md).
 

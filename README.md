@@ -1,149 +1,97 @@
-# PredictBot ⚽
+# PredictBot
 
-An open-source football analytics pipeline that stacks 10 free repos into a single prediction and edge-detection system. No paid subscriptions. No proprietary data. Covers all major European leagues.
+A deterministic, host-neutral statistical calculation package for sports betting analysis: a universal market-pricing engine, a sport-adapter framework, and a decision layer that gates real-money staking behind evidence — plus one closed research benchmark (Soccer 1X2) proving the pattern end to end on real data.
 
-> Built as an alternative to €30-50/month prediction platforms and the kind of analytics infrastructure that costs clubs £100k/year.
-
----
-
-## What It Does
-
-- **Predicts match outcomes** across Premier League, La Liga, Bundesliga, Serie A, and Ligue 1
-- **Runs multiple models** and flags when they agree (higher confidence)
-- **Detects value bets** by comparing model probability vs bookmaker implied probability
-- **Explains every prediction** with SHAP feature importance
-- **Tracks accuracy** over time with a simple export to Excel
+Zero runtime dependencies. Pure Python stdlib throughout (`pyproject.toml`: `dependencies = []`).
 
 ---
 
-## The Stack
+## What PredictBot currently does
 
-| Repo | Role | Replaces |
+- **Prices any multi-outcome market** (two-way, three-way, or N-way) from bookmaker prices alone: de-vigs the market, returns fair probabilities/odds and per-outcome expected value, and flags the market's own pricing quality (complete/incomplete, margin tier, arbitrage-shaped).
+- **Runs as a single, host-neutral JSON-in/JSON-out CLI** (`pcbf-calculator request.json`) — one JSON object in, one JSON object out, no network calls, deterministic byte-identical output for the same input (see `docs/HOST_CONTRACT.md`).
+- **Dispatches to a per-sport forecasting adapter** when one exists, and reports honestly when none does (`forecast_available: false`, a typed reason) rather than fabricating a probability.
+- **Gates any real or simulated stake behind an explicit decision layer** (evidence, freshness, liquidity, uncertainty) — no market being priced, and no forecast existing, ever implies a stake is authorized.
+- **Ships one closed research benchmark**: a Soccer 1X2 Elo + logistic-regression baseline (`research/soccer_1x2_elo_baseline/`), validated against real downloaded match data, kept structurally outside the production path described above.
+
+## Verified host support
+
+Tested against `docs/HOST_CONTRACT.md`'s contract across three project-style hosts (`docs/HOST_TEST_RESULTS_MATRIX.md`):
+
+| Host | Python-wheel execution |
+|---|---|
+| ChatGPT Project | Supported |
+| Claude Cowork Project | Supported |
+| Gemini orchestration host | **Not supported** — the tested Gemini environment cannot execute Python or install a wheel at all; it can only orchestrate the JSON request/response contract around a host that can |
+
+No Gemini-specific workaround exists or is planned as part of this repository's current scope (`docs/CALCULATOR_KICKOFF.md`).
+
+## Data coverage
+
+Five European leagues via [football-data.co.uk](https://www.football-data.co.uk/) (free, no API key): Premier League (E0), Bundesliga (D1), La Liga (SP1), Serie A (I1), Ligue 1 (F1). The feasibility/download pipeline (`data_pipeline/`) covers 165+ (league, season) files back to the 1990s, with per-file provenance (SHA-256, retrieval timestamp, source URL) recorded in `data_pipeline/retrieval_log.json` — never fabricated, never silently substituted when a file is missing.
+
+## Universal pricing capabilities
+
+`src/pcbf_calculator/pricing/engine.py::analyze_market` — the one pricing implementation every sport and every adapter reuses:
+
+- De-vigs any complete N-way market (proportional method) into fair probabilities/odds.
+- Per-outcome expected value at a given stake; an optional calibrated lower-confidence-bound EV when an adapter supplies real sample-size/uncertainty data (never fabricated when it doesn't).
+- Market-quality signals: `NORMAL` / `LOW_EVIDENCE_HIGH_MARGIN` (margin > 0.5) / `ANOMALOUS_NEGATIVE_MARGIN` (implied probabilities sum to under 1.0 — an arbitrage-shaped market) — a signal about the *market's* pricing, never a per-outcome betting recommendation.
+
+## Frozen Soccer 1X2 baseline — closed research track
+
+`research/soccer_1x2_elo_baseline/`: a pre-match Elo rating engine feeding a pure-Python multinomial logistic regression, temperature-calibrated, evaluated against real downloaded football-data.co.uk content. Real-data results (workflow run [34590227850](https://github.com/GinniNio/PredictBot-/actions/runs/34590227850), `evidence_class: LIVE_SOURCE_VALIDATED`, all four frozen-split hashes `CONFIRMED`):
+
+| | Locked test (2024-25) | Out-of-time holdout (2025-26) |
 |---|---|---|
-| [ProphitBet](https://github.com/kochlisGit/ProphitBet-Soccer-Bets-Predictor) | GUI app — 7 ML models, auto data download, Excel export | Paid prediction platforms ($30/mo) |
-| [msoczi/football_predictions](https://github.com/msoczi/football_predictions) | XGBoost with 354 hand-crafted features | Manual feature engineering |
-| [SoccerPredictor](https://github.com/ronyka77/SoccerPredictor_byRichardSzita) | LightGBM + XGBoost + NN + Random Forest ensemble, FBRef scraper | Entire quant sports desk |
-| [MatchOutcomeAI](https://github.com/ratloop/MatchOutcomeAI) | Calibrated probabilities that match real bookmaker confidence | Bookmaker calibration tools |
-| [Footy4.0](https://github.com/silasnevstad/Footy4.0) | Edge detection: model probability vs Vegas implied probability | Value bet scanners ($50/mo) |
-| [soccer_xg (KU Leuven)](https://github.com/ML-KULeuven/soccer_xg) | Academic-grade xG model (LogReg + XGBoost) | StatsBomb xG subscription |
-| [Football-xG-Predictor](https://github.com/bsobkowicz1096/Football-xG-Predictor) | SHAP explanations on every xG prediction | xG analytics dashboards |
-| [FootballMatchPredictionPoisson](https://github.com/Amar0302/FootballMatchPredictionPoisson) | Poisson goal simulation — beats ML on draw prediction | Basic prediction models |
-| [Predict_EPL_Matches](https://github.com/douglaspsteen/Predict_EPL_Matches) | XGBoost + AdaBoost + SVM on EPL data | Premier League prediction services |
-| [football-analyze](https://github.com/zostaff/football-analyze) | YOLO tracking from any broadcast — speed, distance, possession, no sensors | Hawkeye / Second Spectrum |
+| Model — Brier score | 0.5896 | 0.5930 |
+| Naive league-frequency baseline | 0.6526 | 0.6479 |
+| De-vigged opening bookmaker odds | 0.5734 | 0.5827 |
 
----
+**Beats the naive baseline. Trails de-vigged opening odds.** The model carries real information but less than the market's own aggregated information — exactly the outcome that sets the minimum bar every future soccer model must clear. This track is closed:
 
-## Pipeline Architecture
+- Deterministic (`run_twice_determinism_check`: byte-identical model artifacts across independent runs).
+- Frozen (four model-development inputs individually hashed and pinned in `expected_hashes.json`; a later run whose real data drifts fails loudly, never silently).
+- Real-data validated (`evidence_class: LIVE_SOURCE_VALIDATED`, confirmed by SHA-256 match against a genuine football-data.co.uk download — never inferred from row counts or fixture content alone).
+- Unregistered: no model-admission-registry row, no adapter dispatch-table wiring, no promotion-threshold change.
 
-```
-football-data.co.uk (free)  +  FBRef (scraped automatically)
-                ↓
-        Feature Engineering
-        msoczi: 354 features
-                ↓
-         Prediction Layer
-   ┌─────────────────────────┐
-   │  ProphitBet (7 models)  │
-   │  SoccerPredictor        │  → ensemble vote
-   │  Poisson simulation     │
-   └─────────────────────────┘
-                ↓
-        Probability Calibration
-           MatchOutcomeAI
-                ↓
-          Edge Detection
-   model probability vs bookmaker implied
-              Footy4.0
-                ↓
-     Output: value bets + confidence
-```
+## Status: RESEARCH-MODEL
 
----
+Every category in the sports/adapter registry ships at `classification_ceiling: RESEARCH-MODEL` (`src/pcbf_calculator/registries/data/adapter-registry.yaml`). No adapter is registered in `adapters/registry.py::_ADAPTER_IMPLEMENTATIONS`; no row exists in the model-admission registry; every soccer promotion threshold is `PROPOSED_OPERATOR_DECISION` or `DISABLED`. `PAPER` and `CASH` are unreachable in this codebase as shipped — the decision layer (`src/pcbf_calculator/decision/`) exists and is tested, but nothing currently feeds it a registered forecast to act on.
 
-## Quick Start
+## What remains unbuilt
 
-### Requirements
-- Python 3.11 — [download](https://www.python.org/downloads/)
-- Git — [download](https://git-scm.com/download/win)
+- A real forecasting adapter registered against the Soccer 1X2 spec (`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`) — the research baseline above is a benchmark, not an admitted adapter.
+- Forecast and betting ledgers (CSV schemas, no capture/settlement logic yet).
+- Pre-match capture tooling (Bet9ja or any other live-odds source) — the pricing engine accepts prices as input; it does not fetch them.
+- Hosting, an API surface, or a UI — this is a local CLI/library today.
+- Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
 
-### Step 1 — Clone this repo
+## Local run example
 
 ```bash
 git clone https://github.com/GinniNio/PredictBot-
 cd PredictBot-
+pip install -e .
+
+cat > request.json <<'JSON'
+{
+  "event_id": "demo-1",
+  "category": "soccer",
+  "market_prices": {"home": 2.1, "draw": 3.4, "away": 3.9}
+}
+JSON
+
+pcbf-calculator request.json
 ```
 
-### Step 2 — Get ProphitBet running (GUI, no code required)
+Prints one JSON object: de-vigged fair probabilities/odds and per-outcome EV under `pricing`, `forecast.forecast_available: false` (no adapter registered yet), `decision: null` (no decision input supplied), and `classification_ceiling: "RESEARCH-MODEL"`.
+
+Run the test suite (zero dependencies, stdlib `unittest`):
 
 ```bash
-git clone https://github.com/kochlisGit/ProphitBet-Soccer-Bets-Predictor
-cd ProphitBet-Soccer-Bets-Predictor
-pip install -r requirements.txt
-python main.py
+PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
-
-A GUI window opens. Select a league → download data → train models → predict upcoming fixtures → export to Excel.
-
-### Step 3 — Add the 354-feature XGBoost model
-
-```bash
-git clone https://github.com/msoczi/football_predictions
-cd football_predictions
-pip install -r requirements.txt
-jupyter notebook
-```
-
-Open `football_predictions.ipynb` and run all cells.
-
----
-
-## Data Sources (All Free)
-
-| Source | Used By | Cost |
-|---|---|---|
-| football-data.co.uk | ProphitBet, msoczi, Footy4.0 | Free (Tier 1) |
-| FBRef | SoccerPredictor (auto-scraped) | Free |
-| StatsBomb Open Data | soccer_xg, Football-xG-Predictor | Free |
-
----
-
-## Leagues Covered
-
-Premier League · La Liga · Bundesliga · Serie A · Ligue 1 · Championship · Eredivisie · Liga Portugal
-
----
-
-## Accuracy — Being Honest
-
-Match outcome prediction in football hits around **54-58% accuracy** on win/loss/draw. That's the ceiling for the sport, not a limitation of these models. Football is high variance.
-
-The value is not in prediction accuracy — it's in **edge percentage**: when your calibrated model probability is consistently higher than the bookmaker's implied probability, that's exploitable over a large sample. This is what Footy4.0 measures.
-
----
-
-## Roadmap
-
-- [x] Setup guide and repo structure
-- [ ] ProphitBet integration (Week 1)
-- [ ] msoczi 354-feature pipeline (Week 2)
-- [ ] MatchOutcomeAI calibration (Week 3)
-- [ ] Footy4.0 edge detection (Week 3)
-- [ ] SoccerPredictor ensemble (Week 4)
-- [ ] Unified prediction output (single CSV across all models)
-- [ ] Weekly edge report (newsletter / Discord bot)
-- [ ] football-analyze computer vision layer (Phase 3)
-
----
-
-## Cost
-
-$0 to build and run locally. ~$5-10/month if you host on a VPS.
-
----
-
-## Credits
-
-All prediction and analytics work is built on top of the original open-source repos listed above. This project integrates and extends them — all original authors retain credit for their work.
 
 ---
 

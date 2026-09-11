@@ -45,7 +45,7 @@ statistical/probability model.
 `pcbf_calculator`'s CLI contract (JSON file in, JSON file out, no host-specific
 code, no network calls, no host SDKs) is fixed from the start, matching
 `docs/HOST_CONTRACT.md`. Any of the three orchestration hosts (ChatGPT
-Project, Claude Cowork Project, Gemini Project) that satisfies the same
+Project, Claude Cowork Project, Gemini orchestration host) that satisfies the same
 capabilities already required for `pcbf_football` can drive this package. The
 calculator package itself must never contain provider prompts, tool names, or
 upload instructions — those stay in the orchestration layer, outside this
@@ -54,7 +54,7 @@ package, exactly as already stated for `pcbf_football` in
 
 ## Decision: no hosted API workaround for Gemini, not yet
 
-Per `docs/HOST_TEST_RESULTS_MATRIX.md`, Gemini Project is
+Per `docs/HOST_TEST_RESULTS_MATRIX.md`, Gemini orchestration host is
 `orchestration_supported` / `runtime_unsupported` (see
 `docs/HOST_CONTRACT.md` → "Supported Hosts"): it can drive the JSON contract
 and prompt flow, but it cannot execute the Python wheel itself.
