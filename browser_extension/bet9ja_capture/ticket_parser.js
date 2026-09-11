@@ -479,12 +479,23 @@
         ...envelopeBase,
         capture_status: captureStatus,
         capture_status_reasons: statusReasons,
+        // Universal row-accounting invariant, mirroring parser.js's own
+        // records_seen = records_parsed + records_unresolved +
+        // records_expected_unsupported: tickets_expected_excluded counts
+        // tickets excluded BY DESIGN (settled/cashed-out, or a live/
+        // Virtual/Zoom leg) -- an out-of-scope ticket, not a malformed
+        // one -- kept named/counted separately from tickets_unresolved
+        // (a genuine ambiguity this parser could not confidently resolve)
+        // for exactly the reason parser.js's own coverage fields are kept
+        // separate: collapsing "expected, out of scope" into "something
+        // went wrong" would make a page of only settled tickets look like
+        // a broken capture.
         coverage: {
           visible_page_only: true,
           tickets_seen: ticketsSeen,
           tickets_parsed: tickets.length,
           tickets_unresolved: unresolvedTickets.length,
-          tickets_excluded: excludedTickets.length,
+          tickets_expected_excluded: excludedTickets.length,
           legs_seen: legsSeen,
           legs_parsed: legsParsed,
         },

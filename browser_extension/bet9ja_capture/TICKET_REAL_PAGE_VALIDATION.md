@@ -42,7 +42,7 @@ real evidence existed for it either.
 {
   "capture_status": "CAPTURE_FAILED",
   "capture_status_reasons": ["TICKET_SELECTORS_UNVERIFIED_PLACEHOLDER", "NO_TICKETS_FOUND"],
-  "coverage": { "tickets_seen": 0, "tickets_parsed": 0, "tickets_unresolved": 0, "tickets_excluded": 0, "legs_seen": 0, "legs_parsed": 0 },
+  "coverage": { "tickets_seen": 0, "tickets_parsed": 0, "tickets_unresolved": 0, "tickets_expected_excluded": 0, "legs_seen": 0, "legs_parsed": 0 },
   "tickets": [],
   "unresolved_tickets": [],
   "excluded_tickets": []

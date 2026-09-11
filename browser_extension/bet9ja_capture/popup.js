@@ -174,7 +174,7 @@ ticketButton.addEventListener('click', async () => {
       `Tickets seen: ${envelope.coverage.tickets_seen}\n` +
       `Tickets parsed: ${envelope.coverage.tickets_parsed}\n` +
       `Tickets unresolved: ${envelope.coverage.tickets_unresolved}\n` +
-      `Tickets excluded (out of scope): ${envelope.coverage.tickets_excluded}\n` +
+      `Tickets excluded (out of scope): ${envelope.coverage.tickets_expected_excluded}\n` +
       `Reasons: ${envelope.capture_status_reasons.join(', ')}\n` +
       `Saved: ${filename}`;
 

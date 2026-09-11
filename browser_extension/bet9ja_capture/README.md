@@ -427,6 +427,17 @@ selector-correction discipline that fixed fixture capture (see
 `REAL_PAGE_VALIDATION.md`) is repeated here — tracked in
 `TICKET_REAL_PAGE_VALIDATION.md`.
 
+### `coverage`'s row-accounting invariant
+
+`tickets_seen = tickets_parsed + tickets_unresolved + tickets_expected_excluded`,
+every capture, no exceptions — mirroring `parser.js`'s own
+`records_seen = records_parsed + records_unresolved + records_expected_unsupported`.
+`tickets_expected_excluded` counts tickets excluded BY DESIGN (settled/
+cashed-out, or a live/Virtual/Zoom leg) — an out-of-scope ticket, not a
+malformed one — kept separate from `tickets_unresolved` (a genuine
+ambiguity this parser could not confidently resolve) so a page of only
+settled tickets is never mistaken for a broken capture.
+
 ### Fail-closed ticket boundaries
 
 The single most important safety property of this parser: **a leg is only

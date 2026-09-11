@@ -60,7 +60,7 @@ test('single ticket: one leg fully parsed', () => {
   assert.equal(envelope.coverage.tickets_seen, 1);
   assert.equal(envelope.coverage.tickets_parsed, 1);
   assert.equal(envelope.coverage.tickets_unresolved, 0);
-  assert.equal(envelope.coverage.tickets_excluded, 0);
+  assert.equal(envelope.coverage.tickets_expected_excluded, 0);
   assert.ok(envelope.capture_status_reasons.includes('TICKET_SELECTORS_UNVERIFIED_PLACEHOLDER'));
 
   const t = envelope.tickets[0];
@@ -313,6 +313,72 @@ test('privacy: unresolved/excluded ticket records never carry more than the docu
   );
   const excluded = envelope.excluded_tickets[0];
   assert.deepEqual(Object.keys(excluded).sort(), ['detail', 'reason', 'source_index', 'ticket_id_raw'].sort());
+});
+
+test('coverage invariant: tickets_seen = tickets_parsed + tickets_unresolved + tickets_expected_excluded', () => {
+  const html =
+    ticket({ ticketId: 'TCK-OK', legs: [leg({ home: 'A', away: 'B', eventId: '1' })] }) + // parsed
+    ticket({ ticketId: 'TCK-BAD', legs: [leg({ home: '', away: '', eventId: '2' })] }) + // unresolved
+    ticket({ ticketId: 'TCK-SETTLED', status: 'SETTLED', legs: [leg({ home: 'C', away: 'D', eventId: '3' })] }); // expected-excluded
+  const { envelope } = capture(html);
+  const c = envelope.coverage;
+  assert.equal(c.tickets_seen, 3);
+  assert.equal(c.tickets_parsed, 1);
+  assert.equal(c.tickets_unresolved, 1);
+  assert.equal(c.tickets_expected_excluded, 1);
+  assert.equal(c.tickets_seen, c.tickets_parsed + c.tickets_unresolved + c.tickets_expected_excluded);
+});
+
+test('ticket id stays stable regardless of an expanded/collapsed wrapper class around the same ticket markup', () => {
+  const ticketHtml = ticket({ ticketId: 'TCK-STABLE', legs: [leg({ home: 'A', away: 'B', eventId: '1' })] });
+  const collapsedDoc = docFromHtml(`<div class="open-bets"><div class="ticket-group collapsed">${ticketHtml}</div></div>`);
+  const expandedDoc = docFromHtml(`<div class="open-bets"><div class="ticket-group expanded">${ticketHtml}</div></div>`);
+  const collapsed = ticketParser.captureFromDocument(collapsedDoc, BASE_CONTEXT).envelope;
+  const expanded = ticketParser.captureFromDocument(expandedDoc, BASE_CONTEXT).envelope;
+  assert.equal(collapsed.tickets[0].bet9ja_ticket_id, 'TCK-STABLE');
+  assert.equal(expanded.tickets[0].bet9ja_ticket_id, 'TCK-STABLE');
+  assert.equal(collapsed.tickets[0].bet9ja_ticket_id, expanded.tickets[0].bet9ja_ticket_id);
+});
+
+test('total stake is preserved separately from each leg\'s own odds -- singles, accumulators, and system tickets alike', () => {
+  const single = capture(
+    ticket({ unitStake: '10.00', totalStake: '10.00', legs: [leg({ home: 'A', away: 'B', eventId: '1', odds: '1.95' })] })
+  ).envelope.tickets[0];
+  assert.equal(single.total_stake, 10);
+  assert.equal(single.legs[0].odds, 1.95);
+  assert.notEqual(single.total_stake, single.legs[0].odds);
+
+  const acca = capture(
+    ticket({
+      type: 'Treble',
+      unitStake: '5.00',
+      totalStake: '5.00',
+      legs: [
+        leg({ home: 'A', away: 'B', eventId: '1', odds: '1.90' }),
+        leg({ home: 'C', away: 'D', eventId: '2', odds: '2.10' }),
+        leg({ home: 'E', away: 'F', eventId: '3', odds: '1.50' }),
+      ],
+    })
+  ).envelope.tickets[0];
+  assert.equal(acca.total_stake, 5);
+  assert.deepEqual(acca.legs.map((l) => l.odds), [1.9, 2.1, 1.5]);
+
+  const system = capture(
+    ticket({
+      type: 'System',
+      unitStake: '2.00',
+      totalStake: '12.00',
+      legs: [
+        leg({ home: 'A', away: 'B', eventId: '1', odds: '1.80' }),
+        leg({ home: 'C', away: 'D', eventId: '2', odds: '1.70' }),
+        leg({ home: 'E', away: 'F', eventId: '3', odds: '1.60' }),
+        leg({ home: 'G', away: 'H', eventId: '4', odds: '1.50' }),
+      ],
+    })
+  ).envelope.tickets[0];
+  assert.equal(system.unit_stake, 2);
+  assert.equal(system.total_stake, 12, 'total_stake is a distinct field from unit_stake -- never derived from leg odds');
+  assert.equal(system.legs.length, 4);
 });
 
 test('privacy: a ticket embedded inside unrelated page chrome (nav/balance/footer) never leaks that chrome', () => {
