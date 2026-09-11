@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "PredictBot Bet9ja Fixture Capture",
-  "version": "0.3.0",
-  "description": "Capture visible pre-match Soccer 1X2 fixtures (single page or, walking every discoverable competition, all of Soccer), and separately capture open pre-match bet tickets, from an already-open, already-authenticated Bet9ja page into normalized JSON files. No network requests, no account data, no bet placement, no cashout.",
+  "version": "0.4.0",
+  "description": "Capture visible pre-match Soccer 1X2 fixtures (single page or, walking every discoverable competition, all of Soccer), open pre-match bet tickets, and settled bets from My Bets, from an already-open, already-authenticated Bet9ja page into normalized JSON files. No network requests, no account data, no bet placement, no cashout.",
   "action": {
     "default_popup": "popup.html"
   },

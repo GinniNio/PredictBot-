@@ -271,3 +271,139 @@ soccerAllButton.addEventListener('click', async () => {
     soccerAllCaptureInFlight = false;
   }
 });
+
+// --- Capture settled bets -----------------------------------------------
+// Same click-gated, no-storage discipline as the buttons above -- see
+// settled_bets_parser.js's own header comment for scope and the confirmed
+// Round 1 profile. A real account can span 190+ pages, so this button
+// shows live per-page progress (via a short poll loop -- see content.js's
+// own comment for why a poll, not a callback, crosses the injection
+// boundary) and offers a Cancel control that stops the walk cleanly after
+// the page currently in flight, producing a CAPTURE_PARTIAL file with
+// everything captured so far rather than losing it.
+const settledButton = document.getElementById('settled-capture-button');
+const settledCancelButton = document.getElementById('settled-cancel-button');
+const settledStatusEl = document.getElementById('settled-status');
+let settledCaptureInFlight = false;
+let settledProgressIntervalId = null;
+
+function setSettledStatus(cssClass, text) {
+  settledStatusEl.className = cssClass;
+  settledStatusEl.textContent = text;
+}
+
+async function pollSettledProgress(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => (window.__bet9jaSettledBetsReadProgress ? window.__bet9jaSettledBetsReadProgress() : null),
+    });
+    const progress = results && results[0] && results[0].result;
+    if (progress) {
+      const pagesAvailableText = progress.pagesAvailable ? `/${progress.pagesAvailable}` : '';
+      setSettledStatus(
+        'ok',
+        `Capturing settled bets...\nPage ${progress.pageNumber}${pagesAvailableText} (visited ${progress.pagesVisited})\nTickets parsed so far: ${progress.ticketsParsedSoFar}`
+      );
+    }
+  } catch (err) {
+    // Best-effort only -- a failed progress poll never affects the
+    // underlying capture, which keeps running independently.
+  }
+}
+
+async function runSettledBetsCapture(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['ids.js', 'settled_bets_parser.js', 'content.js'],
+  });
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const capturedAtUtc = new Date().toISOString();
+
+  const injectionResults = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (sourceUrl, pageTitle, capturedAtUtcArg) =>
+      window.__bet9jaSettledBetsCaptureRun(sourceUrl, pageTitle, capturedAtUtcArg),
+    args: [tab.url || '', tab.title || '', capturedAtUtc],
+  });
+
+  const result = injectionResults && injectionResults[0] && injectionResults[0].result;
+  if (!result || !result.envelope) {
+    throw new Error('Settled bets capture produced no result (page may block script injection).');
+  }
+  return result;
+}
+
+settledButton.addEventListener('click', async () => {
+  if (settledCaptureInFlight) {
+    return;
+  }
+  settledCaptureInFlight = true;
+  settledButton.disabled = true;
+  settledCancelButton.hidden = false;
+  setSettledStatus('ok', 'Capturing settled bets...');
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) {
+    setSettledStatus('error', 'Capture failed to run: No active tab found.');
+    settledButton.disabled = false;
+    settledCancelButton.hidden = true;
+    settledCaptureInFlight = false;
+    return;
+  }
+
+  settledProgressIntervalId = setInterval(() => pollSettledProgress(tab.id), 1000);
+  try {
+    const { envelope } = await runSettledBetsCapture(tab.id);
+
+    const filename = `bet9ja-settled-bets-${timestampForFilename(envelope.captured_at_utc)}.json`;
+    await triggerDownload(filename, JSON.stringify(envelope, null, 2));
+
+    const resumeLine = envelope.resume_metadata && envelope.resume_metadata.can_resume
+      ? `Resume: ${envelope.resume_metadata.resume_hint}\n`
+      : '';
+    const summary =
+      `${envelope.capture_status}\n` +
+      `Pages visited: ${envelope.coverage.pages_visited}/${envelope.coverage.pages_available}\n` +
+      `Tickets seen: ${envelope.coverage.tickets_seen}\n` +
+      `Tickets parsed: ${envelope.coverage.tickets_parsed}\n` +
+      `Tickets unresolved: ${envelope.coverage.tickets_unresolved}\n` +
+      `Tickets excluded (out of scope): ${envelope.coverage.tickets_expected_excluded}\n` +
+      resumeLine +
+      `Reasons: ${envelope.capture_status_reasons.join(', ')}\n` +
+      `Saved: ${filename}`;
+
+    const cssClass =
+      envelope.capture_status === 'CAPTURE_OK' ? 'ok' : envelope.capture_status === 'CAPTURE_PARTIAL' ? 'partial' : 'failed';
+    setSettledStatus(cssClass, summary);
+  } catch (err) {
+    setSettledStatus('error', `Settled bets capture failed to run: ${err && err.message ? err.message : String(err)}`);
+  } finally {
+    if (settledProgressIntervalId) {
+      clearInterval(settledProgressIntervalId);
+      settledProgressIntervalId = null;
+    }
+    settledButton.disabled = false;
+    settledCancelButton.hidden = true;
+    settledCaptureInFlight = false;
+  }
+});
+
+settledCancelButton.addEventListener('click', async () => {
+  if (!settledCaptureInFlight) {
+    return;
+  }
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => (window.__bet9jaSettledBetsRequestCancel ? window.__bet9jaSettledBetsRequestCancel() : false),
+    });
+    settledCancelButton.disabled = true;
+    settledCancelButton.textContent = 'Cancelling...';
+  } catch (err) {
+    // Best-effort -- if this fails, the capture simply runs to completion.
+  }
+});

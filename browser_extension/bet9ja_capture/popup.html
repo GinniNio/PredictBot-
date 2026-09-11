@@ -26,12 +26,18 @@
         opacity: 0.6;
       }
       #ticket-capture-button,
-      #soccer-all-capture-button {
+      #soccer-all-capture-button,
+      #settled-capture-button {
         margin-top: 8px;
+      }
+      #settled-cancel-button {
+        margin-top: 6px;
+        background: #fdecea;
       }
       #status,
       #ticket-status,
-      #soccer-all-status {
+      #soccer-all-status,
+      #settled-status {
         margin-top: 10px;
         font-size: 12px;
         white-space: pre-wrap;
@@ -41,28 +47,32 @@
       }
       #status.ok,
       #ticket-status.ok,
-      #soccer-all-status.ok {
+      #soccer-all-status.ok,
+      #settled-status.ok {
         display: block;
         background: #e6f4ea;
         color: #1e4620;
       }
       #status.partial,
       #ticket-status.partial,
-      #soccer-all-status.partial {
+      #soccer-all-status.partial,
+      #settled-status.partial {
         display: block;
         background: #fff4e5;
         color: #663c00;
       }
       #status.failed,
       #ticket-status.failed,
-      #soccer-all-status.failed {
+      #soccer-all-status.failed,
+      #settled-status.failed {
         display: block;
         background: #fdecea;
         color: #611a15;
       }
       #status.error,
       #ticket-status.error,
-      #soccer-all-status.error {
+      #soccer-all-status.error,
+      #settled-status.error {
         display: block;
         background: #fdecea;
         color: #611a15;
@@ -102,6 +112,16 @@
       Walks every discoverable Soccer competition (pre-match, ordinary 1X2 only) into one combined
       file. The competition-menu scoping selector is an unverified placeholder pending real-page
       validation; see SOCCER_ALL_COMPETITIONS_VALIDATION.md.
+    </p>
+    <hr />
+    <button id="settled-capture-button" type="button">Capture settled bets</button>
+    <button id="settled-cancel-button" type="button" hidden>Cancel</button>
+    <div id="settled-status"></div>
+    <p class="note">
+      Open from My Bets &middot; Settled Bets. Walks every numbered results page, expanding each
+      ticket, and downloads one file of Bet9ja's own recorded settlement -- never a recalculated
+      outcome, never a ledger update. Only explicit "Won"/"Lost" outcomes are recognized so far; see
+      SETTLED_BETS_REAL_PAGE_VALIDATION.md.
     </p>
   </body>
   <script src="popup.js"></script>

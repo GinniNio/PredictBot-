@@ -1,6 +1,6 @@
 # Bet9ja fixture + open-ticket capture
 
-A Manifest V3 browser extension (Chrome/Edge) with three independent
+A Manifest V3 browser extension (Chrome/Edge) with four independent
 buttons:
 
 - **Capture fixtures** (Release 1, real-page validated — see "Real-page
@@ -26,6 +26,13 @@ buttons:
   source event id — into one combined normalized JSON file, so what you
   actually bet can be recorded in the betting ledger without
   hand-transcription.
+- **Capture settled bets** (see "Capture settled bets" below — real
+  selectors confirmed for the tab, ticket/leg structure, and the Won/Lost
+  vocabulary via live inspection; not yet run end-to-end against a real
+  191-page account): opens from My Bets → Settled Bets, walks every
+  numbered results page, expands each ticket, and downloads one file of
+  Bet9ja's own recorded settlement (ticket/leg outcomes, stake, payout) —
+  never a recalculated result, never a ledger update.
 
 This is deliberately the smallest useful slice — see "Boundaries" below for
 everything it does not do yet.
@@ -764,6 +771,93 @@ never anything outside the confirmed competition menu. A dedicated
 "safety" test greps the compiled source for this guarantee, the same
 discipline used for `ticket_parser.js`.
 
+## Capture settled bets
+
+A fourth, independent button and module (`settled_bets_parser.js`) that
+captures Bet9ja's own recorded settlement from My Bets → Settled Bets. It
+does not search the web, does not recalculate a ticket's outcome from a
+displayed score, does not update the betting ledger, and does not change
+any model — `profit_loss` is always `null` here; computing it from stake,
+payout, and cashout with decimal-safe arithmetic is the (future) ledger
+importer's job, not this capture's.
+
+**SELECTOR STATUS: real profile confirmed via live authenticated
+inspection (Round 1) — see `SETTLED_BETS_REAL_PAGE_VALIDATION.md`.** The
+Settled Bets tab (`.mybets__bets-item`, exact text "Settled Bets",
+selected state `.mybets__bets-item--current`), ticket/leg structure
+(largely the same `.mybets`/`.accordion-item` shape `ticket_parser.js`'s
+Open Bets profile already confirmed, with a new third leg row carrying
+`.mybets-score`/`.mybets-game`/`.mybets__info`), and pagination
+(`.mybets .pg-pagination__item`, 191 real numbered pages confirmed) are
+all real, confirmed selectors — not placeholders. Two things remain
+genuinely unconfirmed: no selector for a system ticket's
+won/lost/void **combination breakdown** has been identified yet
+(`system_settlement` stays `null`-valued until one is), and only the
+exact outcome words "Won"/"Lost" are recognized so far — `VOID`, `PUSH`,
+`HALF_WON`, `HALF_LOST`, `CASHED_OUT`, and `PARTIAL_RETURN` remain valid
+schema values this parser has not yet seen real markup for, and an
+unrecognized ticket-summary word still fails that whole ticket closed
+(`MISSING_OR_UNRECOGNIZED_SETTLEMENT_STATUS`) rather than being guessed.
+This keeps `capture_status` permanently capped at `CAPTURE_PARTIAL` for
+this version, the same pattern `ticket_parser.js`'s MYBETS profile uses.
+
+A lost ticket never gets a manufactured `"0.00"` payout — Bet9ja's own
+"Lost" summary text carries no payout at all, so `actual_payout: null`
+with `payout_resolution: 'NO_EXPLICIT_PAYOUT_DISPLAYED'` is the honest
+result. A won ticket's "Won `<amount>`" text yields `actual_payout` as a
+validated decimal STRING (e.g. `"123.45"`), never a lossy float — odds
+are captured as decimal strings for the same reason. A system ticket may
+contain both Won and Lost legs while still producing one overall ticket
+result (confirmed: the inspected system ticket had both) — this module
+never infers the ticket's own outcome from "did every leg win"; it reads
+only the ticket's own explicit summary text.
+
+### Long pagination (real accounts can span 190+ pages)
+
+- `context.onProgress(info)` fires once per page — the popup polls a
+  small in-page progress object (`window.__bet9jaSettledBetsProgress`)
+  once a second while the run is in flight and renders "Page N/191
+  (visited M) · Tickets parsed so far: K", since a live callback cannot
+  cross the `chrome.scripting.executeScript()` argument boundary.
+- A **Cancel** button sets `window.__bet9jaSettledBetsCancelRequested`,
+  which `context.shouldCancel` polls between pages — a user-initiated
+  stop produces a `CAPTURE_PARTIAL` file with everything captured so far,
+  never a discarded run.
+- `envelope.resume_metadata` (`last_page_completed`, `can_resume`, a
+  plain-language `resume_hint`) tells you where to pick back up if a run
+  stops early — deduplication by `bet9ja_ticket_id` means re-running from
+  page 1 is always safe too, just slower.
+- `MAX_PAGES_SAFETY_CAP` is 500 — well above the confirmed 191 pages, so
+  a larger real account is never truncated by an unrelated cap.
+
+### Output shape (`bet9ja-settled-bets.v1`)
+
+`capture_status`, `capture_status_reasons`, `coverage`
+(`pages_available`/`pages_visited`, `tickets_seen`/`tickets_parsed`/
+`tickets_unresolved`/`tickets_expected_excluded`,
+`duplicate_tickets_skipped`, `legs_seen`/`legs_parsed`), `page_results[]`,
+`tickets[]`, `unresolved_tickets[]`, `excluded_tickets[]`, and
+`resume_metadata`. Each ticket carries `bet9ja_ticket_id`,
+`ticket_type_raw`/`ticket_type_normalized`, `placed_at_raw`, monetary
+fields as decimal strings (`total_stake`, `actual_payout`,
+`payout_resolution`), `ticket_status`/`ticket_status_raw`/
+`settlement_resolution`, `profit_loss: null` (always), `system_settlement`
+(`combinations_total`/`_won`/`_lost`/`_void`, `raw` — all `null` until a
+breakdown selector is confirmed), `system_table_raw`, and `legs[]`. Each
+leg carries `fixture_id`, `selection`/`selection_raw`, `odds` (decimal
+string), `market_raw`, `fixture_and_time_raw`, `competition_raw`/
+`competition_resolution`, `result_raw`/`market_result_raw` (the displayed
+score), and `leg_status`/`leg_status_raw`/`settlement_resolution`.
+
+### Safety
+
+The only elements this module ever calls `.click()` on are the confirmed
+Settled Bets tab control, `.accordion-toggle`, and a verified numeric
+`.pg-pagination__item` — never Cashout, never Reload Selections, never a
+betting selection or account control. A dedicated "safety" test greps the
+compiled source for this guarantee, the same discipline used for
+`ticket_parser.js` and `soccer_walker.js`.
+
 ## Loading it unpacked for testing
 
 1. Chrome or Edge → `chrome://extensions` (or `edge://extensions`).
@@ -773,10 +867,14 @@ discipline used for `ticket_parser.js`.
 4. Open a Bet9ja pre-match page, log in, click the extension icon, click
    **Capture fixtures**. Try **Capture all Soccer fixtures** on the
    Soccer page — until the menu-scoping selector is confirmed, expect
-   `competitions_available: 0`. Separately, open your "Open Bets"/"My
-   Bets" page and click **Capture open bets** — it will expand each
-   ticket in turn and walk every numbered pagination page automatically
-   before downloading one combined file.
+   `competitions_available: 0`. Open your "Open Bets"/"My Bets" page and
+   click **Capture open bets** — it will expand each ticket in turn and
+   walk every numbered pagination page automatically before downloading
+   one combined file. Switch to Settled Bets (or just click **Capture
+   settled bets** from Open Bets — it will activate the tab itself) to
+   try the fourth button; on a large account, watch the live per-page
+   progress and use **Cancel** to confirm a stopped run still downloads a
+   valid partial file.
 
 Not published to the Chrome Web Store in this release.
 
@@ -874,14 +972,38 @@ permanent `CAPTURE_PARTIAL` cap, decorative/icon-only and non-`javascript:;`
 links being excluded from discovery, and a safety test confirming
 `.click()` is only ever called on a discovered competition-menu link.
 
-## Boundaries (Release 1 fixtures / this release's tickets)
+`tests/settled_bets_parser.test.js` runs `settled_bets_parser.js` against
+a synthetic jsdom harness modeling the Round 1 confirmed structure: a
+source URL not on `/myBets/` refused before touching the DOM, activating
+the Settled Bets tab by clicking the confirmed control, a missing tab
+control failing closed, a lost ticket producing no manufactured payout, a
+won ticket's payout parsed as a decimal string, a system ticket with both
+Won and Lost legs producing one ticket result (never inferred from "all
+legs won"), an unrecognized ticket-summary word failing the whole ticket
+closed, an unrecognized leg outcome resolving `UNRESOLVED` without
+voiding the ticket, a 3-row leg (competition omitted) being accepted, a
+structural 0-row leg being excluded at candidacy, a malformed leg row
+count voiding the ticket, a missing ticket id, an expansion timeout, two
+tickets on one page resolved independently, the row-accounting invariant,
+the permanent `CAPTURE_PARTIAL` cap, pagination walking every numbered
+page while never clicking First/Previous/Next/Last, the `onProgress`
+callback firing once per page, `shouldCancel` stopping the walk early
+with `resume_metadata` populated, and a full run reporting
+`can_resume: false`. A dedicated "safety" test greps the compiled source
+to confirm `.click()` is only ever called on the confirmed tab control,
+accordion toggle, or a verified numbered pagination item.
+
+## Boundaries (Release 1 fixtures / this release's tickets and settled bets)
 
 - No automatic bet placement, no cashout, no "Reload Selections" — the
   MYBETS profile's only `.click()` target anywhere in this file is the
   confirmed `.accordion-toggle`, enforced by a dedicated source-grepping
   test (see "Tests" above).
-- No settled-bet capture ("Capture settled bets" is a separate, later work
-  item — see `docs/LEDGER_DAILY_WORKFLOW.md`).
+- No betting-ledger import, no result search, no forecast scoring, no
+  model retraining — "Capture settled bets" only captures Bet9ja's own
+  recorded settlement; a separate importer (`ledgers.cli
+  import-bet9ja-settled-bets`) is a later, not-yet-built work item — see
+  `docs/LEDGER_DAILY_WORKFLOW.md`.
 - No result lookup.
 - No background scraping — capture runs only on a user click, and only
   ever expands/collapses ticket accordions and clicks verified numbered
