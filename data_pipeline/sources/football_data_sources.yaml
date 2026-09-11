@@ -70,6 +70,16 @@
 # a live-download-capable environment actually confirms a season's file
 # resolves and validates (LIVE_SOURCE_VALIDATED), promote it into
 # `latest_completed_season` and drop it from `unconfirmed_seasons`.
+#
+# ADDITIVE CORRECTION (dataset-contract correction, this environment's
+# clock reading 2026-09-11): a real live run (commit a198162) confirmed
+# season 2526 (2025-26) is now FULLY SETTLED — the 2026-27 season ("2627")
+# is the actual current/in-progress season, so "2627" is added to
+# `unconfirmed_seasons` below for the identical reason "2425"/"2526" were
+# added — this pipeline cannot confirm from this sandbox whether
+# football-data.co.uk has published a 2627 file yet. This is purely
+# ADDITIVE: "2425" and "2526" are deliberately left in place (not removed
+# or promoted) — only "2627" is newly appended.
 
 categories:
   - league_code: "E0"
@@ -79,7 +89,7 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
-    unconfirmed_seasons: ["2425", "2526"]
+    unconfirmed_seasons: ["2425", "2526", "2627"]
 
   - league_code: "D1"
     league_name: "Bundesliga"
@@ -88,7 +98,7 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
-    unconfirmed_seasons: ["2425", "2526"]
+    unconfirmed_seasons: ["2425", "2526", "2627"]
 
   - league_code: "SP1"
     league_name: "La Liga"
@@ -97,7 +107,7 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
-    unconfirmed_seasons: ["2425", "2526"]
+    unconfirmed_seasons: ["2425", "2526", "2627"]
 
   - league_code: "I1"
     league_name: "Serie A"
@@ -106,7 +116,7 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
-    unconfirmed_seasons: ["2425", "2526"]
+    unconfirmed_seasons: ["2425", "2526", "2627"]
 
   - league_code: "F1"
     league_name: "Ligue 1"
@@ -115,4 +125,4 @@ categories:
     file_type: "CSV"
     first_season: "9394"
     latest_completed_season: "2324"
-    unconfirmed_seasons: ["2425", "2526"]
+    unconfirmed_seasons: ["2425", "2526", "2627"]

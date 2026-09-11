@@ -175,19 +175,23 @@ jobs:
               "eligibility decision (never the generic, split-unaware validate_file "
               "check — a row missing a field this split never required is still "
               "usable here). `pending_settlement_rows_included` is nonzero only for "
-              "split_prospective_paper_scoring (not-yet-played fixtures admitted with "
-              "a null result, per the contract's result_nullable_until_settlement "
+              "split_genuine_prospective_scoring (not-yet-played fixtures admitted "
+              "with a null result, per the contract's result_nullable_until_settlement "
               "field). `validation_issue_occurrences` is generic FILE-level "
               "diagnostic evidence (sum of every typed rejection reason's occurrence "
-              "count), deliberately outside the three-way reconciliation."
+              "count), deliberately outside the three-way reconciliation. `Status` is "
+              "SOURCE_UNAVAILABLE when EVERY (league, season) file this split's season "
+              "list resolves to is missing under raw_dir (e.g. "
+              "split_genuine_prospective_scoring's 2627 file not yet published), else "
+              "BUILT — never silently substituted with another season's data."
           )
           print("")
-          print("| Split | Season codes | Source rows | Usable (settled) | Pending settlement | Rejected (unique) | Issue occurrences | Closing-line-benchmark label required |")
-          print("|---|---|---:|---:|---:|---:|---:|---|")
+          print("| Split | Status | Season codes | Source rows | Usable (settled) | Pending settlement | Rejected (unique) | Issue occurrences | Closing-line-benchmark label required |")
+          print("|---|---|---|---:|---:|---:|---:|---:|---|")
           for split_id, split in report["splits"].items():
               totals = split["totals"]
               print(
-                  f"| {split_id} | {', '.join(split['season_codes']) or '(none)'} | "
+                  f"| {split_id} | {split['status']} | {', '.join(split['season_codes']) or '(none)'} | "
                   f"{totals['source_rows']} | {totals['usable_settled_rows']} | "
                   f"{totals['pending_settlement_rows_included']} | "
                   f"{totals['rejected_unique_rows']} | {totals['validation_issue_occurrences']} | "
@@ -215,6 +219,30 @@ jobs:
               print(f"| {league_code} | {cells[0]} | {cells[1]} |")
           print("")
 
+          breakdown = report["season_1415_rejection_breakdown"]
+          print(f"### Season 1415 rejection-reason breakdown — {breakdown['status']}")
+          print("")
+          print(f"> {breakdown['statement']}")
+          print("")
+          for league_code, league_result in breakdown["per_league"].items():
+              print(f"**{league_code}**:")
+              if not league_result.get("available"):
+                  print("- (file not available)")
+                  continue
+              print(
+                  f"- total_rows={league_result['total_rows']}, "
+                  f"usable_fixtures={league_result['usable_fixtures']}, "
+                  f"rejected_fixtures={league_result['rejected_fixtures']}"
+              )
+              for reason, count in league_result["rejection_reason_counts"].items():
+                  print(f"  - {reason}: {count}")
+              for row in league_result["rejected_row_sample"]:
+                  print(
+                      f"  - row {row['row_index']}: {row['home_team']} vs {row['away_team']} "
+                      f"({row['date_raw']}) — {row['issues']}"
+                  )
+          print("")
+
           print("### Sanitized rejected-row sample (capped, no odds values)")
           print("")
           any_sample = False
@@ -231,6 +259,31 @@ jobs:
                   )
           if not any_sample:
               print("_No rejected rows sampled (no split had a rejected row, or no raw files were present)._")
+          print("")
+
+          print("### Split-specific rejected-row sample (capped, no odds values)")
+          print("")
+          print(
+              "Each row here carries the exact `split_rejection_reason` THIS split's "
+              "own requirements rejected it for (e.g. OPENING_PRICES_INCOMPLETE vs "
+              "CLOSING_PRICES_INCOMPLETE), unlike the generic sample above which is "
+              "identical across every split."
+          )
+          print("")
+          any_split_specific_sample = False
+          for split_id, split in report["splits"].items():
+              sample = split["split_specific_rejected_row_sample"]
+              if not sample:
+                  continue
+              any_split_specific_sample = True
+              print(f"- **{split_id}**:")
+              for row in sample:
+                  print(
+                      f"  - {row['league_code']}/{row['season_code']} row {row['row_index']}: "
+                      f"{row['home_team']} vs {row['away_team']} ({row['date_raw']}) — {row['split_rejection_reason']}"
+                  )
+          if not any_split_specific_sample:
+              print("_No split-specific rejected rows sampled (no split rejected a row, or no raw files were present)._")
           print("")
           print(f"> {report['note']}")
           PY
