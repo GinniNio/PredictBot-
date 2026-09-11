@@ -63,6 +63,26 @@ from .train import TrainingResult
 LOG_LOSS_PROBABILITY_FLOOR = 1e-12
 NUM_CALIBRATION_BINS = 10
 
+# Operator-mandated labeling correction: the split/model-level calibration
+# measure pools ALL THREE outcome-probability columns (H, D, A) per row into
+# one binning -- for `n` rows this produces `n * len(CLASS_ORDER)` probability
+# observations, NOT `n`. This is POOLED MARGINAL (classwise) calibration --
+# every one of a row's three outcome probabilities is checked against
+# whether that specific outcome actually occurred -- never TOP-LABEL
+# CONFIDENCE calibration (which would use only each row's own predicted
+# class and produce exactly one observation per row). Neither is wrong on
+# its own; conflating the two is. `by_outcome[c]`'s own calibration_error is
+# a single-class measure (one observation per row, for that one class c) and
+# is NOT affected by this -- its own reliability_table already sums to
+# row_count, not row_count * len(CLASS_ORDER).
+POOLED_CLASSWISE_CALIBRATION_DEFINITION = (
+    "POOLED_MARGINAL_CLASSWISE: each row contributes one probability "
+    "observation per outcome class (H, D, A), checked against whether that "
+    "specific outcome occurred -- never top-label confidence calibration "
+    "(which would use only the row's own predicted class, one observation "
+    "per row)."
+)
+
 # Splits reported as genuine one-way, held-out TEST evidence.
 TEST_SPLIT_IDS: tuple[str, ...] = ("split_locked_test", "split_out_of_time_retrospective_holdout")
 # This split is NEVER described as a "test" or "prospective evaluation" —
@@ -139,12 +159,19 @@ def score_predictions(rows: list[tuple[dict[str, float], str, str]], _include_by
     by-league enabled would otherwise call itself with an identical row
     set forever)."""
 
+    outcomes_per_fixture = len(CLASS_ORDER)
+
     if not rows:
         return {
             "row_count": 0,
             "brier_score": None,
             "log_loss": None,
-            "calibration_error": None,
+            "pooled_class_probability_calibration_error": None,
+            "calibration_definition": POOLED_CLASSWISE_CALIBRATION_DEFINITION,
+            "fixture_count": 0,
+            "outcomes_per_fixture": outcomes_per_fixture,
+            "probability_observation_count": 0,
+            "reliability_bin_count_sum": 0,
             "reliability_table": [],
             "accuracy_secondary_diagnostic": None,
             "by_league": {},
@@ -162,6 +189,7 @@ def score_predictions(rows: list[tuple[dict[str, float], str, str]], _include_by
             pooled_pairs.append((pred.get(c, 0.0), 1 if actual == c else 0))
     reliability_table = _reliability_bins(pooled_pairs)
     calib_error = calibration_error_from_table(reliability_table)
+    reliability_bin_count_sum = sum(row["count"] for row in reliability_table)
 
     by_league: dict[str, Any] = {}
     if _include_by_league:
@@ -193,7 +221,12 @@ def score_predictions(rows: list[tuple[dict[str, float], str, str]], _include_by
         "row_count": n,
         "brier_score": sum(briers) / n,
         "log_loss": sum(losses) / n,
-        "calibration_error": calib_error,
+        "pooled_class_probability_calibration_error": calib_error,
+        "calibration_definition": POOLED_CLASSWISE_CALIBRATION_DEFINITION,
+        "fixture_count": n,
+        "outcomes_per_fixture": outcomes_per_fixture,
+        "probability_observation_count": len(pooled_pairs),
+        "reliability_bin_count_sum": reliability_bin_count_sum,
         "reliability_table": reliability_table,
         "accuracy_secondary_diagnostic": correct / n,
         "by_league": by_league,
@@ -339,7 +372,7 @@ def _format_metrics_markdown(name: str, metrics: dict[str, Any]) -> list[str]:
     if metrics["row_count"]:
         lines.append(
             f"- Brier: {metrics['brier_score']:.4f}, log loss: {metrics['log_loss']:.4f}, "
-            f"calibration error: {metrics['calibration_error']:.4f}, "
+            f"pooled_class_probability_calibration_error: {metrics['pooled_class_probability_calibration_error']:.4f}, "
             f"accuracy (secondary diagnostic): {metrics['accuracy_secondary_diagnostic']:.4f}"
         )
     return lines
@@ -347,7 +380,7 @@ def _format_metrics_markdown(name: str, metrics: dict[str, Any]) -> list[str]:
 
 def _format_reliability_table_markdown(name: str, metrics: dict[str, Any]) -> list[str]:
     """Render the pooled (H/D/A-combined) reliability table backing
-    `metrics['calibration_error']` — bin range, sample count, mean
+    `metrics['pooled_class_probability_calibration_error']` — bin range, sample count, mean
     predicted confidence, and observed (empirical) accuracy per bin.
     Empty bins are still listed (count=0), never silently dropped, so a
     reader can see which confidence ranges this split never predicted
@@ -355,6 +388,15 @@ def _format_reliability_table_markdown(name: str, metrics: dict[str, Any]) -> li
 
     table = metrics.get("reliability_table") or []
     lines = [f"**{name} — reliability table**", ""]
+    lines.append(f"> {metrics.get('calibration_definition', POOLED_CLASSWISE_CALIBRATION_DEFINITION)}")
+    lines.append("")
+    lines.append(
+        f"fixture_count={metrics.get('fixture_count', metrics['row_count'])}, "
+        f"outcomes_per_fixture={metrics.get('outcomes_per_fixture', len(CLASS_ORDER))}, "
+        f"probability_observation_count={metrics.get('probability_observation_count', 0)}, "
+        f"reliability_bin_count_sum={metrics.get('reliability_bin_count_sum', 0)}"
+    )
+    lines.append("")
     if not table:
         lines.append("(no rows)")
         lines.append("")

@@ -397,6 +397,15 @@ jobs:
               table = metrics.get("reliability_table") or []
               print(f"**{title} — reliability table**")
               print("")
+              print(f"> {metrics.get('calibration_definition', '')}")
+              print("")
+              print(
+                  f"fixture_count={metrics.get('fixture_count', metrics['row_count'])}, "
+                  f"outcomes_per_fixture={metrics.get('outcomes_per_fixture', 3)}, "
+                  f"probability_observation_count={metrics.get('probability_observation_count', 0)}, "
+                  f"reliability_bin_count_sum={metrics.get('reliability_bin_count_sum', 0)}"
+              )
+              print("")
               if not table:
                   print("(no rows)")
                   print("")
@@ -415,7 +424,7 @@ jobs:
               if metrics['row_count']:
                   print(
                       f"- Brier: {metrics['brier_score']:.4f}, log loss: {metrics['log_loss']:.4f}, "
-                      f"calibration error: {metrics['calibration_error']:.4f}, "
+                      f"pooled_class_probability_calibration_error: {metrics['pooled_class_probability_calibration_error']:.4f}, "
                       f"accuracy (secondary diagnostic): {metrics['accuracy_secondary_diagnostic']:.4f}"
                   )
                   print("  - By league:")
@@ -424,7 +433,7 @@ jobs:
                           print(
                               f"    - {league_code}: rows={league_metrics['row_count']}, "
                               f"Brier={league_metrics['brier_score']:.4f}, log_loss={league_metrics['log_loss']:.4f}, "
-                              f"calibration_error={league_metrics['calibration_error']:.4f}"
+                              f"pooled_class_probability_calibration_error={league_metrics['pooled_class_probability_calibration_error']:.4f}"
                           )
                   print("  - By outcome:")
                   for outcome, outcome_metrics in metrics["by_outcome"].items():

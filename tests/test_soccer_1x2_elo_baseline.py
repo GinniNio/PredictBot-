@@ -1286,6 +1286,59 @@ class ReliabilityTableReportingTests(unittest.TestCase):
         finally:
             shutil.rmtree(raw_dir_tmp, ignore_errors=True)
 
+    def test_reliability_bin_count_sum_equals_fixture_count_times_outcomes_per_fixture(self):
+        # Operator-mandated correction: the pooled (H/D/A-combined)
+        # reliability table's bin counts sum to
+        # fixture_count * outcomes_per_fixture (each row contributes one
+        # probability observation per outcome class), NOT to fixture_count
+        # alone. This must hold structurally, not just by coincidence of
+        # one particular dataset, so it is checked against both a
+        # hand-built synthetic example and the real pipeline output.
+        metrics = evaluate.score_predictions(
+            [
+                ({"H": 0.7, "D": 0.2, "A": 0.1}, "H", "E0"),
+                ({"H": 0.3, "D": 0.4, "A": 0.3}, "D", "E0"),
+                ({"H": 0.5, "D": 0.3, "A": 0.2}, "A", "D1"),
+            ]
+        )
+        self.assertEqual(metrics["fixture_count"], 3)
+        self.assertEqual(metrics["outcomes_per_fixture"], 3)
+        self.assertEqual(metrics["probability_observation_count"], 9)
+        self.assertEqual(metrics["reliability_bin_count_sum"], 9)
+        self.assertEqual(
+            sum(row["count"] for row in metrics["reliability_table"]),
+            metrics["fixture_count"] * metrics["outcomes_per_fixture"],
+        )
+
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            result = train.train_pipeline(raw_dir=raw_dir)
+            report = evaluate.build_evaluation_report(result)
+            for split_id in evaluate.TEST_SPLIT_IDS:
+                split_metrics = report["test_splits"][split_id]["model_metrics"]
+                if split_metrics["row_count"] == 0:
+                    continue
+                self.assertEqual(
+                    sum(row["count"] for row in split_metrics["reliability_table"]),
+                    split_metrics["fixture_count"] * split_metrics["outcomes_per_fixture"],
+                )
+                self.assertEqual(split_metrics["probability_observation_count"], split_metrics["reliability_bin_count_sum"])
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_pooled_calibration_measure_is_labeled_not_top_label_confidence(self):
+        # The measure must state, in its own report data, that it is
+        # POOLED_MARGINAL_CLASSWISE calibration -- never silently
+        # presented as if it were top-label confidence calibration (one
+        # observation per row, using only the row's own predicted class).
+        metrics = evaluate.score_predictions([({"H": 0.7, "D": 0.2, "A": 0.1}, "H", "E0")])
+        self.assertIn("pooled_class_probability_calibration_error", metrics)
+        self.assertNotIn("calibration_error", metrics)  # renamed, not duplicated
+        self.assertIn("POOLED_MARGINAL_CLASSWISE", metrics["calibration_definition"])
+        self.assertIn("top-label confidence calibration", metrics["calibration_definition"])
+
 
 if __name__ == "__main__":
     unittest.main()

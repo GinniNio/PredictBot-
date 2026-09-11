@@ -19,7 +19,7 @@ evidence_class: `SOURCE_UNAVAILABLE`
 ## Prospective stream (rolling, append-only — never part of the frozen hashes above)
 
 - content_hash: `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570`
-- run_timestamp_utc: `2026-09-11T07:37:58+00:00`
+- run_timestamp_utc: `2026-09-11T10:31:40+00:00`
 - row_count: 0
 
 ## Test splits (reported separately — never blended)
@@ -33,6 +33,10 @@ evidence_class: `SOURCE_UNAVAILABLE`
 
 **Model — reliability table**
 
+> POOLED_MARGINAL_CLASSWISE: each row contributes one probability observation per outcome class (H, D, A), checked against whether that specific outcome occurred -- never top-label confidence calibration (which would use only the row's own predicted class, one observation per row).
+
+fixture_count=0, outcomes_per_fixture=3, probability_observation_count=0, reliability_bin_count_sum=0
+
 (no rows)
 
 ### split_out_of_time_retrospective_holdout
@@ -43,6 +47,10 @@ evidence_class: `SOURCE_UNAVAILABLE`
 - De-vigged opening odds: excluded 0 row(s) with no complete opening price set
 
 **Model — reliability table**
+
+> POOLED_MARGINAL_CLASSWISE: each row contributes one probability observation per outcome class (H, D, A), checked against whether that specific outcome occurred -- never top-label confidence calibration (which would use only the row's own predicted class, one observation per row).
+
+fixture_count=0, outcomes_per_fixture=3, probability_observation_count=0, reliability_bin_count_sum=0
 
 (no rows)
 
@@ -56,6 +64,10 @@ evidence_class: `SOURCE_UNAVAILABLE`
 - De-vigged opening odds: excluded 0 row(s) with no complete opening price set
 
 **Model — reliability table**
+
+> POOLED_MARGINAL_CLASSWISE: each row contributes one probability observation per outcome class (H, D, A), checked against whether that specific outcome occurred -- never top-label confidence calibration (which would use only the row's own predicted class, one observation per row).
+
+fixture_count=0, outcomes_per_fixture=3, probability_observation_count=0, reliability_bin_count_sum=0
 
 (no rows)
 
