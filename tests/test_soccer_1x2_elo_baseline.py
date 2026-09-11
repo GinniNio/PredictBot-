@@ -13,6 +13,7 @@ dataset is fitted on or claimed as fitted here."""
 from __future__ import annotations
 
 import copy
+import json
 import shutil
 import sys
 import tempfile
@@ -28,7 +29,7 @@ if str(SRC_DIR) not in sys.path:
 
 from data_pipeline.dataset_builder import raw_file_path
 
-from research.soccer_1x2_elo_baseline import calibration, evaluate, model, train
+from research.soccer_1x2_elo_baseline import calibration, evaluate, hash_provenance, model, train
 from research.soccer_1x2_elo_baseline.elo import (
     HOME_ADVANTAGE_ELO_BONUS,
     INITIAL_RATING,
@@ -800,6 +801,147 @@ class EvaluateMetricsTests(unittest.TestCase):
                 self.assertIn("model_metrics", split_report)
                 self.assertIn("naive_league_frequency_baseline_metrics", split_report)
                 self.assertIn("devigged_opening_odds_metrics", split_report)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+
+class HashProvenanceTests(unittest.TestCase):
+    """Operator-mandated correction: this PR must never freeze hashes
+    calculated from synthetic fixtures (or any local run) as if they were
+    the real, live-data expected values. `expected_hashes.json` ships with
+    every split UNFROZEN_PENDING_LIVE_RUN; `hash_provenance.py` only ever
+    READS that file and compares — it never writes it, and a real hash
+    only ever gets pinned there by a human, in a separate PR."""
+
+    def test_shipped_expected_hashes_file_is_all_unfrozen(self):
+        # Guards against ever accidentally committing a real-looking hash
+        # (e.g. one computed from this sandbox's synthetic fixtures) as if
+        # it were a genuine live-data expected value.
+        expected = hash_provenance.load_expected_hashes()
+        for split_id in train.FROZEN_SPLIT_IDS:
+            self.assertEqual(expected["split_hashes"][split_id], hash_provenance.UNFROZEN_STATUS, split_id)
+        self.assertEqual(expected["frozen_dataset_hash"], hash_provenance.UNFROZEN_STATUS)
+
+    def test_unfrozen_expected_is_always_candidate_never_mismatch(self):
+        expected = {
+            "split_hashes": {sid: hash_provenance.UNFROZEN_STATUS for sid in train.FROZEN_SPLIT_IDS},
+            "frozen_dataset_hash": hash_provenance.UNFROZEN_STATUS,
+        }
+        computed_split_hashes = {sid: f"deadbeef-{sid}" for sid in train.FROZEN_SPLIT_IDS}
+        report = hash_provenance.check_frozen_hashes(computed_split_hashes, "deadbeef-combined", expected=expected)
+        self.assertFalse(report.has_mismatch)
+        for check in report.split_checks:
+            self.assertEqual(check.status, hash_provenance.STATUS_CANDIDATE)
+        self.assertEqual(report.combined_check.status, hash_provenance.STATUS_CANDIDATE)
+
+    def test_pinned_hash_matching_computed_is_confirmed(self):
+        split_id = train.FROZEN_SPLIT_IDS[0]
+        expected = {
+            "split_hashes": {sid: hash_provenance.UNFROZEN_STATUS for sid in train.FROZEN_SPLIT_IDS},
+            "frozen_dataset_hash": hash_provenance.UNFROZEN_STATUS,
+        }
+        expected["split_hashes"][split_id] = "abc123"
+        computed = {sid: "other" for sid in train.FROZEN_SPLIT_IDS}
+        computed[split_id] = "abc123"
+        report = hash_provenance.check_frozen_hashes(computed, hash_provenance.UNFROZEN_STATUS, expected=expected)
+        self.assertFalse(report.has_mismatch)
+        confirmed = [c for c in report.split_checks if c.split_id == split_id][0]
+        self.assertEqual(confirmed.status, hash_provenance.STATUS_CONFIRMED)
+
+    def test_pinned_hash_not_matching_computed_is_mismatch(self):
+        split_id = train.FROZEN_SPLIT_IDS[0]
+        expected = {
+            "split_hashes": {sid: hash_provenance.UNFROZEN_STATUS for sid in train.FROZEN_SPLIT_IDS},
+            "frozen_dataset_hash": hash_provenance.UNFROZEN_STATUS,
+        }
+        expected["split_hashes"][split_id] = "pinned-real-hash"
+        computed = {sid: "other" for sid in train.FROZEN_SPLIT_IDS}
+        computed[split_id] = "a-different-hash-because-real-data-changed"
+        report = hash_provenance.check_frozen_hashes(computed, hash_provenance.UNFROZEN_STATUS, expected=expected)
+        self.assertTrue(report.has_mismatch)
+        mismatched = [c for c in report.split_checks if c.split_id == split_id][0]
+        self.assertEqual(mismatched.status, hash_provenance.STATUS_MISMATCH)
+
+    def test_combined_hash_mismatch_also_flagged(self):
+        expected = {
+            "split_hashes": {sid: hash_provenance.UNFROZEN_STATUS for sid in train.FROZEN_SPLIT_IDS},
+            "frozen_dataset_hash": "pinned-combined",
+        }
+        computed = {sid: hash_provenance.UNFROZEN_STATUS for sid in train.FROZEN_SPLIT_IDS}
+        report = hash_provenance.check_frozen_hashes(computed, "a-different-combined-hash", expected=expected)
+        self.assertTrue(report.has_mismatch)
+        self.assertEqual(report.combined_check.status, hash_provenance.STATUS_MISMATCH)
+
+    def test_check_frozen_hashes_never_mutates_expected_input(self):
+        expected = {
+            "split_hashes": {sid: hash_provenance.UNFROZEN_STATUS for sid in train.FROZEN_SPLIT_IDS},
+            "frozen_dataset_hash": hash_provenance.UNFROZEN_STATUS,
+        }
+        expected_copy = copy.deepcopy(expected)
+        computed = {sid: "x" for sid in train.FROZEN_SPLIT_IDS}
+        hash_provenance.check_frozen_hashes(computed, "y", expected=expected)
+        self.assertEqual(expected, expected_copy)
+
+    def test_evaluate_main_exits_nonzero_on_mismatch(self):
+        # Full-pipeline guard: evaluate.main() must exit(1) when
+        # expected_hashes.json (loaded via the real, unpatched
+        # load_expected_hashes) has a pinned value that disagrees with a
+        # freshly computed hash. Patch only the expected-hashes loader —
+        # never the computed side — to simulate "a human already pinned a
+        # real hash, and this run's data has since drifted from it." All
+        # output paths point into a temp dir so this test never touches
+        # this repo's real committed report/artifact files.
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            out_dir = Path(raw_dir_tmp) / "out"
+
+            import unittest.mock as mock
+
+            fake_expected = {
+                "split_hashes": {sid: "a-hash-that-will-never-match-fixture-content" for sid in train.FROZEN_SPLIT_IDS},
+                "frozen_dataset_hash": "a-hash-that-will-never-match-fixture-content",
+            }
+            with mock.patch.object(hash_provenance, "load_expected_hashes", return_value=fake_expected):
+                with self.assertRaises(SystemExit) as ctx:
+                    evaluate.main(
+                        raw_dir=raw_dir,
+                        report_json_path=out_dir / "evaluation_report.json",
+                        report_markdown_path=out_dir / "evaluation_report.md",
+                        artifact_path=out_dir / "model_artifact.json",
+                    )
+            self.assertNotEqual(ctx.exception.code, 0)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_evaluate_main_writes_real_model_artifact_not_stale_placeholder(self):
+        # Regression test for the real defect found during review: the
+        # workflow only ever invokes evaluate.main() (never train.main()),
+        # but model_artifact.json was previously written ONLY by
+        # train.main() — meaning a live run's uploaded "model artifact"
+        # would silently stay whatever was last committed to git, never
+        # the real fitted artifact. evaluate.main() must now write it too,
+        # with content matching the actual TrainingResult it just computed.
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            out_dir = Path(raw_dir_tmp) / "out"
+            artifact_path = out_dir / "model_artifact.json"
+
+            expected_result = train.train_pipeline(raw_dir=raw_dir)
+
+            evaluate.main(
+                raw_dir=raw_dir,
+                report_json_path=out_dir / "evaluation_report.json",
+                report_markdown_path=out_dir / "evaluation_report.md",
+                artifact_path=artifact_path,
+            )
+
+            self.assertTrue(artifact_path.exists(), "evaluate.main() must write model_artifact.json itself")
+            written = json.loads(artifact_path.read_text(encoding="utf-8"))
+            self.assertEqual(written, expected_result.model_artifact.to_dict())
         finally:
             shutil.rmtree(raw_dir_tmp, ignore_errors=True)
 

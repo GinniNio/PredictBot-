@@ -395,35 +395,118 @@ def write_evaluation_report(
     lines.append(f"- De-vigged opening odds: excluded {devig['excluded_row_count']} row(s) with no complete opening price set")
     lines.append("")
 
+    hash_provenance_report = report.get("hash_provenance")
+    if hash_provenance_report is not None:
+        lines.append("## Frozen-hash provenance check (against expected_hashes.json)")
+        lines.append("")
+        lines.append(
+            "Every value below is either `CANDIDATE` (no real hash pinned yet — "
+            "`expected_hashes.json` still says `UNFROZEN_PENDING_LIVE_RUN`), "
+            "`CONFIRMED` (matches a human-pinned real value), or `MISMATCH` (a "
+            "pinned value no longer matches — never auto-corrected, fails this run)."
+        )
+        lines.append("")
+        lines.append("| Split | Status | Expected | Computed |")
+        lines.append("|---|---|---|---|")
+        for check in hash_provenance_report["split_checks"]:
+            lines.append(f"| {check['split_id']} | {check['status']} | `{check['expected']}` | `{check['computed']}` |")
+        combined = hash_provenance_report["combined_check"]
+        lines.append(f"| {combined['split_id']} | {combined['status']} | `{combined['expected']}` | `{combined['computed']}` |")
+        lines.append("")
+
     markdown_path.parent.mkdir(parents=True, exist_ok=True)
     markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 DEFAULT_REPORT_JSON_PATH = REPO_ROOT / "research" / "soccer_1x2_elo_baseline" / "reports" / "evaluation_report.json"
 DEFAULT_REPORT_MARKDOWN_PATH = REPO_ROOT / "research" / "soccer_1x2_elo_baseline" / "reports" / "evaluation_report.md"
+DEFAULT_ARTIFACT_PATH = REPO_ROOT / "research" / "soccer_1x2_elo_baseline" / "reports" / "model_artifact.json"
 
 
-def main() -> None:
+def main(
+    raw_dir: Path | None = None,
+    report_json_path: Path = DEFAULT_REPORT_JSON_PATH,
+    report_markdown_path: Path = DEFAULT_REPORT_MARKDOWN_PATH,
+    artifact_path: Path = DEFAULT_ARTIFACT_PATH,
+) -> None:
     """CLI entry point: run the full train+evaluate pipeline against
     whatever `data_pipeline/raw/` actually contains (real downloads in a
     live GitHub Actions run; nothing in this sandbox — see
-    `train.py`'s module docstring on IMPLEMENTATION STATUS) and write the
-    evaluation report JSON/Markdown."""
+    `train.py`'s module docstring on IMPLEMENTATION STATUS), write the
+    evaluation report JSON/Markdown, and check the freshly computed frozen
+    hashes against `expected_hashes.json` (see `hash_provenance.py`).
 
-    from .train import run_twice_determinism_check, train_pipeline
+    `raw_dir`/`report_json_path`/`report_markdown_path`/`artifact_path` all
+    default to this package's real, committed locations — a caller (the
+    workflow, or `python -m research.soccer_1x2_elo_baseline.evaluate`)
+    never needs to pass any of them. They exist as explicit parameters
+    purely so tests can point every side-effecting path somewhere
+    temporary, instead of either mutating this repo's real committed
+    report files or relying on mocking a function's already-bound default
+    argument (which does not work in Python — default values are captured
+    once, at `def` time, not re-read per call).
 
-    is_identical, first_result, _second_result = run_twice_determinism_check()
+    Exit status: non-zero if `hash_provenance.check_frozen_hashes` reports
+    ANY `MISMATCH` — a pinned real hash that a later run's computed hash no
+    longer matches. Before any real hash is pinned (every value in
+    `expected_hashes.json` is still `UNFROZEN_PENDING_LIVE_RUN`), every
+    check is a `CANDIDATE`, never a `MISMATCH`, so a run against real
+    Football-Data data — or even this sandbox's empty/fixture-only state —
+    never fails on that account alone. This exit code is the actual
+    enforcement mechanism the operator asked for: the workflow step this
+    function is invoked from FAILS on a real hash mismatch, it does not
+    just print a warning that could be missed."""
+
+    import sys
+
+    from . import hash_provenance
+    from .train import DEFAULT_RAW_DIR, run_twice_determinism_check
+
+    effective_raw_dir = raw_dir if raw_dir is not None else DEFAULT_RAW_DIR
+    is_identical, first_result, _second_result = run_twice_determinism_check(raw_dir=effective_raw_dir)
     print(f"run_twice_determinism_check: is_identical={is_identical}")
     result = first_result
 
+    hash_report = hash_provenance.check_frozen_hashes(
+        result.frozen_hashes.split_hashes, result.frozen_hashes.combined_hash
+    )
+
     report = build_evaluation_report(result)
-    write_evaluation_report(report, DEFAULT_REPORT_JSON_PATH, DEFAULT_REPORT_MARKDOWN_PATH)
-    print(f"Wrote {DEFAULT_REPORT_JSON_PATH} and {DEFAULT_REPORT_MARKDOWN_PATH}")
+    report["hash_provenance"] = hash_report.to_dict()
+    write_evaluation_report(report, report_json_path, report_markdown_path)
+    print(f"Wrote {report_json_path} and {report_markdown_path}")
+
+    # `train.main()`'s own path writes this artifact, but the workflow only
+    # ever invokes THIS module's main() — write it here too (same content,
+    # same default path) so a real live run's actual fitted artifact is
+    # what gets uploaded as evidence, never the stale fixture-based one
+    # this PR committed locally.
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(json.dumps(result.model_artifact.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Wrote {artifact_path}")
+
+    print("Frozen-hash provenance check (against expected_hashes.json — never auto-updated):")
+    for check in hash_report.split_checks:
+        print(f"  {check.split_id}: status={check.status} expected={check.expected} computed={check.computed}")
+    print(
+        f"  frozen_dataset_hash: status={hash_report.combined_check.status} "
+        f"expected={hash_report.combined_check.expected} computed={hash_report.combined_check.computed}"
+    )
+
     print(
         "soccer_1x2 stays completely UNREGISTERED regardless of these numbers — no "
         "model-admission-registry row, no promotion-threshold change, no adapter "
         "wiring happens here or anywhere in this PR."
     )
+
+    if hash_report.has_mismatch:
+        print(
+            "FAILING: one or more frozen-split hashes no longer match the pinned "
+            "expected_hashes.json value. This is never auto-corrected — a human must "
+            "review why the frozen dataset changed and, if the new content is "
+            "correct, pin the new hash in its own small evidence PR."
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

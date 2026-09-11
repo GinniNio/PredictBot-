@@ -310,6 +310,14 @@ jobs:
         run: python -m research.soccer_1x2_elo_baseline.evaluate
 
       - name: Write Soccer 1X2 Elo baseline evidence to job summary
+        # if: always() — the previous step exits non-zero (fails the job)
+        # on a frozen-hash MISMATCH, per the operator's own requirement
+        # that a mismatch fail the run rather than silently pass. Without
+        # always(), a failed previous step would skip this one and the
+        # mismatch detail would never reach the job summary/log — always()
+        # ensures the evidence (including the mismatch itself) still
+        # prints even though the job as a whole still reports failure.
+        if: always()
         run: |
           # Same `tee -a "$GITHUB_STEP_SUMMARY"` pattern as the two steps
           # above — this evidence must be visible in both the job log and

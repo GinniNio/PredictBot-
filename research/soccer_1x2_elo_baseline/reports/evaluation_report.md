@@ -9,15 +9,15 @@
 - `split_locked_test`: `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570`
 - `split_out_of_time_retrospective_holdout`: `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570`
 - frozen_dataset_hash (combined, 4 splits only): `8b27f4588429ed96b40c35ffd469bd9ea507d60ab658aa775d1fe921ef8050a5`
-- code_hash: `726bde2f3494260163b7212aa8297aa2228f4325728b372d9e78b7d0bcd46a33`
+- code_hash: `3264a0b18c0ea59e8ec52bd11bf65399418ae9bbcac46e419093f57f8066de8d`
 - artifact_hash: `133bed9556a56fb25029557e96f118d103e0847d00c840ea386bdc1df2c36968`
-- combined_hash: `542cb6a8889bd325cf4b958ec0f952bf488ade1be1f33ac67223c6e3115690ac`
+- combined_hash: `58d4b43235099435ba22d0994b26e0877078b9409446eb9155985e8b3a8b42ca`
 - temperature: `1.0`
 
 ## Prospective stream (rolling, append-only — never part of the frozen hashes above)
 
 - content_hash: `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570`
-- run_timestamp_utc: `2026-09-11T06:40:46+00:00`
+- run_timestamp_utc: `2026-09-11T07:07:23+00:00`
 - row_count: 0
 
 ## Test splits (reported separately — never blended)
@@ -44,4 +44,16 @@
 **Naive league-frequency baseline** — rows=0
 **De-vigged opening odds** — rows=0
 - De-vigged opening odds: excluded 0 row(s) with no complete opening price set
+
+## Frozen-hash provenance check (against expected_hashes.json)
+
+Every value below is either `CANDIDATE` (no real hash pinned yet — `expected_hashes.json` still says `UNFROZEN_PENDING_LIVE_RUN`), `CONFIRMED` (matches a human-pinned real value), or `MISMATCH` (a pinned value no longer matches — never auto-corrected, fails this run).
+
+| Split | Status | Expected | Computed |
+|---|---|---|---|
+| split_training | CANDIDATE | `UNFROZEN_PENDING_LIVE_RUN` | `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570` |
+| split_calibration_validation | CANDIDATE | `UNFROZEN_PENDING_LIVE_RUN` | `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570` |
+| split_locked_test | CANDIDATE | `UNFROZEN_PENDING_LIVE_RUN` | `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570` |
+| split_out_of_time_retrospective_holdout | CANDIDATE | `UNFROZEN_PENDING_LIVE_RUN` | `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570` |
+| frozen_dataset_hash | CANDIDATE | `UNFROZEN_PENDING_LIVE_RUN` | `8b27f4588429ed96b40c35ffd469bd9ea507d60ab658aa775d1fe921ef8050a5` |
 

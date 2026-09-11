@@ -227,9 +227,10 @@ def fit(
     `standardization`, when omitted, is fit HERE from `features` — the
     caller is expected to pass `features`/`labels` that are ALREADY
     training-split-only rows, so this default is correct for the normal
-    "fit on split_training" call path. `train.py` always passes an
-    explicit, already-training-fit `StandardizationParams` so the exact
-    same object also gets threaded into the artifact deterministically."""
+    "fit on split_training" call path. `train.py`'s own call site relies on
+    exactly this default (it never passes `standardization` explicitly),
+    so standardization ends up fit from `split_training`'s rows only,
+    inside this function, on every real call path."""
 
     n = len(features)
     if n == 0:
