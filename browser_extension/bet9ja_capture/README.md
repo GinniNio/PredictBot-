@@ -218,16 +218,132 @@ extension) — deliberately out of scope for Release 1's zero-new-runtime-
 dependency, Node-`jsdom`-only test suite; the structural checks above are
 the honest substitute.
 
-## Selector contract (will need real-page tuning)
+## Selector contract
 
-`parser.js`'s `SELECTORS` object is a documented, best-effort assumption
-about Bet9ja's markup, exercised so far only against the sanitized HTML
-fixtures in `tests/fixtures/` — **it has not yet been verified against a
-real Bet9ja page.** Expect the first real run to require edits to
-`SELECTORS` only; the traversal/normalization logic underneath should not
-need to change for a pure selector adjustment. See the top-of-file comment
-in `parser.js` for the exact contract (root/group/row/market/outcome
-selectors and the `data-*` attributes each one reads).
+`parser.js` tries two independent profiles, in order:
+
+1. **LEGACY** (`SELECTORS`) — the original documented, best-effort
+   assumption about Bet9ja's markup, exercised against the sanitized dev
+   fixtures in `tests/fixtures/`. Kept as-is for those fixtures and as a
+   fallback should a future redesign happen to match it.
+2. **BET9JA_DESKTOP** (`BET9JA_DESKTOP_SELECTORS`) — used only when the
+   LEGACY root selector matches nothing at all.
+
+### Real-page validation status
+
+**Round 1** (2026-09-11, against an authenticated
+`https://sports.bet9ja.com/sport/soccer/1`) found the LEGACY profile did
+not match the real page at all — `capture_status: CAPTURE_FAILED` /
+`SELECTOR_ROOT_NOT_FOUND`, confirmed from two real downloaded captures.
+One sanitized real fixture row was supplied
+(`tests/fixtures/bet9ja_desktop_real_sample.html`).
+
+**Round 2** (same day) confirmed the full selector contract via direct
+live-page inspection, on both the public and an authenticated view of the
+same page:
+
+| Check | Public | Logged in |
+|---|---:|---:|
+| Fixture rows (`.table-f`) | 30 | 30 |
+| Home-team elements | 21 | 21 |
+| Away-team elements | 21 | 21 |
+| Matchup event IDs | 21 | 21 |
+| Standard 1X2 price elements | 63 | 63 |
+| Date headings (`.sports-head__date`) | 2 | 2 |
+
+The first fixture (Ararat-Armenia vs FC Syunik, `16:00`,
+`1.14 / 7.30 / 12.25`) was identical in both views. **Login does not
+change the fixture DOM** — the extension needs no authenticated-vs-public
+branching. What login does add is account-related page chrome elsewhere
+on the page; none of it appears inside `.sports-table`, any `.table-f`
+row, or any 1X2 price element — confirmed structurally, not assumed.
+
+Note the 30 vs. 21 gap above: 9 of the 30 `.table-f` rows do not carry
+the standard home/away/matchup-id structure (e.g. promotional or
+otherwise non-standard rows). This is not a defect — those rows correctly
+fall through to `MISSING_PARTICIPANTS` in `unparsed_records` rather than
+being silently skipped or fabricated.
+
+`tests/parser.test.js`'s `BET9JA_DESKTOP: ...` tests are the regression
+coverage for all of this, including the real Ararat-Armenia vs FC Syunik
+row mapping to exactly `1.14 / 7.30 / 12.25` on the correct participants.
+
+**What this confirms:**
+
+- **Root and row selectors**: `.sports-table` (confirmed as "the fixture
+  accordion/table" — capture is rooted inside it, never the page body or
+  the outer `.container`) with `.table-f` as its direct-child rows.
+- Participant selectors (`.sports-table__home` / `.sports-table__away`)
+  and the 1X2 odds list (`.sports-table__odds-item` with the outcome
+  label embedded in each `<li>`'s own `id`, e.g. `..._market-1x2_sign-1`)
+  all work against real markup.
+- **Date-heading grouping**: `.sports-head__date` elements are direct
+  siblings of `.table-f` rows under `.sports-table`, grouping the rows
+  that follow by date (confirmed: 2 date headings on this page). Recorded
+  per fixture as `date_heading_raw` for audit — deliberately never
+  combined with the bare kickoff time into a guessed `kickoff_utc`, since
+  its exact date-string format is still unconfirmed.
+- **The "1X2 1UP" second market never contaminates ordinary 1X2.** The
+  real page carries a second `.sports-table__odds-list` per row for a
+  "1X2 1UP" market; its odds-item `id`s use a distinct family segment
+  (e.g. `..._market-1x2_1up_sign-1`) that the family-extraction pattern
+  captures as its own value — never aliased to `"1x2"` — so it is routed
+  to `UNSUPPORTED_MARKET_FAMILY` (audited, `expected_unsupported: true`)
+  rather than merged into the real market or silently dropped.
+- Fixture identity is derived from the real per-event `id`
+  (`..._event-832455154`) rather than a guessed natural key, so
+  recapturing the same fixture (e.g. after a page reload or an odds
+  change) resolves to the same `fixture_id`.
+- Kickoff honesty holds against real markup too: this row's only kickoff
+  text is a bare time (`"16:00"`, no date, no year, no timezone) — the
+  parser correctly reports `UNRESOLVED_NO_EXPLICIT_TIMESTAMP` rather than
+  guessing a UTC value, exactly as designed.
+- `source_url` is sanitized correctly on the real page
+  (`https://sports.bet9ja.com/sport/soccer/1`, no query string observed
+  in practice).
+- No account, balance, cookie, token, or betslip data appeared in either
+  real downloaded capture, and none is structurally reachable from
+  `.sports-table` on either the public or authenticated page.
+- **Login vs. public parity**: identical fixture-row/element counts and
+  an identical first fixture confirm no authenticated-only branch is
+  needed for this page.
+
+**What this does NOT yet confirm** (no sample seen; do not assume this
+profile handles these correctly until it has been):
+
+- **Competition/region grouping.** No competition/league wrapper has been
+  observed for this page — rows are grouped by date only (see above),
+  never by competition (`region`/`competition` stay `null` for this
+  profile). Because of this, and because this page's collapsed-section/
+  lazy-loading markup (if any) is still unconfirmed, the profile always
+  reports `CAPTURE_PARTIAL` with a dedicated reason,
+  `BET9JA_DESKTOP_FALLBACK_PROFILE_UNVERIFIED_COVERAGE`, even when every
+  row it finds parses cleanly.
+- **Live, virtual, and Zoom event markup.** No sample of any of these
+  three states has been captured yet, so BET9JA_DESKTOP currently treats
+  every matched row as `PRE_MATCH` unconditionally. This is a real,
+  open gap — do not treat a live/virtual/Zoom event captured under this
+  profile as reliably tagged until a real sample of each is supplied and
+  a follow-up selector-tuning PR adds the corresponding detection.
+- **Other sports.** Only `sport-1 == SOCCER` is confirmed (inferred from
+  the sample's own `/sport/soccer/1` source URL); every other sport code
+  is deliberately left unmapped rather than guessed.
+- **`.sports-head__date`'s exact text/date format** — recorded verbatim
+  as `date_heading_raw`, never parsed into a timestamp until a real
+  sample of its actual text is captured and a safe, unambiguous format is
+  confirmed.
+
+A defensive ancestor-exclusion guard (`EXCLUDED_ANCESTOR_SELECTOR`) is
+kept as a redundant safety net on top of the `.sports-table` root scoping
+above (proven with synthetic nav/betslip decoy fixtures, each mimicking
+the full real root+row shape) — never rely on it alone; the primary
+guarantee is the confirmed root scoping itself.
+
+Follow-up selector-tuning PRs should attach a new sanitized sample and
+extend `BET9JA_DESKTOP_SELECTORS` (competition grouping, live/virtual/
+Zoom markup, the date-heading format) the same way this one did — one
+narrow PR per gap, backed by one real, evidenced sample, never guessed
+ahead of evidence.
 
 ## Loading it unpacked for testing
 
@@ -259,8 +375,13 @@ failure, source-URL sanitization, fixture-ID stability (unchanged by
 odds/capture-time/DOM-order/whitespace, changed by participants/
 competition/kickoff), and time-zone honesty (a missing, year-less, or
 timezone-less `data-kickoff-utc` all produce a typed unresolved state with
-`kickoff_raw` preserved, never a guessed UTC value). `tests/privacy.test.js`
-and `tests/structural.test.js` cover the allowlist/permission-contract
+`kickoff_raw` preserved, never a guessed UTC value), and the BET9JA_DESKTOP
+real-page fallback profile: a real sanitized row, a mixed pass/fail page,
+a nav/betslip-decoy exclusion page, date-heading grouping plus the real
+"1X2 1UP" second-market exclusion, and the competition-page id/URL shape
+(`prematch_event-{id}`, country/competition parsed from the URL) — see
+"Real-page validation status" above. `tests/privacy.test.js` and
+`tests/structural.test.js` cover the allowlist/permission-contract
 properties described above.
 
 ## Boundaries (Release 1)
@@ -278,7 +399,16 @@ properties described above.
 
 ## Next step
 
-Once this has been run against a real Bet9ja page and its selectors tuned,
-the next PR adds ticket capture using the existing `betting_ledger`
-schema (`ledgers/schemas/betting_ledger.v1.schema.json`) — see
+The core real-page selector question (does this extension work against
+actual Bet9ja markup at all?) is answered: yes, via the BET9JA_DESKTOP
+profile, confirmed against both the Highlights page and four competition
+pages, public and authenticated. The remaining gap under "What this does
+NOT yet confirm" above — live/virtual/Zoom event marking — is the clear
+candidate for its own narrow, evidence-backed follow-up PR once a real
+sample of each state is captured. Per `REAL_PAGE_VALIDATION.md`'s
+Recommendation, one more real downloaded JSON capture against the live,
+authenticated page with this build should happen before treating
+real-page validation as fully closed. Once that's done, the next PR adds
+ticket capture using the existing `betting_ledger` schema
+(`ledgers/schemas/betting_ledger.v1.schema.json`) — see
 `docs/LEDGER_DAILY_WORKFLOW.md`.

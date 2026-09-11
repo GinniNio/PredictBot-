@@ -16,7 +16,9 @@ const path = require('node:path');
 const parser = require('../parser.js');
 const { loadFixtureDocument, BASE_CONTEXT } = require('./helpers.js');
 
-const ALLOWED_RAW_KEYS = new Set(['home', 'away', 'kickoff_raw', 'sport_hint', 'status_hint', 'markets', 'market', 'partial_outcomes']);
+const ALLOWED_RAW_KEYS = new Set([
+  'home', 'away', 'kickoff_raw', 'sport_hint', 'status_hint', 'date_heading_raw', 'markets', 'market', 'partial_outcomes',
+]);
 const ALLOWED_MARKET_KEYS = new Set(['family', 'line', 'outcomes']);
 const ALLOWED_OUTCOME_KEYS = new Set(['rawLabel', 'rawPrice']);
 const ALLOWED_PARTIAL_OUTCOME_KEYS = new Set(['H', 'D', 'A']);
