@@ -62,8 +62,8 @@ Every category in the sports/adapter registry ships at `classification_ceiling: 
 ## What remains unbuilt
 
 - A real forecasting adapter registered against the Soccer 1X2 spec (`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`) — the research baseline above is a benchmark, not an admitted adapter.
-- Forecast and betting ledgers (CSV schemas, no capture/settlement logic yet).
-- Pre-match capture tooling (Bet9ja or any other live-odds source) — the pricing engine accepts prices as input; it does not fetch them.
+- Automatic linking from a Bet9ja capture into the forecast ledger, and Bet9ja ticket/settlement capture (`browser_extension/bet9ja_capture/` produces normalized fixture JSON only; `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps — see `docs/LEDGER_DAILY_WORKFLOW.md`).
+- Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
 - Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
 

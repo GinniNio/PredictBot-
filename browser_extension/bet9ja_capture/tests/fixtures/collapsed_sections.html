@@ -1,0 +1,21 @@
+<div class="odds-board">
+  <div class="competition-group" aria-expanded="true">
+    <div class="competition-header">Germany - Bundesliga</div>
+    <div class="fixture-row" data-status="PRE" data-sport="SOCCER" data-fixture-id="bl-4001">
+      <div class="participants"><span class="home">Bayern Munich</span><span class="away">RB Leipzig</span></div>
+      <div class="kickoff" data-kickoff-utc="2024-08-20T18:30:00Z">20/08 19:30</div>
+      <div class="market" data-market-family="1X2" data-market-line="">
+        <div class="outcome"><span class="outcome-label">1</span><span class="outcome-price">1.55</span></div>
+        <div class="outcome"><span class="outcome-label">X</span><span class="outcome-price">4.50</span></div>
+        <div class="outcome"><span class="outcome-label">2</span><span class="outcome-price">5.75</span></div>
+      </div>
+    </div>
+  </div>
+  <!-- A second competition is present but collapsed -- its rows are not
+       even in the DOM yet. The parser must never claim full-day coverage
+       when this is present; it reports what it saw (one fixture above)
+       and flags COLLAPSED_SECTIONS_DETECTED via CAPTURE_PARTIAL. -->
+  <div class="competition-group" aria-expanded="false">
+    <div class="competition-header" aria-expanded="false">France - Ligue 1</div>
+  </div>
+</div>

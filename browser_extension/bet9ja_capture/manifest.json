@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "PredictBot Bet9ja Fixture Capture",
+  "version": "0.1.0",
+  "description": "Release 1: capture visible pre-match Soccer 1X2 fixtures from an already-open, already-authenticated Bet9ja page into one normalized JSON file. No network requests, no account data, no bet placement.",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "scripting", "downloads"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
