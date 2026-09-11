@@ -245,3 +245,72 @@ remaining gaps that matter most:
    them — record whatever the result actually is here as Round 3,
    including any surprise (e.g. a ticket type or leg shape not covered by
    this round's inspection).
+
+## Round 3 — 2026-09-11
+
+**Tester-supplied facts** (from a second live authenticated inspection of
+`https://sports.bet9ja.com/myBets/`, focused specifically on pagination
+after Round 2's ticket/leg evidence):
+
+**Correction to Round 2:** the "20 pagination items" reported there was
+the total number of pagination *elements*, not 20 pages. The real count
+is **16 genuine numbered pages plus 4 navigation controls** (first/prev/
+next/last).
+
+| Element | Selector | Notes |
+|---|---|---|
+| Pagination container | `.mybets .pg-pagination` | |
+| All controls (raw) | `.mybets .pg-pagination__item` | includes numbered pages AND first/prev/next/last |
+| Numbered pages | `.mybets .pg-pagination__item` filtered by `/^\d+$/` text | distinguishes real page links from named controls |
+| Current page | `.mybets .pg-pagination__item--current` | |
+| First / Prev / Next / Last | `.first` / `.prev` / `.next` / `.last` classes | confirmed to exist; never clicked by this parser |
+| Disabled state | `element.hasAttribute("disabled")` | confirmed present on `.last` when already on the highest page |
+
+**Observed behavior, all confirmed by controlled interaction:**
+- Clicking page `2` changed the current marker from `1` to `2`.
+- The URL remained `https://sports.bet9ja.com/myBets/` throughout —
+  pagination is client-side, not a page navigation.
+- Each tested page displayed 5 `.accordion-item` ticket containers.
+- Clicking `Last` selected page `16` (confirms 16 is the true highest
+  page).
+- On page 16, `.last` carried the `disabled` attribute (confirms the
+  `disabled` signal is real and present at the actual boundary).
+- The browser was restored to page 1 after inspection (manually, in this
+  round — now done automatically by the implementation below).
+
+**Result: automated pagination implemented in `ticket_parser.js`.**
+`paginateAndCaptureAllPages` now walks every numbered page starting from
+whichever page is on screen when capture begins: parse the current page →
+read the current page number from `--current` → click the next NUMBERED
+item (never `.next`) → wait for `--current` to actually advance → parse →
+repeat. It stops on the highest page, a revisited page number, exactly
+repeated page content, an unconfirmed transition (timeout), or a fixed
+safety cap — never an unbounded loop. It deduplicates by `bet9ja_ticket_id`
+across the whole run and restores the browser to page 1 afterward
+(fire-and-forget, best effort). The ONLY click targets anywhere in the
+file remain the confirmed accordion toggle and a verified numbered
+pagination item — `.first`/`.prev`/`.next`/`.last` are named for
+detection only and are never queried for a click, enforced by both a
+behavioral test (a click-counter harness asserting zero clicks on those
+four controls across a multi-page run) and the existing source-grepping
+safety test.
+
+**What Round 3 does NOT change:** the live/Virtual/Zoom detection gap,
+the stake/return cell-mapping gap, and the ticket-type-detection-beyond-
+system-tables gap from Round 2 are all unaffected by pagination — every
+MYBETS-profile capture still reports `CAPTURE_PARTIAL`, never
+`CAPTURE_OK`, until those close.
+
+### Recommendation for Round 4
+
+One real "Capture open bets" click against the now fully-selector-
+confirmed MYBETS profile (ticket/leg markup from Round 2, pagination from
+Round 3), ideally on the same 16-page account, uploading the resulting
+JSON. Expect `tickets_parsed` to equal the true total ticket count across
+all 16 pages (not just the 5 on the first page), `coverage.pages_visited:
+16`, and `coverage.pages_available: 16`. Any surprise there — a ticket
+shape not covered by this round's synthetic tests, a genuine pagination
+edge case (e.g. a windowed page-number display that doesn't show all 16
+numbers at once), or a real live/Virtual/Zoom ticket appearing on the
+page — is exactly the next piece of evidence to record here, per the same
+discipline used throughout this project.

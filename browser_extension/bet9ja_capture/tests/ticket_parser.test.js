@@ -476,6 +476,165 @@ async function captureMybets(ticketsHtml, extraContext) {
   return ticketParser.captureFromDocument(doc, { ...BASE_CONTEXT, ...extraContext });
 }
 
+// --- Pagination: real selectors confirmed Round 3, see -----------------
+// TICKET_REAL_PAGE_VALIDATION.md and ticket_parser.js's own PAGINATION
+// header comment. This harness simulates client-side pagination (the URL
+// never changes) by swapping a ticket-list container's innerHTML on a
+// numbered-page click and moving the `--current` marker -- close enough
+// to the real client-side transition to exercise the wait-for-advance
+// loop without needing real network/navigation.
+function mybetsPaginationHtml({ pageTicketsHtmlList, startPage = 1, brokenPageNumber = null }) {
+  const totalPages = pageTicketsHtmlList.length;
+  const items = [];
+  items.push('<span class="pg-pagination__item first">First</span>');
+  items.push('<span class="pg-pagination__item prev">Prev</span>');
+  for (let p = 1; p <= totalPages; p += 1) {
+    items.push(
+      `<span class="pg-pagination__item${p === startPage ? ' pg-pagination__item--current' : ''}" data-page="${p}">${p}</span>`
+    );
+  }
+  items.push('<span class="pg-pagination__item next">Next</span>');
+  items.push('<span class="pg-pagination__item last">Last</span>');
+
+  return `
+    <body>
+      <div class="account-info">Balance: 482.10 | Log out</div>
+      <div class="mybets">
+        <div id="ticket-list">${pageTicketsHtmlList[startPage - 1]}</div>
+        <div class="pg-pagination">${items.join('')}</div>
+      </div>
+      <script>
+        const PAGES = ${JSON.stringify(pageTicketsHtmlList)};
+        const BROKEN_PAGE = ${brokenPageNumber === null ? 'null' : brokenPageNumber};
+        window.__clickCounts = { first: 0, prev: 0, next: 0, last: 0 };
+        const list = document.getElementById('ticket-list');
+        const pagination = document.querySelector('.pg-pagination');
+
+        function attachAccordionListeners() {
+          list.querySelectorAll('.accordion-item').forEach((item) => {
+            const toggle = item.querySelector('.accordion-toggle');
+            if (toggle) {
+              toggle.addEventListener('click', () => {
+                item.classList.toggle('accordion-item--open');
+              });
+            }
+          });
+        }
+        attachAccordionListeners();
+
+        pagination.querySelectorAll('.pg-pagination__item').forEach((el) => {
+          const p = el.getAttribute('data-page');
+          if (p) {
+            el.addEventListener('click', () => {
+              const pageNum = parseInt(p, 10);
+              list.innerHTML = PAGES[pageNum - 1];
+              // Simulate a broken transition: content swaps, but the
+              // --current marker never moves -- the exact failure mode
+              // PAGE_TRANSITION_TIMEOUT exists to catch.
+              if (pageNum !== BROKEN_PAGE) {
+                pagination.querySelectorAll('.pg-pagination__item').forEach((x) => x.classList.remove('pg-pagination__item--current'));
+                el.classList.add('pg-pagination__item--current');
+              }
+              attachAccordionListeners();
+            });
+          } else if (el.classList.contains('first')) {
+            el.addEventListener('click', () => { window.__clickCounts.first += 1; });
+          } else if (el.classList.contains('prev')) {
+            el.addEventListener('click', () => { window.__clickCounts.prev += 1; });
+          } else if (el.classList.contains('next')) {
+            el.addEventListener('click', () => { window.__clickCounts.next += 1; });
+          } else if (el.classList.contains('last')) {
+            el.addEventListener('click', () => { window.__clickCounts.last += 1; });
+          }
+        });
+      </script>
+    </body>
+  `;
+}
+
+test('mybets pagination: walks every numbered page, merges tickets, stops at the highest page', async () => {
+  const pages = [1, 2, 3].map((p) =>
+    mybetsTicket({ ticketId: `9000000${p}`, legs: [mybetsLeg({ selection: `Page ${p}`, eventId: `${p}00` })] })
+  );
+  const doc = docFromHtml(mybetsPaginationHtml({ pageTicketsHtmlList: pages }));
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+
+  assert.equal(envelope.coverage.pages_available, 3);
+  assert.equal(envelope.coverage.pages_visited, 3);
+  assert.equal(envelope.coverage.tickets_parsed, 3);
+  assert.ok(envelope.capture_status_reasons.includes('PAGINATION_STOPPED_NO_FURTHER_NUMBERED_PAGE'));
+  const ids = envelope.tickets.map((t) => t.bet9ja_ticket_id).sort();
+  assert.deepEqual(ids, ['90000001', '90000002', '90000003']);
+});
+
+test('mybets pagination: never clicks first/prev/next/last -- only verified numbered items', async () => {
+  const pages = [1, 2, 3].map((p) => mybetsTicket({ ticketId: `NUM${p}`, legs: [mybetsLeg({ eventId: `${p}0` })] }));
+  const doc = docFromHtml(mybetsPaginationHtml({ pageTicketsHtmlList: pages }));
+  await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+  // Spread into a plain object of the current realm first -- __clickCounts
+  // was created inside jsdom's own sandboxed global, whose Object is a
+  // distinct constructor from this test file's, which trips assert's
+  // cross-realm identity check even though the values are equal.
+  const counts = { ...doc.defaultView.__clickCounts };
+  assert.deepEqual(counts, { first: 0, prev: 0, next: 0, last: 0 });
+});
+
+test('mybets pagination: restores the browser to page 1 after a multi-page walk', async () => {
+  const pages = [1, 2, 3].map((p) => mybetsTicket({ ticketId: `RST${p}`, legs: [mybetsLeg({ eventId: `${p}1` })] }));
+  const doc = docFromHtml(mybetsPaginationHtml({ pageTicketsHtmlList: pages }));
+  await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+  const currentEl = doc.querySelector('.pg-pagination__item--current');
+  assert.equal(currentEl && currentEl.textContent.trim(), '1');
+  assert.match(doc.getElementById('ticket-list').innerHTML, /RST1/);
+});
+
+test('mybets pagination: a ticket reappearing across pages is deduplicated by ticket id, not double-counted', async () => {
+  const shared = mybetsTicket({ ticketId: '8000000000', legs: [mybetsLeg({ eventId: '500' })] });
+  const page1 = shared + mybetsTicket({ ticketId: '8000000011', legs: [mybetsLeg({ eventId: '501' })] });
+  const page2 = shared + mybetsTicket({ ticketId: '8000000012', legs: [mybetsLeg({ eventId: '502' })] });
+  const doc = docFromHtml(mybetsPaginationHtml({ pageTicketsHtmlList: [page1, page2] }));
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+
+  assert.equal(envelope.coverage.tickets_seen, 4);
+  assert.equal(envelope.coverage.tickets_parsed, 3);
+  assert.equal(envelope.coverage.duplicate_tickets_skipped, 1);
+  const ids = envelope.tickets.map((t) => t.bet9ja_ticket_id).sort();
+  assert.deepEqual(ids, ['8000000000', '8000000011', '8000000012']);
+});
+
+test('mybets pagination: stops when a page\'s content exactly repeats a previous page (transition looked successful but content did not change)', async () => {
+  const stuckTicket = mybetsTicket({ ticketId: 'STUCK-1', legs: [mybetsLeg({ eventId: '600' })] });
+  // Three "pages" configured, but page 2 and page 3 both serve the exact
+  // same ticket-id set as page 1 -- simulating a page that never actually
+  // advances its content despite the --current marker moving.
+  const doc = docFromHtml(mybetsPaginationHtml({ pageTicketsHtmlList: [stuckTicket, stuckTicket, stuckTicket] }));
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+
+  assert.ok(envelope.capture_status_reasons.includes('PAGINATION_STOPPED_PAGE_CONTENT_REPEATED'));
+  assert.equal(envelope.coverage.pages_visited, 2, 'must stop as soon as repeated content is detected, not keep going');
+  assert.equal(envelope.coverage.tickets_parsed, 1, 'the repeated ticket must still only be counted once');
+});
+
+test('mybets pagination: a page transition that never moves the --current marker is a timeout, not a silent stop', async () => {
+  const pages = [1, 2].map((p) => mybetsTicket({ ticketId: `TO${p}`, legs: [mybetsLeg({ eventId: `${p}9` })] }));
+  const doc = docFromHtml(mybetsPaginationHtml({ pageTicketsHtmlList: pages, brokenPageNumber: 2 }));
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+
+  assert.ok(envelope.capture_status_reasons.includes('PAGINATION_STOPPED_PAGE_TRANSITION_TIMEOUT'));
+  assert.equal(envelope.coverage.pages_visited, 1, 'page 2 never confirmed, so only page 1 counts as visited');
+  assert.equal(envelope.coverage.tickets_parsed, 1);
+});
+
+test('mybets pagination: coverage always exposes pages_available, pages_visited, and duplicate_tickets_skipped', async () => {
+  const pages = [1, 2].map((p) => mybetsTicket({ ticketId: `COV${p}`, legs: [mybetsLeg({ eventId: `${p}8` })] }));
+  const doc = docFromHtml(mybetsPaginationHtml({ pageTicketsHtmlList: pages }));
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+  assert.equal(envelope.coverage.pages_available, 2);
+  assert.equal(envelope.coverage.pages_visited, 2);
+  assert.equal(envelope.coverage.duplicate_tickets_skipped, 0);
+  assert.equal(envelope.coverage.tickets_seen, envelope.coverage.tickets_parsed);
+});
+
 test('mybets: a collapsed ticket is expanded, parsed, and collapsed again', async () => {
   const { envelope } = await captureMybets(mybetsTicket({ ticketId: '9001234567' }));
   assert.equal(envelope.coverage.tickets_seen, 1);
@@ -620,13 +779,14 @@ test('mybets: never CAPTURE_OK -- unconfirmed live/Virtual/Zoom detection and st
   assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
   assert.ok(envelope.capture_status_reasons.includes('LIVE_VIRTUAL_ZOOM_DETECTION_UNCONFIRMED_FOR_MYBETS_PROFILE'));
   assert.ok(envelope.capture_status_reasons.includes('STAKE_RETURN_FIELD_MAPPING_UNCONFIRMED'));
-  assert.ok(envelope.capture_status_reasons.includes('PAGINATION_NOT_YET_AUTOMATED_SINGLE_PAGE_ONLY'));
 });
 
-test('mybets: single page only -- coverage names pages_captured=1 and pagination_automated=false', async () => {
+test('mybets: no pagination container -- single page mode, coverage names pages_available=1/pages_visited=1', async () => {
   const { envelope } = await captureMybets(mybetsTicket());
-  assert.equal(envelope.coverage.pages_captured, 1);
-  assert.equal(envelope.coverage.pagination_automated, false);
+  assert.equal(envelope.coverage.pages_available, 1);
+  assert.equal(envelope.coverage.pages_visited, 1);
+  assert.equal(envelope.coverage.pagination_automated, true);
+  assert.ok(envelope.capture_status_reasons.includes('PAGINATION_STOPPED_NO_PAGINATION_CONTROL_FOUND'));
 });
 
 test('mybets: no tickets found under .mybets is still CAPTURE_FAILED, not a silent empty success', async () => {
@@ -644,7 +804,7 @@ test('mybets: privacy -- account info rendered outside .mybets never leaks into 
   }
 });
 
-test('safety: ticket_parser.js only ever calls .click() on the confirmed accordion toggle, never a cashout/reload/betting control', () => {
+test('safety: ticket_parser.js only ever calls .click() on the confirmed accordion toggle or a verified numbered pagination item, never a cashout/reload/betting control', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'ticket_parser.js'), 'utf-8');
@@ -653,10 +813,19 @@ test('safety: ticket_parser.js only ever calls .click() on the confirmed accordi
   // is the opposite of a violation; only EXECUTABLE code is checked here.
   const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
+  // Every allowed click target's variable name is itself only ever
+  // assigned from a `.accordion-toggle` query or filtered through
+  // isVerifiedNumberedPaginationItem -- see ensureTicketExpanded,
+  // collapseIfNeeded, and paginateAndCaptureAllPages. This test only
+  // checks the click call sites themselves (never/first/prev/last/
+  // cashout/reload must never appear as a click target); it does not
+  // re-verify the upstream guard logic, which the "mybets" behavioral
+  // tests above exercise instead.
+  const ALLOWED_CLICK_CALLS = new Set(['toggle.click()', 'nextItem.click()', 'firstItem.click()']);
   const clickCalls = codeOnly.match(/\w+\.click\(\)/g) || [];
-  assert.ok(clickCalls.length > 0, 'expected at least one .click() call (the accordion toggle)');
+  assert.ok(clickCalls.length > 0, 'expected at least one .click() call');
   for (const call of clickCalls) {
-    assert.equal(call, 'toggle.click()', `unexpected click target: ${call}`);
+    assert.ok(ALLOWED_CLICK_CALLS.has(call), `unexpected click target: ${call}`);
   }
   assert.ok(!/cashout/i.test(codeOnly), 'ticket_parser.js must never reference cashout by name in executable code');
   assert.ok(!/reload/i.test(codeOnly), 'ticket_parser.js must never reference "reload" by name in executable code');
