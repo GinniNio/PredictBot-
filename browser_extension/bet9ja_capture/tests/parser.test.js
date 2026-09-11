@@ -1,7 +1,31 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const { JSDOM } = require('jsdom');
 const parser = require('../parser.js');
 const { loadFixtureDocument, BASE_CONTEXT } = require('./helpers.js');
+
+function docFromHtml(html) {
+  return new JSDOM(html).window.document;
+}
+
+function oneRowDoc({ home = 'Arsenal', away = 'Chelsea', kickoffUtc = '2024-08-17T14:00:00Z', prices = ['1.95', '3.40', '4.20'] } = {}) {
+  return docFromHtml(`
+    <div class="odds-board">
+      <div class="competition-group">
+        <div class="competition-header">England - Premier League</div>
+        <div class="fixture-row" data-status="PRE" data-sport="SOCCER">
+          <div class="participants"><span class="home">${home}</span><span class="away">${away}</span></div>
+          <div class="kickoff" data-kickoff-utc="${kickoffUtc}">kickoff</div>
+          <div class="market" data-market-family="1X2" data-market-line="">
+            <div class="outcome"><span class="outcome-label">1</span><span class="outcome-price">${prices[0]}</span></div>
+            <div class="outcome"><span class="outcome-label">X</span><span class="outcome-price">${prices[1]}</span></div>
+            <div class="outcome"><span class="outcome-label">2</span><span class="outcome-price">${prices[2]}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `);
+}
 
 function capture(fixtureName, extraContext) {
   const doc = loadFixtureDocument(fixtureName);
@@ -197,5 +221,142 @@ test('an empty successful capture can never happen: CAPTURE_OK always implies re
         `${fixtureName}: a non-failed capture must never be empty`
       );
     }
+  }
+});
+
+// -- Source URL sanitization ------------------------------------------------
+
+test('source_url: query parameters and fragment are stripped, origin+pathname kept', () => {
+  const doc = oneRowDoc();
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://www.bet9ja.com/sport/prematch?sessionId=abc123&ref=partner-99#section-3',
+  });
+  assert.equal(envelope.source_url, 'https://www.bet9ja.com/sport/prematch');
+});
+
+test('source_url: a value with no query/fragment at all passes through unchanged', () => {
+  const doc = oneRowDoc();
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://www.bet9ja.com/sport/prematch',
+  });
+  assert.equal(envelope.source_url, 'https://www.bet9ja.com/sport/prematch');
+});
+
+test('source_url: an unparseable value still has its query/fragment stripped, never leaked raw', () => {
+  const doc = oneRowDoc();
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'not-a-real-url?sessionId=abc123#frag',
+  });
+  assert.equal(envelope.source_url, 'not-a-real-url');
+});
+
+test('sanitizeSourceUrl is exported directly and used by captureFromDocument (not duplicated logic)', () => {
+  assert.equal(
+    parser.sanitizeSourceUrl('https://x.example/a/b?x=1#y'),
+    'https://x.example/a/b'
+  );
+});
+
+// -- Fixture ID stability ----------------------------------------------------
+
+test('fixture_id is unchanged when odds change', () => {
+  const before = parser.captureFromDocument(oneRowDoc({ prices: ['1.95', '3.40', '4.20'] }), BASE_CONTEXT);
+  const after = parser.captureFromDocument(oneRowDoc({ prices: ['2.10', '3.20', '3.60'] }), BASE_CONTEXT);
+  assert.equal(after.envelope.fixtures[0].fixture_id, before.envelope.fixtures[0].fixture_id);
+});
+
+test('fixture_id is unchanged when captured_at_utc (capture time) changes', () => {
+  const doc1 = oneRowDoc();
+  const doc2 = oneRowDoc();
+  const a = parser.captureFromDocument(doc1, { ...BASE_CONTEXT, capturedAtUtc: '2024-08-17T10:00:00.000Z' });
+  const b = parser.captureFromDocument(doc2, { ...BASE_CONTEXT, capturedAtUtc: '2024-08-20T23:59:00.000Z' });
+  assert.equal(a.envelope.fixtures[0].fixture_id, b.envelope.fixtures[0].fixture_id);
+});
+
+test('fixture_id is unchanged when DOM row order changes', () => {
+  const doc = docFromHtml(`
+    <div class="odds-board">
+      <div class="competition-group">
+        <div class="competition-header">England - Premier League</div>
+        <div class="fixture-row" data-status="PRE" data-sport="SOCCER">
+          <div class="participants"><span class="home">Liverpool</span><span class="away">Everton</span></div>
+          <div class="kickoff" data-kickoff-utc="2024-08-18T14:00:00Z">k</div>
+          <div class="market" data-market-family="1X2"><div class="outcome"><span class="outcome-label">1</span><span class="outcome-price">1.60</span></div><div class="outcome"><span class="outcome-label">X</span><span class="outcome-price">4.00</span></div><div class="outcome"><span class="outcome-label">2</span><span class="outcome-price">5.50</span></div></div>
+        </div>
+        <div class="fixture-row" data-status="PRE" data-sport="SOCCER">
+          <div class="participants"><span class="home">Arsenal</span><span class="away">Chelsea</span></div>
+          <div class="kickoff" data-kickoff-utc="2024-08-17T14:00:00Z">k</div>
+          <div class="market" data-market-family="1X2"><div class="outcome"><span class="outcome-label">1</span><span class="outcome-price">1.95</span></div><div class="outcome"><span class="outcome-label">X</span><span class="outcome-price">3.40</span></div><div class="outcome"><span class="outcome-label">2</span><span class="outcome-price">4.20</span></div></div>
+        </div>
+      </div>
+    </div>
+  `);
+  // Same two fixtures as normal_soccer_1x2.html / two_competitions.html's
+  // first row, just reordered -- record_index/section_index must never
+  // enter the natural key.
+  const { envelope } = parser.captureFromDocument(doc, BASE_CONTEXT);
+  const baseline = parser.captureFromDocument(oneRowDoc(), BASE_CONTEXT);
+  const arsenalChelsea = envelope.fixtures.find((f) => f.participants.home === 'Arsenal');
+  assert.equal(arsenalChelsea.fixture_id, baseline.envelope.fixtures[0].fixture_id);
+});
+
+test('fixture_id is unchanged by incidental text formatting (whitespace) in participant names', () => {
+  const a = parser.captureFromDocument(oneRowDoc({ home: 'Arsenal', away: 'Chelsea' }), BASE_CONTEXT);
+  const b = parser.captureFromDocument(oneRowDoc({ home: '  Arsenal \n', away: '\tChelsea  ' }), BASE_CONTEXT);
+  assert.equal(a.envelope.fixtures[0].fixture_id, b.envelope.fixtures[0].fixture_id);
+});
+
+test('fixture_id changes when participants change', () => {
+  const a = parser.captureFromDocument(oneRowDoc({ away: 'Chelsea' }), BASE_CONTEXT);
+  const b = parser.captureFromDocument(oneRowDoc({ away: 'Everton' }), BASE_CONTEXT);
+  assert.notEqual(a.envelope.fixtures[0].fixture_id, b.envelope.fixtures[0].fixture_id);
+});
+
+test('fixture_id changes when kickoff identity changes', () => {
+  const a = parser.captureFromDocument(oneRowDoc({ kickoffUtc: '2024-08-17T14:00:00Z' }), BASE_CONTEXT);
+  const b = parser.captureFromDocument(oneRowDoc({ kickoffUtc: '2024-08-18T14:00:00Z' }), BASE_CONTEXT);
+  assert.notEqual(a.envelope.fixtures[0].fixture_id, b.envelope.fixtures[0].fixture_id);
+});
+
+test('fixture_id changes when competition changes (two_competitions.html: distinct ids already asserted above)', () => {
+  const { envelope } = capture('two_competitions.html');
+  assert.notEqual(envelope.fixtures[0].fixture_id, envelope.fixtures[1].fixture_id);
+});
+
+// -- Time-zone honesty --------------------------------------------------------
+
+test('kickoff with no data-kickoff-utc attribute: typed unresolved state, kickoff_raw preserved, never guessed', () => {
+  const { envelope } = capture('kickoff_missing_attribute.html');
+  assert.equal(envelope.fixtures.length, 1);
+  const fixture = envelope.fixtures[0];
+  assert.equal(fixture.kickoff_utc, null);
+  assert.equal(fixture.kickoff_resolution, 'UNRESOLVED_NO_EXPLICIT_TIMESTAMP');
+  assert.equal(fixture.kickoff_raw, '17/08 20:00');
+});
+
+test('kickoff missing a resolvable year: typed unresolved state, never guessed via Date.parse', () => {
+  const { envelope } = capture('kickoff_missing_year.html');
+  const fixture = envelope.fixtures[0];
+  assert.equal(fixture.kickoff_utc, null);
+  assert.equal(fixture.kickoff_resolution, 'UNRESOLVED_AMBIGUOUS_TIMESTAMP');
+  assert.equal(fixture.kickoff_raw, '17/08 21:00');
+});
+
+test('kickoff missing a resolvable timezone: typed unresolved state, never guessed via Date.parse', () => {
+  const { envelope } = capture('kickoff_missing_timezone.html');
+  const fixture = envelope.fixtures[0];
+  assert.equal(fixture.kickoff_utc, null);
+  assert.equal(fixture.kickoff_resolution, 'UNRESOLVED_AMBIGUOUS_TIMESTAMP');
+  assert.equal(fixture.kickoff_raw, '17/08 22:00');
+});
+
+test('an unresolved kickoff never blocks the rest of the fixture from being normalized', () => {
+  for (const fixtureName of ['kickoff_missing_attribute.html', 'kickoff_missing_year.html', 'kickoff_missing_timezone.html']) {
+    const { envelope } = capture(fixtureName);
+    assert.equal(envelope.fixtures.length, 1, `${fixtureName}: fixture should still be captured despite unresolved kickoff`);
+    assert.notEqual(envelope.fixtures[0].offered_odds.H, null);
   }
 });

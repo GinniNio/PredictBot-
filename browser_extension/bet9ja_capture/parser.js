@@ -106,8 +106,56 @@
     return { status: upper || 'UNKNOWN', recognized: false };
   }
 
+  /**
+   * Export only origin + pathname. Strips query parameters and the
+   * fragment outright -- either can carry a session/auth token, a referral
+   * code, or other identifying material that has no place in a file meant
+   * to be shared with a research host. Falls back to a best-effort strip
+   * (everything from the first "?" or "#" onward) if the value doesn't
+   * parse as a URL at all, so a malformed value still never leaks a query
+   * string.
+   */
+  function sanitizeSourceUrl(rawUrl) {
+    if (!rawUrl) return '';
+    try {
+      const parsed = new URL(rawUrl);
+      return `${parsed.origin}${parsed.pathname}`;
+    } catch (err) {
+      return String(rawUrl).split(/[?#]/)[0];
+    }
+  }
+
   function statusToFixtureStatus(status) {
     return { PRE: 'PRE_MATCH', LIVE: 'LIVE', VIRTUAL: 'VIRTUAL', ZOOM: 'ZOOM' }[status] || status;
+  }
+
+  // A 4-digit year AND an explicit UTC designator (Z or a numeric offset)
+  // are both mandatory -- "2024-08-17T14:00:00Z" passes, but "08-17T14:00"
+  // (no year) and "2024-08-17T14:00:00" (no timezone) do not. Never widen
+  // this to accept an implicit/local-time string: Date.parse's handling of
+  // those is implementation-defined, which is exactly the silent-UTC-guess
+  // this function exists to prevent.
+  const STRICT_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/;
+
+  /**
+   * Resolve a fixture's kickoff time honestly: only ever returns a real
+   * `kickoffUtc` when the page supplied an unambiguous, fully-qualified
+   * UTC timestamp. A missing attribute, or one missing its year or
+   * timezone, is reported as a typed unresolved state -- never guessed at
+   * via Date.parse's ambiguous local-time fallback.
+   */
+  function resolveKickoff(kickoffUtcAttr) {
+    if (!kickoffUtcAttr) {
+      return { kickoffUtc: null, kickoffResolution: 'UNRESOLVED_NO_EXPLICIT_TIMESTAMP' };
+    }
+    if (!STRICT_UTC_TIMESTAMP.test(kickoffUtcAttr)) {
+      return { kickoffUtc: null, kickoffResolution: 'UNRESOLVED_AMBIGUOUS_TIMESTAMP' };
+    }
+    const parsedMs = Date.parse(kickoffUtcAttr);
+    if (Number.isNaN(parsedMs)) {
+      return { kickoffUtc: null, kickoffResolution: 'UNRESOLVED_AMBIGUOUS_TIMESTAMP' };
+    }
+    return { kickoffUtc: new Date(parsedMs).toISOString(), kickoffResolution: 'EXPLICIT_UTC_ATTRIBUTE' };
   }
 
   /**
@@ -142,10 +190,16 @@
     const externalFixtureRef = row.getAttribute('data-fixture-id') || null;
     const markets = Array.from(row.querySelectorAll(SELECTORS.market)).map(parseMarketElement);
 
+    // Privacy allowlist: this is the ONLY set of fields ever attached to an
+    // unparsed_records entry. It is fixture-scoped (home/away/kickoff/sport/
+    // status/market data drawn from the SELECTORS-scoped row element only)
+    // -- never the row's surrounding page text, never anything from outside
+    // this one row. See tests/privacy.test.js, which enumerates this exact
+    // key set and fails if a future edit adds anything outside it.
     const rawSnapshot = {
       home: homeRaw,
       away: awayRaw,
-      kickoff_text: kickoffText,
+      kickoff_raw: kickoffText,
       sport_hint: sportHintRaw,
       status_hint: row.getAttribute('data-status') || null,
       markets: markets.map((m) => ({ family: m.family, line: m.line, outcomes: m.outcomes })),
@@ -290,12 +344,7 @@
         continue;
       }
 
-      const kickoffResolution = kickoffUtcAttr ? 'EXPLICIT_UTC_ATTRIBUTE' : 'UNRESOLVED_TEXT_ONLY';
-      let kickoffUtc = null;
-      if (kickoffUtcAttr) {
-        const parsedMs = Date.parse(kickoffUtcAttr);
-        kickoffUtc = Number.isNaN(parsedMs) ? null : new Date(parsedMs).toISOString();
-      }
+      const { kickoffUtc, kickoffResolution } = resolveKickoff(kickoffUtcAttr);
 
       const naturalKey = [
         'SOCCER',
@@ -335,7 +384,7 @@
         region: region || null,
         competition: competition || null,
         participants: { home: homeRaw, away: awayRaw },
-        kickoff_text: kickoffText || null,
+        kickoff_raw: kickoffText || null,
         kickoff_utc: kickoffUtc,
         kickoff_resolution: kickoffResolution,
         status: statusToFixtureStatus(status),
@@ -371,7 +420,7 @@
       schema_version: 'bet9ja-fixture-capture.v1',
       capture_id: Bet9jaIds.captureId(capturedAtUtc),
       captured_at_utc: capturedAtUtc,
-      source_url: context.sourceUrl,
+      source_url: sanitizeSourceUrl(context.sourceUrl),
       page_title: context.pageTitle,
       parser_version: PARSER_VERSION,
     };
@@ -496,7 +545,7 @@
     };
   }
 
-  const api = { captureFromDocument, PARSER_VERSION, SELECTORS };
+  const api = { captureFromDocument, sanitizeSourceUrl, PARSER_VERSION, SELECTORS };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

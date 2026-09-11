@@ -4,11 +4,26 @@
  * background service worker; everything below is triggered directly by the
  * "Capture fixtures" button click, which is also what makes the
  * (click-gated) `activeTab` permission usable at all.
+ *
+ * Permission contract: this file only ever calls chrome.tabs, chrome.
+ * scripting, and chrome.downloads -- matching manifest.json's permissions
+ * exactly (activeTab, scripting, downloads). No chrome.storage, no
+ * chrome.cookies, no host_permissions, no fetch/XMLHttpRequest of any
+ * kind. Because there is no persistent storage, duplicate_status across
+ * separate captures always starts fresh (NEW / DUPLICATE_WITHIN_CAPTURE
+ * only) -- cross-capture "have I seen this odds change before" history is
+ * intentionally deferred to the ledger's own idempotent re-import
+ * (ledgers.forecast_ledger, keyed by the same deterministic fixture_id),
+ * not duplicated here.
  */
-const STORAGE_KEY = 'bet9jaFixtureIndex';
-
 const button = document.getElementById('capture-button');
 const statusEl = document.getElementById('status');
+
+// Defense-in-depth against a double-click or a stray second invocation:
+// this flag, plus disabling the button as the very first synchronous
+// statement in the handler below, means a second click can produce at
+// most a no-op, never a second concurrent capture/download.
+let captureInFlight = false;
 
 function setStatus(cssClass, text) {
   statusEl.className = cssClass;
@@ -20,16 +35,14 @@ function timestampForFilename(isoTimestamp) {
   return isoTimestamp.replace(/\.\d+Z$/, 'Z').replace(/:/g, '-');
 }
 
-function triggerDownload(filename, jsonText) {
+async function triggerDownload(filename, jsonText) {
   const blob = new Blob([jsonText], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  try {
+    await chrome.downloads.download({ url, filename, saveAs: false });
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+  }
 }
 
 async function runCapture() {
@@ -38,8 +51,6 @@ async function runCapture() {
     throw new Error('No active tab found.');
   }
 
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
-  const previousIndex = stored[STORAGE_KEY] || {};
   const capturedAtUtc = new Date().toISOString();
 
   // Step 1: load the pure parsing modules into the page's isolated world.
@@ -50,12 +61,14 @@ async function runCapture() {
 
   // Step 2: invoke the entry point content.js just defined, passing only
   // what's needed to build the envelope -- no host permissions, no
-  // cross-tab access, nothing beyond this one active tab's DOM.
+  // cross-tab access, nothing beyond this one active tab's DOM. An empty
+  // previousIndex every call (see module docstring above) -- this
+  // extension keeps no capture history of its own.
   const injectionResults = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: (previousIndexArg, sourceUrl, pageTitle, capturedAtUtcArg) =>
       window.__bet9jaCaptureRun(previousIndexArg, sourceUrl, pageTitle, capturedAtUtcArg),
-    args: [previousIndex, tab.url || '', tab.title || '', capturedAtUtc],
+    args: [{}, tab.url || '', tab.title || '', capturedAtUtc],
   });
 
   const result = injectionResults && injectionResults[0] && injectionResults[0].result;
@@ -66,16 +79,17 @@ async function runCapture() {
 }
 
 button.addEventListener('click', async () => {
+  if (captureInFlight) {
+    return;
+  }
+  captureInFlight = true;
   button.disabled = true;
   setStatus('ok', 'Capturing...');
   try {
-    const { envelope, updatedIndex } = await runCapture();
-
-    const merged = { ...(await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY], ...updatedIndex };
-    await chrome.storage.local.set({ [STORAGE_KEY]: merged });
+    const { envelope } = await runCapture();
 
     const filename = `bet9ja-fixtures-${timestampForFilename(envelope.captured_at_utc)}.json`;
-    triggerDownload(filename, JSON.stringify(envelope, null, 2));
+    await triggerDownload(filename, JSON.stringify(envelope, null, 2));
 
     const summary =
       `${envelope.capture_status}\n` +
@@ -97,5 +111,6 @@ button.addEventListener('click', async () => {
     setStatus('error', `Capture failed to run: ${err && err.message ? err.message : String(err)}`);
   } finally {
     button.disabled = false;
+    captureInFlight = false;
   }
 });

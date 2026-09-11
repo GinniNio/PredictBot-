@@ -32,7 +32,15 @@ everything it does not do yet.
   `host_permissions` and never calls `fetch`/`XMLHttpRequest`.
 - No reading of cookies, auth tokens, balances, account details, or
   betslip contents — the parser (`parser.js`) only ever touches the
-  fixture/market DOM nodes described in the selector contract below.
+  fixture/market DOM nodes described in the selector contract below, and
+  `unparsed_records[].raw` is built from an explicit field allowlist (see
+  below) rather than ever capturing a row's surrounding page content.
+- `source_url` is sanitized to origin + pathname only — query parameters
+  and the fragment (where a session identifier, referral code, or similar
+  could live) are always stripped before the envelope is built.
+- No persistent storage of any kind (`manifest.json` declares no
+  `storage` permission) — nothing this extension captures is remembered
+  between runs.
 - No automatic bet placement, no open-bet or settled-bet capture, no
   result lookup.
 - No backend, database, or hosted service of any kind.
@@ -67,7 +75,7 @@ everything it does not do yet.
       "region": "England",
       "competition": "Premier League",
       "participants": { "home": "Arsenal", "away": "Chelsea" },
-      "kickoff_text": "17/08 15:00",
+      "kickoff_raw": "17/08 15:00",
       "kickoff_utc": "2024-08-17T14:00:00.000Z",
       "kickoff_resolution": "EXPLICIT_UTC_ATTRIBUTE",
       "status": "PRE_MATCH",
@@ -134,20 +142,81 @@ adapter's job, or deliberately out of scope) and do not count toward
 `coverage.records_unresolved`; `false` reasons are genuine parsing
 problems worth an operator's attention.
 
+### `unparsed_records[].raw` field allowlist (privacy contract)
+
+Every `raw` object is built from exactly this key set — nothing else is
+ever attached, regardless of what else exists on the page around the
+fixture row:
+
+`home`, `away`, `kickoff_raw`, `sport_hint`, `status_hint`, `markets`
+(each with only `family`/`line`/`outcomes`, each outcome with only
+`rawLabel`/`rawPrice`), plus `market`/`partial_outcomes` on the
+market-level rejection reasons. `tests/privacy.test.js` enumerates this
+allowlist directly against the real parser output (across every fixture
+in `tests/fixtures/`, plus a synthetic page with a nav bar and footer
+containing an account balance, a "log out" link, a betslip count, and a
+session token) and fails if a future edit ever attaches anything outside
+it — page navigation, account/balance/betslip text, and similar page
+chrome can never reach an unparsed record even by accident.
+
 ### Deterministic, identity-based IDs
 
 `fixture_id` is derived (`ids.js::stableId`) from either the page's own
 `data-fixture-id` attribute (preferred, when present) or a natural key of
-sport/region/competition/participants/kickoff/market — never from
-`captured_at_utc` or any other value that changes between runs.
-Recapturing the same fixture therefore produces the same `fixture_id` and
-sets `duplicate_status` to `SEEN_BEFORE_UNCHANGED` or
-`SEEN_BEFORE_ODDS_CHANGED` (compared against a small capture history the
-extension keeps in `chrome.storage.local`, containing only fixture IDs and
-a hash of their last-seen prices — never account data) rather than
-producing a new, disconnected record. A fixture repeated twice on the same
-page (a real Bet9ja layout pattern) gets `DUPLICATE_WITHIN_CAPTURE` on the
-second occurrence; both are still recorded, never silently collapsed.
+sport/region/competition/participants/kickoff/market — never from odds,
+`captured_at_utc`, DOM row order/position, or incidental text formatting
+(whitespace) in a participant's name, all of which can and do change
+between two otherwise-identical captures of the same fixture (see
+`tests/parser.test.js`'s "Fixture ID stability" tests). It DOES change
+whenever participants, competition, kickoff, or market identity change.
+
+Recapturing the same fixture therefore produces the same `fixture_id`.
+Release 1 ships no persistent storage (see "Permission contract" below),
+so `duplicate_status` only ever takes two values in practice: `NEW`, or
+`DUPLICATE_WITHIN_CAPTURE` for a fixture repeated twice on the same page
+(a real Bet9ja layout pattern — both occurrences are still recorded,
+never silently collapsed). `parser.js` itself still accepts an optional
+`previousIndex` argument and can report `SEEN_BEFORE_UNCHANGED` /
+`SEEN_BEFORE_ODDS_CHANGED` against it (exercised directly in
+`tests/parser.test.js`) — cross-capture history is intentionally left to
+the ledger's own idempotent re-import (`ledgers.forecast_ledger`, keyed by
+this same deterministic `fixture_id`) rather than duplicated here behind
+a `storage` permission this extension doesn't otherwise need.
+
+### Permission contract
+
+`manifest.json` declares exactly three permissions: `activeTab`,
+`scripting`, `downloads`. No `host_permissions`, no `storage`, no
+`cookies`, no `background` service worker, no `content_scripts` entry.
+`tests/structural.test.js` asserts this directly against the real
+manifest and source files (including that `popup.js` only ever calls
+`chrome.tabs`/`chrome.scripting`/`chrome.downloads`, and that no source
+file calls `fetch`, constructs an `XMLHttpRequest`, or reads
+`document.cookie`).
+
+### Repeated capture / double-click safety
+
+Clicking **Capture fixtures** twice in quick succession, or the popup
+injecting its scripts more than once, produces exactly one response and
+one download per confirmed capture:
+
+- `content.js` never calls `addEventListener` — it only ever
+  (re-)assigns one global function (`window.__bet9jaCaptureRun`), so
+  re-injecting it twice still leaves exactly one entry point installed,
+  never two independently-invoked copies or an accumulated listener.
+- `popup.js` registers its button's click listener exactly once, at
+  module load.
+- The click handler sets a `captureInFlight` guard and disables the
+  button as the very first synchronous statements, before any `await` —
+  a second click while a capture is running is a no-op, not a second
+  concurrent capture.
+
+`tests/structural.test.js` asserts these properties directly against the
+real source files. A full click-double-click integration test would need
+a real extension host (e.g. Puppeteer driving an actual loaded
+extension) — deliberately out of scope for Release 1's zero-new-runtime-
+dependency, Node-`jsdom`-only test suite; the structural checks above are
+the honest substitute.
 
 ## Selector contract (will need real-page tuning)
 
@@ -185,8 +254,14 @@ fixtures (`tests/fixtures/*.html`) covering: normal Soccer 1X2, two
 competitions on one page, repeated headings, collapsed sections,
 lazy-loaded/partial coverage, a missing draw price, odds changing between
 two captures, duplicate fixtures on one page, an already-live event, a
-Zoom/virtual product, accented participant names, and a page-layout/
-selector failure.
+Zoom/virtual product, accented participant names, a page-layout/selector
+failure, source-URL sanitization, fixture-ID stability (unchanged by
+odds/capture-time/DOM-order/whitespace, changed by participants/
+competition/kickoff), and time-zone honesty (a missing, year-less, or
+timezone-less `data-kickoff-utc` all produce a typed unresolved state with
+`kickoff_raw` preserved, never a guessed UTC value). `tests/privacy.test.js`
+and `tests/structural.test.js` cover the allowlist/permission-contract
+properties described above.
 
 ## Boundaries (Release 1)
 
