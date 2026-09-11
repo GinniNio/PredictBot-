@@ -1,0 +1,186 @@
+# soccer_1x2_dataset_contract.yaml
+#
+# Versioned DATASET CONTRACT for the Soccer 1X2 Football-Data pipeline —
+# what season ranges are admitted into which use (model development,
+# closing-line benchmarking, current-season prospective/PAPER scoring,
+# earlier research/backtesting, or excluded entirely), and the exact
+# price/timestamp fields every produced record carries. This is a
+# DESIGN/GOVERNANCE artifact, not a runtime registry: it is not loaded by
+# pcbf_calculator at runtime, is not part of the CLI contract, grants no
+# model CASH/PAPER admission by itself (see "Admission rules" below), and
+# adds no new dependency. It IS loaded by `data_pipeline/dataset_builder.py`
+# and by tests (`tests/test_dataset_builder.py`) via the same
+# dependency-free restricted-YAML reader used for the sibling files in this
+# directory and for `data_pipeline/sources/football_data_sources.yaml`
+# (`data_pipeline/manifest_yaml.py::load_yaml_categories_file`) — so this
+# file is the single source of truth for split boundaries; `dataset_builder.py`
+# never hand-duplicates a season list that could drift from what's written
+# here (see its own module docstring for how it stays in sync).
+#
+# Status: DRAFT_FOR_OPERATOR_REVIEW. Every row below reflects data-
+# availability FACTS this pipeline has actually observed (see the cited
+# evidence in each row's `evidence` field, all traceable to the real,
+# manual-trigger-only GitHub Actions run of
+# `.github/workflows/football-data-feasibility.yml` at commit `6093d0a` —
+# 165/165 (league, season) files downloaded successfully, 0
+# SOURCE_NOT_LISTED, 0 SOURCE_NOT_USABLE) — never a statistical/threshold
+# judgment call. It requires an operator to actually read and confirm it
+# (per this repo's convention: see soccer_1x2_promotion_thresholds.yaml's
+# PROPOSED_OPERATOR_DECISION/APPROVED status gate) before any pipeline
+# treats these boundaries as final. A season boundary changing here (e.g.
+# `1415` being cleared after real human review of `dataset_build_report.json`'s
+# `season_1415_diagnostic` section, or `latest_completed_season` advancing
+# in `football_data_sources.yaml`) requires bumping `version` on the
+# `contract_meta` row below.
+#
+# Grammar: identical restricted subset as the sibling files in this
+# directory (`data_pipeline/manifest_yaml.py`'s docstring) — one top-level
+# `categories` key, each item a flat mapping of scalar `key: value` pairs.
+# A list-shaped value (e.g. a season-code range, a required-fields list) is
+# stored as one double-quoted, comma-separated string — never a YAML flow
+# sequence `[a, b, c]` — because this parser's flow-sequence support parses
+# each bare element as a Python int/float/bool when it looks numeric
+# (`_parse_scalar`), which would silently strip meaningful leading zeros
+# from some Football-Data season codes elsewhere in this pipeline (e.g.
+# `"0102"` -> `102`). None of the season codes actually enumerated below
+# happen to have a leading zero (every one here starts with `1` or `2`),
+# but the comma-string convention is used uniformly regardless, so this
+# file never depends on that coincidence and never risks it for a future
+# edit. Split every such string on `,` in code, never on whitespace.
+
+categories:
+  # --- Meta row: contract version + review status. Kept as a normal row
+  # (never a second top-level key) because this repo's restricted-YAML
+  # reader (data_pipeline/manifest_yaml.py) accepts exactly one top-level
+  # key, `categories` — see its own docstring/grammar section.
+  - id: contract_meta
+    version: "1.0.0"
+    status: DRAFT_FOR_OPERATOR_REVIEW
+    scope: "Soccer 1X2 Football-Data dataset — season-range admission and price/timestamp field contract only. Grants no model CASH/PAPER classification (see admission_rule_* rows below) and defines no numeric backtest/promotion threshold (see soccer_1x2_promotion_thresholds.yaml, a separate, unedited file, for those)."
+    evidence: "Real manual-trigger GitHub Actions run at commit 6093d0a: all 165 (league, season) files downloaded successfully (0 SOURCE_NOT_LISTED, 0 SOURCE_NOT_USABLE) across E0/D1/SP1/I1/F1, seasons 1993-94 through 2025-26."
+
+  # ======================================================================
+  # DATASET RANGES — one row per defined split. `season_codes` is the
+  # closed, explicit list this split admits BY DEFAULT (already excluding
+  # every season before 1213 and the 1415 outlier — see
+  # split_excluded_by_default below for that exclusion's own row); a
+  # caller must explicitly opt in to include an excluded season (see
+  # dataset_builder.py's `include_excluded_seasons` parameter — never a
+  # silently-flippable global or CLI flag defaulting to "on").
+  # ======================================================================
+
+  - id: split_model_dev_and_completed_eval
+    kind: "dataset_split"
+    use: "Model development and completed-season evaluation"
+    season_codes: "1920,2021,2122,2223,2324,2425"
+    required_fields: "date,kickoff_time,home_team,away_team,result,opening_1x2_prices_complete"
+    closing_line_benchmark_model_required: false
+    evidence: "Kickoff time (Time column) is 0% missing from season 1920 (2019-20) onward for all 5 leagues, confirmed 0% missing through 2526 in the live run at commit 6093d0a; every one of these seasons is a COMPLETED season (2526, the only season after 2425, is NOT completed and must never appear here — see split_prospective_paper_scoring)."
+    exclusion_note: "2526 (2025-26) is deliberately NOT included in this range even though its Time/opening-odds coverage matches: it is the currently active season, so `result` is incomplete/nullable for its later fixtures at any point before the season ends. Including an active season in a 'completed-season evaluation' split would silently mix settled and unsettled rows."
+
+  - id: split_closing_line_benchmark
+    kind: "dataset_split"
+    use: "Closing-line benchmark"
+    season_codes: "1920,2021,2122,2223,2324,2425"
+    required_fields: "date,home_team,away_team,closing_1x2_prices_complete_pinnacle"
+    closing_line_benchmark_model_required: true
+    evidence: "Closing odds (Pinnacle, PS* columns) are present continuously from season 1213 (2012-13) through 2526 (2025-26); this split is deliberately restricted to the SAME season range as split_model_dev_and_completed_eval (1920-2425) rather than the full 1213-2425 closing-odds-available range, so every closing-line-benchmark row also has a matching completed-eval row for the same fixture to compare against — a closing benchmark without a corresponding completed-eval counterpart in the same season range is not directly comparable."
+    exclusion_note: "2526 is excluded from this split for the identical reason as split_model_dev_and_completed_eval: it is not yet a completed season, and a 'benchmark' computed against an active season's closing lines would be comparing against results that do not exist yet for the season's later fixtures."
+
+  - id: split_prospective_paper_scoring
+    kind: "dataset_split"
+    use: "Current-season prospective/PAPER scoring"
+    season_codes: "2526"
+    required_fields: "date,kickoff_time,home_team,away_team,opening_1x2_prices_complete,result_nullable_until_settlement"
+    closing_line_benchmark_model_required: false
+    evidence: "Season 2526 (2025-26) is the only season this pipeline has confirmed downloadable that is still in progress as of the live run at commit 6093d0a; its input fields (date/kickoff/teams/opening odds) match split_model_dev_and_completed_eval's shape exactly, but `result` must be treated as nullable per-fixture until that fixture actually settles."
+    exclusion_note: "2526 appears ONLY in this split. It must never appear in split_model_dev_and_completed_eval or split_closing_line_benchmark (see both rows' own exclusion_note) — this is enforced structurally by dataset_builder.py never unioning this split's season list into either of those, and is covered by a dedicated regression test in tests/test_dataset_builder.py."
+
+  - id: split_earlier_research_backtesting
+    kind: "dataset_split"
+    use: "Earlier research/backtesting"
+    season_codes: "1213,1314,1516,1617,1718,1819"
+    required_fields: "date,home_team,away_team,result,opening_and_closing_1x2_prices"
+    closing_line_benchmark_model_required: true
+    evidence: "Closing odds are present from season 1213 onward (same evidence as split_closing_line_benchmark); kickoff time is 100% missing for every one of these seasons (1213 through 1819 inclusive) per the live run at commit 6093d0a, so match_kickoff_at is explicitly NOT a required field for this split — see price_field_match_kickoff_at below, which states it is null/unavailable before season 1920."
+    kickoff_time_available: false
+    excludes_1415_by_default: true
+    exclusion_note: "Season 1415 (2014-15) falls inside this split's [1213, 1819] range but is deliberately OMITTED from season_codes above (default-excluded per split_excluded_by_default's own row) pending human review of the diagnostic evidence dataset_builder.py produces — see season_1415_diagnostic_pending_review below. It is not silently dropped: a caller must explicitly opt in (dataset_builder.py's include_excluded_seasons parameter) to include it."
+
+  - id: split_excluded_by_default
+    kind: "dataset_split"
+    use: "Excluded by default"
+    season_codes: ""
+    excluded_before_season: "1213"
+    excluded_specific_seasons: "1415"
+    required_fields: "n/a — this row documents an EXCLUSION, not an admitted split"
+    reason: "Two independent reasons, tracked separately, never conflated: (1) every season strictly before 1213 (2012-13) has no closing odds at all in Football-Data, per the live run at commit 6093d0a, so it cannot support split_closing_line_benchmark or split_earlier_research_backtesting's required closing-price field; (2) season 1415 (2014-15) is a severe, still-unexplained quality outlier (usable-fixture rate collapses to roughly 9% across ALL FIVE leagues simultaneously in that one season — e.g. E0 1415: 381 rows, only 40 usable; D1 1415: 306 rows, only 26 usable — driven almost entirely by MISSING_OR_INVALID_ODDS, versus a much higher usable rate in every neighboring season in the 1213-2526 range), pending human review of dataset_builder.py's diagnostic evidence (column_drift comparisons of 1314-vs-1415 and 1415-vs-1516 headers per league) rather than a confirmed root cause. Reason (1) alone would already exclude every season before 1213 even if 1415 were healthy; reason (2) alone would exclude 1415 even though it sits inside the closing-odds-available range — the two exclusions are independent facts, not one combined rule."
+
+  - id: season_1415_diagnostic_pending_review
+    kind: "diagnostic_note"
+    status: UNRESOLVED_PENDING_HUMAN_REVIEW
+    statement: "This contract does NOT claim a root cause for the 1415 outlier. dataset_builder.py's evidence report includes a column_drift comparison of season 1314's header vs. 1415's, and 1415's vs. 1516's, for each of the 5 leagues, purely as diagnostic evidence for a human to judge whether this is a real Football-Data source defect for that one season or a schema-recognition gap in this pipeline's own column matching. No automatic reclassification of 1415 happens based on that diagnostic — a human must read data_pipeline/reports/dataset_build_report.json/.md and decide."
+
+  # ======================================================================
+  # PRICE / TIMESTAMP CONTRACT — every field every produced dataset record
+  # carries, exactly as specified. See data_pipeline/dataset_builder.py's
+  # per-record assembly, which sets all four of these fields on EVERY
+  # record it produces, unconditionally.
+  # ======================================================================
+
+  - id: price_field_match_kickoff_at
+    kind: "price_timestamp_field"
+    field_name: "match_kickoff_at"
+    available_from_season: "1920"
+    unavailable_before_season: true
+    description: "The fixture's local kickoff time. Available starting season 1920 (2019-20) — 0% missing for all 5 leagues from that season onward per the live run at commit 6093d0a. Null/unavailable for any season before 1920 (100% missing through season 1819) — never backfilled, guessed, or defaulted to a placeholder time."
+
+  - id: price_field_price_stage
+    kind: "price_timestamp_field"
+    field_name: "price_stage"
+    enum_values: "OPENING,CLOSING"
+    description: "Which of Football-Data's own two price labels a single price observation carries. A single price observation is always exactly ONE stage — never both in the same observation; opening and closing prices for the same fixture are two separate observations, each carrying its own price_stage, never merged into one record with both stages' values."
+
+  - id: price_field_price_captured_at
+    kind: "price_timestamp_field"
+    field_name: "price_captured_at"
+    always_null: true
+    description: "ALWAYS null. This is NEVER inferred or backfilled from price_stage or from a closing-price timestamp — Football-Data structurally does not provide a captured_at distinct from the opening/closing label itself, in any season, for any of the 5 leagues (confirmed: price_capture_timestamps_unknown is True for literally every row of every file in the live run at commit 6093d0a). No proxy value (e.g. the file's own retrieval time, or a guessed pre-kickoff offset) is ever manufactured for this field."
+
+  - id: price_field_price_timestamp_quality
+    kind: "price_timestamp_field"
+    field_name: "price_timestamp_quality"
+    constant_value: "STAGE_ONLY"
+    description: "Constant STAGE_ONLY on every record: we know a price was captured 'at opening' or 'at closing' in Football-Data's own definition of those terms, but never a wall-clock timestamp. This field exists so downstream code can distinguish a genuinely timestamped price feed (a different, still-unbuilt source — see NORMALIZED_SCHEMA.md's captured_at gap) from this one at a glance, rather than having to re-derive it from price_captured_at being null."
+
+  - id: price_field_source_retrieved_at
+    kind: "price_timestamp_field"
+    field_name: "source_retrieved_at"
+    description: "This pipeline's own download timestamp for the raw file this record was built from (data_pipeline/retrieval_log.json's per-file retrieved_at_utc). This is PROVENANCE ONLY — when THIS PIPELINE fetched the historical Football-Data file, sometimes years after the actual match and its actual odds were observed — and must NEVER be treated as a stand-in for the original odds observation time. A row's source_retrieved_at being e.g. 2026-09 tells a reader nothing about when the underlying price was actually quoted; see price_field_price_captured_at above for the (permanently null) field that would answer that question, if Football-Data provided it."
+
+  # ======================================================================
+  # ADMISSION RULES — data-availability facts about what this contract's
+  # fields are STRUCTURALLY shaped like and eligible for. This section
+  # grants NO model CASH/PAPER classification by itself — that still
+  # requires the existing model-admission registry
+  # (src/pcbf_calculator/registries/data/model-admission-registry.yaml,
+  # never touched by this file or by dataset_builder.py) and, for any
+  # numeric backtest/promotion gate, soccer_1x2_promotion_thresholds.yaml
+  # (also never touched by this file).
+  # ======================================================================
+
+  - id: admission_rule_opening_prices_eligible_as_input
+    kind: "admission_rule"
+    eligible_as_model_input_feature: true
+    condition: "Conditioned on Football-Data's own documentation confirming 'opening' prices are captured before kickoff. NEITHER FEASIBILITY_DECISION.md NOR NORMALIZED_SCHEMA.md in this repository currently states that confirmation explicitly in those words — NORMALIZED_SCHEMA.md's price_label design principle says only that Football-Data's opening/closing columns are a LABEL, never a captured_at timestamp (the design principle this contract's price_field_price_captured_at row also states); it does not independently assert WHEN, relative to kickoff, an 'opening' price was actually quoted. This row is stated honestly rather than overclaimed: the pre-kickoff-timing assumption for 'opening' prices is Football-Data's own stated convention for the column's name, not something this repository's own documents have independently verified against real timestamped evidence — a genuinely timestamped decision-time odds feed (NORMALIZED_SCHEMA.md's 'Known gap' section) remains the only way to fully satisfy market_snapshot_odds_1x2's mandatory captured_at requirement."
+
+  - id: admission_rule_closing_prices_benchmark_only
+    kind: "admission_rule"
+    eligible_as_model_input_feature: false
+    classification: "EVALUATION_BENCHMARK_AND_BASELINE_ONLY"
+    rationale: "Closing prices are, by default, eligible ONLY as an evaluation benchmark and baseline comparator — never as a model input feature. Using post-match-known closing prices as a forecasting feature would be a leakage risk if the model's actual serving/decision-time timing does not strictly precede when that closing price could plausibly have been formed (the same horizon-mismatch leak soccer_1x2_feature_manifest.yaml's market_closing_odds_1x2_for_clv_analysis row already documents for the pcbf_calculator side of this pipeline)."
+
+  - id: admission_rule_closing_line_benchmark_model_label
+    kind: "admission_rule"
+    required_label: "CLOSING_LINE_BENCHMARK_MODEL"
+    statement: "Any model trained using closing prices, for any purpose, must carry the label CLOSING_LINE_BENCHMARK_MODEL wherever it is described, logged, or reported. Such a model can NEVER claim deployable pre-match performance — a backtest result computed against closing-line inputs answers 'how good is this model at explaining the market's own final consensus,' never 'how good is this model at forecasting before the market has finished pricing the match,' and must never be presented as evidence for the latter."

@@ -10,3 +10,11 @@ dist/
 # (data_pipeline/retrieval_log.json: sha256/timestamp/URL per file) and the
 # generated reports are committed. Never commit the CSV content itself.
 data_pipeline/raw/
+
+# data_pipeline/dataset_builder.py's produced dataset files (one per split,
+# under data_pipeline/dataset/) reshape the same third-party Football-Data
+# row content (team names, dates, odds) covered by the data_pipeline/raw/
+# rule above — never ours to redistribute either, even reshaped/filtered.
+# Only the small evidence/report files it writes to data_pipeline/reports/
+# (row counts, hashes, the sanitized rejected-row sample) are committed.
+data_pipeline/dataset/
