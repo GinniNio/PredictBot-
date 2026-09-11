@@ -562,26 +562,50 @@ test('BET9JA_DESKTOP: parseBet9jaCompetitionUrl resolves sport/country/competiti
   assert.deepEqual(parsed, { sportSlug: 'BASKETBALL', countrySlug: 'international', competitionSlug: 'abaligapreseason' });
 });
 
-test('BET9JA_DESKTOP: for every records_seen, records_parsed + records_unresolved accounts for all of them', () => {
-  // NOTE: this equality is NOT a universal invariant of the envelope --
-  // records_unresolved deliberately excludes "expected unsupported" rows
-  // (live/virtual/Zoom/unsupported-sport/unsupported-market; see README.md
-  // "unparsed_records[] typed reasons"), so a page containing one of those
-  // would legitimately show records_seen > records_parsed + records_unresolved.
-  // It holds for every fixture in this real-page validation set specifically
-  // because none of their rows are expected-unsupported.
+test('BET9JA_DESKTOP: records_seen = records_parsed + records_unresolved + records_expected_unsupported, universally', () => {
+  // Unlike the old two-term equation, this three-term one IS a universal
+  // invariant: every row is classified into exactly one of the three
+  // buckets by processRow's per-row return value (ROW_PARSED /
+  // ROW_UNRESOLVED / ROW_EXPECTED_UNSUPPORTED), regardless of how many
+  // unparsed_records EVENTS that one row happens to also generate (e.g. a
+  // Soccer row's real 1X2 market plus its excluded "1X2 1UP"/"1X2 2UP"
+  // siblings is still exactly one PARSED row, not three separate counts).
   for (const fixtureName of [
     'bet9ja_desktop_real_sample.html',
     'bet9ja_desktop_mixed_pass_fail.html',
     'bet9ja_desktop_nav_and_betslip_decoys.html',
     'bet9ja_desktop_date_headings_and_1up.html',
     'bet9ja_desktop_structural_spacer_rows.html',
+    'bet9ja_desktop_basketball_competition_sample.html',
   ]) {
     const { envelope } = capture(fixtureName);
     assert.equal(
       envelope.coverage.records_seen,
-      envelope.coverage.records_parsed + envelope.coverage.records_unresolved,
-      `${fixtureName}: records_seen must equal records_parsed + records_unresolved`
+      envelope.coverage.records_parsed + envelope.coverage.records_unresolved + envelope.coverage.records_expected_unsupported,
+      `${fixtureName}: records_seen must equal records_parsed + records_unresolved + records_expected_unsupported`
     );
   }
+});
+
+test('BET9JA_DESKTOP: a Soccer row with excluded 1UP/2UP siblings still counts as PARSED, not expected-unsupported', () => {
+  // The 36 real UNSUPPORTED_MARKET_FAMILY audit entries (2 per fixture x
+  // 18 fixtures) must never inflate records_expected_unsupported -- those
+  // 18 rows successfully produced a real 1X2 fixture each.
+  const { envelope } = capture('bet9ja_desktop_date_headings_and_1up.html');
+  assert.equal(envelope.coverage.records_parsed, 3);
+  assert.equal(envelope.coverage.records_unresolved, 0);
+  assert.equal(envelope.coverage.records_expected_unsupported, 0);
+  // The 1UP market itself is still audited as its own event, just not
+  // counted as a row.
+  assert.ok(envelope.unparsed_records.some((r) => r.reason === 'UNSUPPORTED_MARKET_FAMILY'));
+});
+
+test('BET9JA_DESKTOP: basketball rows count entirely as records_expected_unsupported, none as records_unresolved', () => {
+  const { envelope } = capture('bet9ja_desktop_basketball_competition_sample.html', {
+    sourceUrl: 'https://sports.bet9ja.com/competition/basketball/international/abaligapreseason/2-43353-9954756',
+  });
+  assert.equal(envelope.coverage.records_seen, 1);
+  assert.equal(envelope.coverage.records_parsed, 0);
+  assert.equal(envelope.coverage.records_unresolved, 0);
+  assert.equal(envelope.coverage.records_expected_unsupported, 1);
 });

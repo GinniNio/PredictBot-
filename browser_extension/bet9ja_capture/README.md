@@ -65,6 +65,7 @@ everything it does not do yet.
     "records_seen": 1,
     "records_parsed": 1,
     "records_unresolved": 0,
+    "records_expected_unsupported": 0,
     "collapsed_sections_detected": false,
     "lazy_loading_detected": false
   },
@@ -138,9 +139,38 @@ test.
 | `NO_MARKETS_FOUND` | false | Row matched but has no market elements at all. |
 
 `expected_unsupported: true` reasons are "working as intended" (a future
-adapter's job, or deliberately out of scope) and do not count toward
+adapter's job, or deliberately out of scope) and count toward
+`coverage.records_expected_unsupported` instead of
 `coverage.records_unresolved`; `false` reasons are genuine parsing
-problems worth an operator's attention.
+problems worth an operator's attention and count toward
+`coverage.records_unresolved`.
+
+### `coverage`'s row-accounting invariant
+
+Every row `captureFromDocument` examines is classified into exactly one
+of three buckets — `records_parsed` (produced a fixture),
+`records_unresolved` (a genuine problem — some `false`-`expected_unsupported`
+reason above), or `records_expected_unsupported` (correctly identified but
+out of scope for this release — some `true`-`expected_unsupported` reason
+above) — so this always holds, for any page:
+
+```
+coverage.records_seen
+  = coverage.records_parsed
+  + coverage.records_unresolved
+  + coverage.records_expected_unsupported
+```
+
+This is a genuine per-**row** invariant, not a per-`unparsed_records`-**event**
+one: `unparsed_records` is an audit-event log, and one row can generate
+several events (a real Soccer row's true 1X2 market plus its excluded
+"1X2 1UP"/"1X2 2UP" siblings produces one fixture — the row counts once,
+toward `records_parsed` — alongside two separate `UNSUPPORTED_MARKET_FAMILY`
+audit entries that do NOT inflate `records_expected_unsupported`, since
+that row already succeeded). `tests/parser.test.js`'s
+`records_seen = records_parsed + records_unresolved + records_expected_unsupported, universally`
+test proves this holds across every real and synthetic fixture in this
+package, including one with exactly that 1X2-plus-1UP shape.
 
 ### `unparsed_records[].raw` field allowlist (privacy contract)
 

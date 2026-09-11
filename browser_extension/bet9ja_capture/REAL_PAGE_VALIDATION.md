@@ -253,3 +253,55 @@ opposed to the mixed Highlights page — would also close the loop on
 `region`/`competition` populating correctly end-to-end from a real
 download, not just from the four DOM-inspection-only competition pages
 checked in round 2.
+
+## Round 3 amendment — 2026-09-11 (same day, before merge)
+
+Confirmed: the pushback above (`records_unresolved` staying
+`expected_unsupported`-exclusive) was correct and is kept as-is. Rather
+than redefine an existing field, this amendment adds a new one instead:
+`coverage.records_expected_unsupported`, so the full row accounting is
+explicit and universal (no longer needing the "holds by design, once
+accounted for" caveat from the table above):
+
+```
+coverage.records_seen
+  = coverage.records_parsed
+  + coverage.records_unresolved
+  + coverage.records_expected_unsupported
+```
+
+This is a genuine per-**row** invariant (see README.md's own section on
+it), not per-`unparsed_records`-event: a row is classified once, by
+`processRow`'s own return value, regardless of how many separate audit
+events it generates. Concretely: a Soccer row with a real 1X2 market plus
+its excluded "1X2 1UP"/"1X2 2UP" siblings still counts once toward
+`records_parsed` — the 36 real `UNSUPPORTED_MARKET_FAMILY` audit entries
+across the 18-fixture Highlights capture never inflate
+`records_expected_unsupported`, exactly as required. Regression-tested
+directly against that shape
+(`bet9ja_desktop_date_headings_and_1up.html`'s 1X2-plus-1UP row) and
+against the real basketball sample (all 3 rows: `records_parsed: 0`,
+`records_unresolved: 0`, `records_expected_unsupported: 3`).
+
+| Capture | `records_parsed` | `records_unresolved` | `records_expected_unsupported` |
+|---|---:|---:|---:|
+| Basketball sample (regression test) | 0 | 0 | 3 |
+| Soccer 1X2-plus-1UP shape (regression test) | 3 | 0 | 0 |
+
+The full round-1/2/3 Highlights capture (18 parsed, 12 structural rows
+excluded before ever reaching `processRow`, 36 audited-but-not-row-counted
+1UP/2UP markets) has not yet been re-captured with this exact build to
+confirm `records_seen: 18, records_parsed: 18, records_unresolved: 0,
+records_expected_unsupported: 0` end-to-end — that is one of the three
+real captures requested next (see below).
+
+### Next real captures requested (before merge's outcome is fully closed)
+
+1. **Soccer Highlights** (`/sport/soccer/1`) — expect dates populated
+   (`date_heading_raw` non-null) and the 12 structural rows excluded
+   (`records_seen` near 18, not 30).
+2. **One specific Soccer competition page** (e.g. England Premier
+   League) — expect `region`/`competition` populated from the URL.
+3. **Basketball competition page** — expect `sport_hint: "BASKETBALL"`
+   (not `"UNKNOWN"`) and all rows counted under
+   `records_expected_unsupported`, none under `records_unresolved`.

@@ -385,6 +385,19 @@
    * markets still produces one unparsed record so it is never silently
    * lost).
    */
+  // Row-level classification returned by processRow -- exactly one per
+  // call, used by captureFromDocument to reconcile coverage.records_seen
+  // = records_parsed + records_unresolved + records_expected_unsupported
+  // (see coverage's own comment). A row that produces a fixture is PARSED
+  // even if it ALSO produces one or more expected-unsupported audit
+  // entries alongside it (e.g. a Soccer row's real 1X2 market plus its
+  // excluded "1X2 1UP"/"1X2 2UP" siblings) -- those extra unparsed_records
+  // entries are still recorded for audit, but the row itself already
+  // succeeded, so it must never also be counted as expected-unsupported.
+  const ROW_PARSED = 'PARSED';
+  const ROW_UNRESOLVED = 'UNRESOLVED';
+  const ROW_EXPECTED_UNSUPPORTED = 'EXPECTED_UNSUPPORTED';
+
   function processRow({
     fields,
     region,
@@ -429,7 +442,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_UNRESOLVED;
     }
 
     if (!statusRecognized) {
@@ -443,7 +456,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_UNRESOLVED;
     }
 
     if (sport !== 'SOCCER') {
@@ -457,7 +470,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_EXPECTED_UNSUPPORTED;
     }
 
     if (markets.length === 0) {
@@ -471,7 +484,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_UNRESOLVED;
     }
 
     if (status === 'LIVE') {
@@ -485,7 +498,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_EXPECTED_UNSUPPORTED;
     }
     if (status === 'VIRTUAL' || status === 'ZOOM') {
       unparsedRecords.push(
@@ -498,10 +511,15 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_EXPECTED_UNSUPPORTED;
     }
 
-    // status === 'PRE' from here on.
+    // status === 'PRE' from here on. A row can iterate several markets
+    // (e.g. Soccer's real 1X2 plus excluded "1X2 1UP"/"1X2 2UP" siblings)
+    // -- rowProducedFixture / rowHasGenuineUnresolved classify the ROW as
+    // a whole once the loop finishes, per the ROW_* doc comment above.
+    let rowProducedFixture = false;
+    let rowHasGenuineUnresolved = false;
     for (const market of markets) {
       const familyKey = (market.family || '').toLowerCase();
       if (!ONE_X_TWO_FAMILY_ALIASES.has(familyKey)) {
@@ -539,6 +557,7 @@
             raw: { ...rawSnapshot, market },
           })
         );
+        rowHasGenuineUnresolved = true;
         continue;
       }
 
@@ -554,6 +573,7 @@
             raw: { ...rawSnapshot, market, partial_outcomes: outcomesByLabel },
           })
         );
+        rowHasGenuineUnresolved = true;
         continue;
       }
 
@@ -620,7 +640,12 @@
         duplicate_status: duplicateStatus,
         parser_version: PARSER_VERSION,
       });
+      rowProducedFixture = true;
     }
+
+    if (rowProducedFixture) return ROW_PARSED;
+    if (rowHasGenuineUnresolved) return ROW_UNRESOLVED;
+    return ROW_EXPECTED_UNSUPPORTED;
   }
 
   /**
@@ -648,13 +673,13 @@
     function finalize({
       sectionsSeen,
       recordsSeen,
+      recordsUnresolved,
+      recordsExpectedUnsupported,
       collapsedSectionsDetected,
       lazyLoadingDetected,
       fallbackProfileActive,
       zeroRecordsReason = 'NO_RECORDS_FOUND',
     }) {
-      const recordsUnresolved = unparsedRecords.filter((r) => !r.expected_unsupported).length;
-
       let captureStatus;
       const statusReasons = [];
       if (recordsSeen === 0) {
@@ -705,6 +730,7 @@
             records_seen: recordsSeen,
             records_parsed: fixtures.length,
             records_unresolved: recordsUnresolved,
+            records_expected_unsupported: recordsExpectedUnsupported,
             collapsed_sections_detected: collapsedSectionsDetected,
             lazy_loading_detected: lazyLoadingDetected,
           },
@@ -734,6 +760,8 @@
         return finalize({
           sectionsSeen: 0,
           recordsSeen: 0,
+          recordsUnresolved: 0,
+          recordsExpectedUnsupported: 0,
           collapsedSectionsDetected: false,
           lazyLoadingDetected: false,
           fallbackProfileActive: false,
@@ -786,6 +814,8 @@
 
       let sectionsSeen = 0;
       let recordsSeen = 0;
+      let recordsUnresolved = 0;
+      let recordsExpectedUnsupported = 0;
 
       desktopTables.forEach((table) => {
         // Table-level date heading (the confirmed sibling pattern) seeds
@@ -811,7 +841,7 @@
             recordIndexInSection = 0;
           }
           recordsSeen += 1;
-          processRow({
+          const rowClassification = processRow({
             fields: extractBet9jaDesktopFields(child, currentDateHeading, urlCompetitionInfo),
             region: fallbackRegion,
             competition: fallbackCompetition,
@@ -824,6 +854,8 @@
             fixtures,
             unparsedRecords,
           });
+          if (rowClassification === ROW_UNRESOLVED) recordsUnresolved += 1;
+          if (rowClassification === ROW_EXPECTED_UNSUPPORTED) recordsExpectedUnsupported += 1;
           recordIndexInSection += 1;
         });
       });
@@ -831,6 +863,8 @@
       return finalize({
         sectionsSeen,
         recordsSeen,
+        recordsUnresolved,
+        recordsExpectedUnsupported,
         collapsedSectionsDetected: false,
         lazyLoadingDetected: doc.querySelector(SELECTORS.lazyPlaceholder) !== null,
         fallbackProfileActive: true,
@@ -839,6 +873,8 @@
 
     const groups = Array.from(rootEl.querySelectorAll(SELECTORS.competitionGroup));
     let recordsSeen = 0;
+    let recordsUnresolved = 0;
+    let recordsExpectedUnsupported = 0;
     let collapsedSectionsDetected = false;
     let lazyLoadingDetected = doc.querySelector(SELECTORS.lazyPlaceholder) !== null;
 
@@ -862,7 +898,7 @@
       const rows = Array.from(group.querySelectorAll(SELECTORS.fixtureRow));
       rows.forEach((row, recordIndex) => {
         recordsSeen += 1;
-        processRow({
+        const rowClassification = processRow({
           fields: extractLegacyFields(row),
           region,
           competition,
@@ -875,6 +911,8 @@
           fixtures,
           unparsedRecords,
         });
+        if (rowClassification === ROW_UNRESOLVED) recordsUnresolved += 1;
+        if (rowClassification === ROW_EXPECTED_UNSUPPORTED) recordsExpectedUnsupported += 1;
       });
     });
 
@@ -885,6 +923,8 @@
     return finalize({
       sectionsSeen: groups.length,
       recordsSeen,
+      recordsUnresolved,
+      recordsExpectedUnsupported,
       collapsedSectionsDetected,
       lazyLoadingDetected,
       fallbackProfileActive: false,
