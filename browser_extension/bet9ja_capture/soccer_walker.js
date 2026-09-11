@@ -21,63 +21,96 @@
  *     is captured once, not once per entry it happened to appear under),
  *     and produces ONE combined envelope.
  *
- * SELECTOR CONTRACT -- SOCCER_MENU_SELECTORS.soccerMenuContainer IS AN
- * UNVERIFIED PLACEHOLDER (`null`). Confirmed so far (live inspection,
- * 2026-09-11): competition menu items are `.menu-list__link` elements
- * with `href="javascript:;"` (client-side switches, not real navigation).
- * NOT yet confirmed: the container/selector that scopes this to ONLY the
- * Soccer competition menu -- `.menu-list__link` alone is expected to also
- * match other sports' competition pickers and unrelated site shortcuts
- * sharing the same class, so discovery must not run against the whole
- * document. Until a real scoping selector is supplied,
- * `soccerMenuContainer` stays `null` and this module discovers ZERO
- * competitions on every real page -- an honest `CAPTURE_FAILED` with a
- * named reason, never a guess at scoping. See
- * SOCCER_ALL_COMPETITIONS_VALIDATION.md for exactly what evidence is
- * needed next (the container selector, and how a link's own country/
- * competition identity is exposed, if not via the URL -- see below).
+ * ROUND 1 REAL-DOM CORRECTION (2026-09-11): Round 0's discovery selector
+ * (an unconfirmed `soccerMenuContainer`, kept deliberately `null`) was
+ * exercised against two real capture runs from both supported starting
+ * routes (`/sport/soccer/1` and `/sportPage/1/coupons`) and, as expected
+ * for an unconfirmed placeholder, discovered zero competitions on both.
+ * Live inspection then confirmed the real menu structure:
  *
- * IDENTITY: rather than guess a link-level attribute for country/
- * competition (unconfirmed), this reuses parser.js's own
- * `parseBet9jaCompetitionUrl` against the page's OWN URL after each
- * click -- a single-page app that updates the URL via `pushState` on a
- * competition switch will resolve real identity for free from
- * already-confirmed logic; a page that does not is honestly `null`
- * (`source_country`/`source_competition` unresolved), never guessed from
- * the clicked link's text or attributes.
+ *   <ul class="menu-list mt30">
+ *     <li class="menu-list__item">
+ *       <a class="menu-list__link" href="javascript:;">England Premier League</a>
+ *     </li>
+ *   </ul>
  *
- * CONTENT-CHANGE WAIT: rather than guess a "competition identity changed"
- * DOM signal (also unconfirmed), this waits for the confirmed
- * `.sports-table__matchup` elements' own identity (their `id` attributes,
- * or text when absent) to differ from what was on screen before the
- * click -- evidence-independent: no new selector is needed to detect
- * this, since `.sports-table__matchup` is already confirmed by
- * parser.js's own real-page validation.
+ * Discovery now uses `.menu-list.mt30 .menu-list__item > .menu-list__link`
+ * (see SOCCER_MENU_SELECTORS below) -- but see PARSER_VERSION's own
+ * comment for why this file's version string is NOT bumped yet: this
+ * selector is confirmed by DOM inspection, not yet by one real successful
+ * end-to-end capture (a real click actually landing on a competition page
+ * and fixtures actually being parsed from it). That is this round's
+ * explicit remaining gap -- see SOCCER_ALL_COMPETITIONS_VALIDATION.md.
+ *
+ * Every competition link uses `href="javascript:;"` (never a real
+ * navigation target), so identity can never come from `href`. Selecting a
+ * competition is confirmed to change the page's own URL to
+ * `/competition/soccer/...` (parser.js's already-confirmed
+ * `parseBet9jaCompetitionUrl` shape) -- `selectCompetition` below waits
+ * for exactly that pathname prefix AND the confirmed `.sports-table__matchup`
+ * rows to have rendered, rather than the old (also honestly working, but
+ * less precise) "matchup fingerprint changed" heuristic Round 0 used.
+ *
+ * STALE-NODE SAFETY: a competition page is not confirmed to keep the same
+ * menu DOM nodes around (it may not render the menu at all, or may
+ * re-render it with new elements even if visually identical) -- so this
+ * module NEVER reuses a `<a>` element reference across a navigation. It
+ * identifies a competition by its stable visible LABEL TEXT (the only
+ * stable identifier available, since `href` is always `javascript:;`),
+ * returns to the inventory page via `history.back()` after each
+ * competition, and re-runs `discoverSoccerCompetitionLinks` fresh before
+ * looking up the next link by label. A label that no longer resolves on
+ * re-discovery (e.g. the live menu genuinely changed mid-walk) is reported
+ * `FAILED`/`LINK_NOT_FOUND_ON_REDISCOVERY` for that one competition,
+ * never a crash and never silently skipped.
+ *
+ * DEDUPLICATION: two different menu labels can resolve to the same
+ * destination URL (e.g. both a "Highlights"-style entry and a named
+ * league entry landing on the same competition page). Destinations are
+ * deduplicated by their sanitized resolved URL -- a second label
+ * resolving to an already-visited destination is reported
+ * `SKIPPED_DUPLICATE_DESTINATION` and never re-captured. Fixtures within
+ * a single captured destination are additionally deduplicated by their
+ * stable `fixture_id`, as before.
  *
  * SAFETY: the ONLY element this module ever calls `.click()` on is a
- * competition-menu link discovered inside the (currently unconfirmed)
- * `soccerMenuContainer` -- see the safety test in
+ * competition-menu link discovered inside the confirmed
+ * `SOCCER_MENU_SELECTORS.menuContainer` -- see the safety test in
  * tests/soccer_walker.test.js, which greps this file's own source.
+ * Returning to the inventory page uses the browser's own `history.back()`
+ * navigation primitive, never a click on a guessed "back"/breadcrumb
+ * control.
  */
 (function (root) {
   const Bet9jaCapture = typeof module !== 'undefined' && module.exports ? require('./parser.js') : root.Bet9jaCapture;
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
+  // NOT bumped this round on purpose: SOCCER_MENU_SELECTORS below is
+  // confirmed by live DOM inspection, but no real click has yet been
+  // exercised end-to-end against the live account (that would confirm
+  // the pathname-change wait and a real fixture actually being parsed
+  // from a real competition page). Per this project's evidence-only
+  // versioning discipline, the version string advances only after that
+  // one real successful capture -- see SOCCER_ALL_COMPETITIONS_VALIDATION.md.
   const PARSER_VERSION = 'bet9ja-soccer-walker@0.1.0-unverified-menu-selectors';
 
-  // See SELECTOR CONTRACT above. `soccerMenuContainer` is deliberately
-  // exported as a mutable field (not a frozen constant) so a future real
-  // selector can be dropped in without touching any other code, and so
-  // tests can exercise the real navigation/aggregation logic against a
-  // configured container without needing that real selector yet.
+  // Confirmed via live inspection, Round 1 (see header comment above).
+  // Still exported as a mutable object so a future correction (or a test
+  // exercising a differently-shaped synthetic page) never requires
+  // touching any other code.
   const SOCCER_MENU_SELECTORS = {
+    menuContainer: '.menu-list.mt30',
+    menuItem: '.menu-list__item',
     competitionLink: '.menu-list__link',
-    soccerMenuContainer: null,
     matchup: '.sports-table__matchup',
   };
 
+  const COMPETITION_PATH_PREFIX = '/competition/soccer/';
+
   const CONTENT_CHANGE_TIMEOUT_MS = 3000;
   const CONTENT_CHANGE_POLL_INTERVAL_MS = 25;
+  const RETURN_TO_INVENTORY_TIMEOUT_MS = 3000;
+  const RETURN_TO_INVENTORY_POLL_INTERVAL_MS = 25;
   // Real evidence (live inspection) found 18 matchups under one
   // "Upcoming" view and multiple named competitions (Premier League,
   // LaLiga, Serie A, Bundesliga, Ligue 1, ...) -- this cap is a generous
@@ -112,79 +145,75 @@
     return href === 'javascript:;' && text(el).length > 0;
   }
 
+  /**
+   * Always re-queries fresh -- never caches a NodeList/element reference
+   * across a navigation (see STALE-NODE SAFETY above). Scoped to the
+   * confirmed `.menu-list.mt30` container so this never matches another
+   * sport's competition picker or an unrelated site shortcut sharing the
+   * same `.menu-list__link` class.
+   */
   function discoverSoccerCompetitionLinks(doc) {
-    if (!SOCCER_MENU_SELECTORS.soccerMenuContainer) return [];
-    const container = doc.querySelector(SOCCER_MENU_SELECTORS.soccerMenuContainer);
+    const container = doc.querySelector(SOCCER_MENU_SELECTORS.menuContainer);
     if (!container) return [];
-    return Array.from(container.querySelectorAll(SOCCER_MENU_SELECTORS.competitionLink)).filter(
-      isCandidateCompetitionLink
-    );
+    return Array.from(
+      container.querySelectorAll(`${SOCCER_MENU_SELECTORS.menuItem} > ${SOCCER_MENU_SELECTORS.competitionLink}`)
+    ).filter(isCandidateCompetitionLink);
   }
 
-  // Fingerprints the currently-visible matchup rows by their own `id`
-  // attribute (falling back to text when absent) -- confirmed evidence
-  // (`.sports-table__matchup`'s `id`, e.g.
-  // "prematch_event-832455154"/"home_highlights_sport-1_event-..."),
-  // never a new, unconfirmed selector. Used only to detect that a click
-  // actually changed what's on screen -- never parsed for meaning here.
-  function getMatchupFingerprint(doc) {
-    return Array.from(doc.querySelectorAll(SOCCER_MENU_SELECTORS.matchup))
-      .map((el) => el.id || text(el))
-      .sort()
-      .join('|');
+  function currentPathname(doc) {
+    return (doc.defaultView && doc.defaultView.location && doc.defaultView.location.pathname) || '';
+  }
+
+  function currentHref(doc, fallback) {
+    return (doc.defaultView && doc.defaultView.location && doc.defaultView.location.href) || fallback || '';
   }
 
   /**
-   * The ONLY function in this file that ever calls .click(). Clicks a
-   * discovered competition link and waits for the confirmed matchup
-   * fingerprint to change -- never assumes the click succeeded just
-   * because it was dispatched. A competition whose fixtures happen to be
-   * byte-identical to whatever was on screen before (unlikely, but not
-   * impossible) will be reported as CONTENT_DID_NOT_CHANGE and skipped,
-   * per the fail-closed contract below -- never silently merged with the
-   * previous competition's fixtures.
+   * The ONLY function in this file that ever calls .click() on a
+   * competition link. Waits for the confirmed navigation signal: the
+   * page's own pathname moving to `/competition/soccer/...` AND at least
+   * one confirmed `.sports-table__matchup` row having rendered -- never
+   * assumes the click succeeded just because it was dispatched.
    */
   async function selectCompetition(doc, linkEl) {
-    const before = getMatchupFingerprint(doc);
     linkEl.click();
-    const changed = await waitFor(
-      () => getMatchupFingerprint(doc) !== before,
+    const ready = await waitFor(
+      () => currentPathname(doc).startsWith(COMPETITION_PATH_PREFIX) && doc.querySelectorAll(SOCCER_MENU_SELECTORS.matchup).length > 0,
       CONTENT_CHANGE_TIMEOUT_MS,
       CONTENT_CHANGE_POLL_INTERVAL_MS
     );
-    return { ok: changed, reason: changed ? null : 'CONTENT_DID_NOT_CHANGE' };
+    return { ok: ready, reason: ready ? null : 'CONTENT_DID_NOT_CHANGE' };
   }
 
   // Reads country/competition identity from the page's OWN url after a
   // click, reusing parser.js's already-confirmed
-  // parseBet9jaCompetitionUrl -- see the IDENTITY note in the header
-  // comment for why this is preferred over guessing a link-level
-  // attribute. Returns null (never guessed) if the URL doesn't match
-  // that confirmed shape, e.g. because this page never updates its own
-  // URL on a client-side competition switch -- unconfirmed either way
-  // until real evidence says otherwise.
+  // parseBet9jaCompetitionUrl -- never guessed from the clicked link's own
+  // (always `javascript:;`) href or its visible text.
   function readCompetitionIdentityFromUrl(doc) {
-    const href = (doc.defaultView && doc.defaultView.location && doc.defaultView.location.href) || '';
+    const href = currentHref(doc);
     const info = Bet9jaCapture.parseBet9jaCompetitionUrl(href);
     if (!info) return null;
     return { country: info.countrySlug, competition: info.competitionSlug };
   }
 
   /**
-   * Best-effort restore to whatever the Soccer page's default/first view
-   * is -- fire-and-forget, same "restore what capture touched" spirit as
-   * the ticket-capture extension's own collapse/page-1 restores, never
-   * required for the correctness of the capture that already happened.
-   * Prefers a link whose own text says "Highlights" (matching visible
-   * text a person can already see, not a guessed structural attribute);
-   * falls back to the first competition link found, since re-selecting
-   * SOME real competition is more useful than leaving the page on
-   * whatever the walk happened to end on.
+   * Returns to the Soccer inventory page using the browser's own
+   * `history.back()` navigation primitive -- never a click on a guessed
+   * "back"/breadcrumb control -- and waits for the confirmed menu
+   * container to be discoverable again with at least one candidate link.
+   * Never assumes the previous page's own DOM nodes survived; the caller
+   * always re-runs discoverSoccerCompetitionLinks afterward.
    */
-  function restoreOriginalView(doc, allLinks) {
-    const highlightsLink = allLinks.find((el) => /highlights/i.test(text(el)));
-    const restoreTarget = highlightsLink || allLinks[0];
-    if (restoreTarget) restoreTarget.click();
+  async function returnToInventory(doc) {
+    const win = doc.defaultView;
+    if (win && win.history && typeof win.history.back === 'function') {
+      win.history.back();
+    }
+    return waitFor(
+      () => discoverSoccerCompetitionLinks(doc).length > 0,
+      RETURN_TO_INVENTORY_TIMEOUT_MS,
+      RETURN_TO_INVENTORY_POLL_INTERVAL_MS
+    );
   }
 
   function makeCompetitionResult({ country, competition, captureStatus, fixturesSeen, fixturesParsed, fixturesUnresolved, failureReason }) {
@@ -196,6 +225,27 @@
       fixtures_parsed: fixturesParsed,
       fixtures_unresolved: fixturesUnresolved,
       failure_reason: failureReason || null,
+    };
+  }
+
+  function emptyFailedEnvelope(envelopeBase, reasons) {
+    return {
+      envelope: {
+        ...envelopeBase,
+        capture_status: 'CAPTURE_FAILED',
+        capture_status_reasons: reasons,
+        scope: 'SOCCER_ALL_DISCOVERED_COMPETITIONS',
+        competitions_available: 0,
+        competitions_visited: 0,
+        competitions_failed: 0,
+        fixtures_seen: 0,
+        fixtures_parsed: 0,
+        fixtures_unresolved: 0,
+        duplicates_skipped: 0,
+        competition_results: [],
+        fixtures: [],
+        unparsed_records: [],
+      },
     };
   }
 
@@ -215,45 +265,69 @@
       parser_version: PARSER_VERSION,
     };
 
-    const linkEls = discoverSoccerCompetitionLinks(doc);
-    const competitionsAvailable = linkEls.length;
+    const initialLinks = discoverSoccerCompetitionLinks(doc);
+    const competitionsAvailable = initialLinks.length;
+
+    if (competitionsAvailable === 0) {
+      const containerFound = !!doc.querySelector(SOCCER_MENU_SELECTORS.menuContainer);
+      return emptyFailedEnvelope(envelopeBase, [
+        containerFound ? 'NO_COMPETITIONS_DISCOVERED' : 'SOCCER_MENU_CONTAINER_NOT_FOUND',
+      ]);
+    }
+
+    // Identify each candidate by its stable visible label -- never by a
+    // cached element reference, which a navigation may invalidate (see
+    // STALE-NODE SAFETY above). Two menu items sharing the exact same
+    // label are only ever visited once; this is a plausible real gap
+    // (e.g. an ambiguous label), not silently guessed around.
+    const labels = [];
+    const seenLabels = new Set();
+    for (const el of initialLinks) {
+      const label = text(el);
+      if (!seenLabels.has(label)) {
+        seenLabels.add(label);
+        labels.push(label);
+      }
+    }
+    const cappedLabels = labels.slice(0, MAX_COMPETITIONS_SAFETY_CAP);
 
     const fixtures = [];
     const unparsedRecords = [];
     const competitionResults = [];
     const seenFixtureIds = new Set();
+    const seenDestinationUrls = new Set();
     let fixturesSeen = 0;
     let fixturesParsed = 0;
     let fixturesUnresolved = 0;
     let duplicatesSkipped = 0;
     let competitionsVisited = 0;
     let competitionsFailed = 0;
+    let stoppedEarlyReason = null;
 
-    if (competitionsAvailable === 0) {
-      return {
-        envelope: {
-          ...envelopeBase,
-          capture_status: 'CAPTURE_FAILED',
-          capture_status_reasons: ['SOCCER_MENU_SELECTORS_UNVERIFIED', 'NO_COMPETITIONS_DISCOVERED'],
-          scope: 'SOCCER_ALL_DISCOVERED_COMPETITIONS',
-          competitions_available: 0,
-          competitions_visited: 0,
-          competitions_failed: 0,
-          fixtures_seen: 0,
-          fixtures_parsed: 0,
-          fixtures_unresolved: 0,
-          duplicates_skipped: 0,
-          competition_results: [],
-          fixtures: [],
-          unparsed_records: [],
-        },
-      };
-    }
+    for (let i = 0; i < cappedLabels.length; i += 1) {
+      const label = cappedLabels[i];
 
-    const cappedLinkEls = linkEls.slice(0, MAX_COMPETITIONS_SAFETY_CAP);
+      // Always re-discover immediately before use -- never a reference
+      // held from a previous iteration or from the initial discovery
+      // pass, since an intervening navigation may have invalidated it.
+      const freshLinks = discoverSoccerCompetitionLinks(doc);
+      const linkEl = freshLinks.find((el) => text(el) === label);
+      if (!linkEl) {
+        competitionsFailed += 1;
+        competitionResults.push(
+          makeCompetitionResult({
+            country: null,
+            competition: null,
+            captureStatus: 'FAILED',
+            fixturesSeen: 0,
+            fixturesParsed: 0,
+            fixturesUnresolved: 0,
+            failureReason: 'LINK_NOT_FOUND_ON_REDISCOVERY',
+          })
+        );
+        continue;
+      }
 
-    for (let i = 0; i < cappedLinkEls.length; i += 1) {
-      const linkEl = cappedLinkEls[i];
       const { ok, reason } = await selectCompetition(doc, linkEl);
       if (!ok) {
         competitionsFailed += 1;
@@ -268,72 +342,105 @@
             failureReason: reason,
           })
         );
+        // A click that never changed the page is not a navigation --
+        // still on the inventory page, so no need to return to it.
         continue;
       }
 
       const identity = readCompetitionIdentityFromUrl(doc);
-      const currentUrl = (doc.defaultView && doc.defaultView.location && doc.defaultView.location.href) || context.sourceUrl;
-      const { envelope: subEnvelope } = Bet9jaCapture.captureFromDocument(doc, {
-        sourceUrl: currentUrl,
-        pageTitle: context.pageTitle,
-        capturedAtUtc,
-        previousIndex: {},
-      });
+      const resolvedHref = currentHref(doc, context.sourceUrl);
+      const destinationKey = Bet9jaCapture.sanitizeSourceUrl(resolvedHref);
 
-      fixturesSeen += subEnvelope.coverage.records_seen;
-      fixturesUnresolved += subEnvelope.coverage.records_unresolved;
+      if (seenDestinationUrls.has(destinationKey)) {
+        duplicatesSkipped += 0; // fixture-level counter is separate; see competition-level result below
+        competitionResults.push(
+          makeCompetitionResult({
+            country: identity ? identity.country : null,
+            competition: identity ? identity.competition : null,
+            captureStatus: 'SKIPPED_DUPLICATE_DESTINATION',
+            fixturesSeen: 0,
+            fixturesParsed: 0,
+            fixturesUnresolved: 0,
+          })
+        );
+      } else {
+        seenDestinationUrls.add(destinationKey);
 
-      let compFixturesParsed = 0;
-      for (const fixture of subEnvelope.fixtures) {
-        if (seenFixtureIds.has(fixture.fixture_id)) {
-          duplicatesSkipped += 1;
-          continue;
+        const { envelope: subEnvelope } = Bet9jaCapture.captureFromDocument(doc, {
+          sourceUrl: resolvedHref,
+          pageTitle: context.pageTitle,
+          capturedAtUtc,
+          previousIndex: {},
+        });
+
+        fixturesSeen += subEnvelope.coverage.records_seen;
+        fixturesUnresolved += subEnvelope.coverage.records_unresolved;
+
+        let compFixturesParsed = 0;
+        for (const fixture of subEnvelope.fixtures) {
+          if (seenFixtureIds.has(fixture.fixture_id)) {
+            duplicatesSkipped += 1;
+            continue;
+          }
+          seenFixtureIds.add(fixture.fixture_id);
+          fixtures.push({
+            ...fixture,
+            source_country: identity ? identity.country : null,
+            source_competition: identity ? identity.competition : null,
+          });
+          compFixturesParsed += 1;
         }
-        seenFixtureIds.add(fixture.fixture_id);
-        fixtures.push({
-          ...fixture,
-          source_country: identity ? identity.country : null,
-          source_competition: identity ? identity.competition : null,
-        });
-        compFixturesParsed += 1;
-      }
-      fixturesParsed += compFixturesParsed;
+        fixturesParsed += compFixturesParsed;
 
-      for (const record of subEnvelope.unparsed_records) {
-        unparsedRecords.push({
-          ...record,
-          source_country: identity ? identity.country : null,
-          source_competition: identity ? identity.competition : null,
-        });
+        for (const record of subEnvelope.unparsed_records) {
+          unparsedRecords.push({
+            ...record,
+            source_country: identity ? identity.country : null,
+            source_competition: identity ? identity.competition : null,
+          });
+        }
+
+        competitionResults.push(
+          makeCompetitionResult({
+            country: identity ? identity.country : null,
+            competition: identity ? identity.competition : null,
+            captureStatus: 'COMPLETE',
+            fixturesSeen: subEnvelope.coverage.records_seen,
+            fixturesParsed: compFixturesParsed,
+            fixturesUnresolved: subEnvelope.coverage.records_unresolved,
+          })
+        );
+        competitionsVisited += 1;
       }
 
-      competitionResults.push(
-        makeCompetitionResult({
-          country: identity ? identity.country : null,
-          competition: identity ? identity.competition : null,
-          captureStatus: 'COMPLETE',
-          fixturesSeen: subEnvelope.coverage.records_seen,
-          fixturesParsed: compFixturesParsed,
-          fixturesUnresolved: subEnvelope.coverage.records_unresolved,
-        })
-      );
-      competitionsVisited += 1;
+      // Always return to the inventory page after a successful
+      // navigation -- including after the LAST competition, so the page
+      // is left in a predictable, re-usable state, not stranded on
+      // whichever competition the walk happened to end on. A failed
+      // return is a safe-stop, not something to guess past.
+      {
+        const restored = await returnToInventory(doc);
+        if (!restored) {
+          stoppedEarlyReason = 'COULD_NOT_RETURN_TO_INVENTORY';
+          break;
+        }
+      }
     }
 
-    restoreOriginalView(doc, linkEls);
-
-    const statusReasons = ['SOCCER_MENU_SELECTORS_UNVERIFIED'];
+    const statusReasons = ['MENU_SELECTORS_CONFIRMED_VIA_INSPECTION_PENDING_REAL_CAPTURE'];
     if (competitionsFailed > 0) statusReasons.push('SOME_COMPETITIONS_FAILED');
+    if (stoppedEarlyReason) statusReasons.push(stoppedEarlyReason);
 
     let captureStatus;
     if (fixtures.length === 0 && unparsedRecords.length === 0) {
       captureStatus = 'CAPTURE_FAILED';
       statusReasons.unshift('NO_USABLE_OUTPUT');
     } else {
-      // Never CAPTURE_OK -- the navigation/aggregation flow itself has no
-      // real-page validation yet (see SOCCER_MENU_SELECTORS_UNVERIFIED),
-      // so even a clean run cannot yet be called fully validated. Same
-      // permanent-cap pattern as ticket_parser.js's MYBETS profile.
+      // Never CAPTURE_OK -- the navigation flow itself has no real
+      // end-to-end successful capture yet (see PARSER_VERSION's own
+      // comment), so even a clean run cannot yet be called fully
+      // validated. Same permanent-cap pattern as ticket_parser.js's
+      // MYBETS profile and settled_bets_parser.js.
       captureStatus = 'CAPTURE_PARTIAL';
     }
 

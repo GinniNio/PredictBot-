@@ -708,36 +708,63 @@ fixtures load only after selection — so no single DOM scrape can collect
 everything, and this button automates the click-one-at-a-time traversal
 that used to be manual.
 
-**SELECTOR STATUS: architecture and aggregation logic implemented and
-tested; the menu-scoping selector is an unverified placeholder.**
-`.menu-list__link` (the confirmed class name for a competition menu item)
-is expected to also match other sports' pickers and unrelated site
-shortcuts sharing the same class, so `soccer_walker.js` requires a
-container selector that scopes discovery to ONLY the Soccer competition
-menu — this is currently `null` (see `SOCCER_MENU_SELECTORS
-.soccerMenuContainer` in `soccer_walker.js`), so every real run today
-reports `competitions_available: 0` and an honest `CAPTURE_FAILED` —
-tracked in `SOCCER_ALL_COMPETITIONS_VALIDATION.md`, the same "correctly
-failed, never guessed" starting point every other button in this
-extension began at.
+**SELECTOR STATUS (Round 1): the menu-scoping container is now a real,
+confirmed selector, not a placeholder — but no real end-to-end capture
+has succeeded against the live account yet.** Live inspection confirmed
+the real menu structure:
 
-Two design choices avoid needing MORE unconfirmed selectors, not fewer:
+```html
+<ul class="menu-list mt30">
+  <li class="menu-list__item">
+    <a class="menu-list__link" href="javascript:;">England Premier League</a>
+  </li>
+</ul>
+```
 
-- **Content-change detection** waits for the confirmed
-  `.sports-table__matchup` elements' own identity (`id`, or text when
-  absent) to differ from what was on screen before the click — no new
-  "did the competition change" selector is needed, since
-  `.sports-table__matchup` is already real-page validated by
-  `parser.js`. A competition whose click doesn't change this within the
-  wait window is reported `FAILED` (`CONTENT_DID_NOT_CHANGE`) in its own
+Discovery is scoped to `.menu-list.mt30 .menu-list__item > .menu-list__link`
+(see `SOCCER_MENU_SELECTORS` in `soccer_walker.js`) — `.menu-list__link`
+alone would also match other sports' pickers and unrelated site shortcuts
+sharing the same class, which is exactly what caused two real captures
+from both supported starting routes (`/sport/soccer/1` and
+`/sportPage/1/coupons`) to discover zero competitions before this round
+(see `SOCCER_ALL_COMPETITIONS_VALIDATION.md` Round 1). `PARSER_VERSION`
+is deliberately NOT bumped yet — this selector is confirmed by DOM
+inspection, not yet by one real click actually landing on a competition
+page and fixtures actually being parsed from it end-to-end.
+
+Since every competition link uses `href="javascript:;"` (never a real
+navigation target), country/competition identity can never come from the
+link itself. Two design choices handle this without any further
+unconfirmed selectors:
+
+- **Navigation confirmed by URL, not a content diff.** Selecting a
+  competition is confirmed to move the page's own URL to
+  `/competition/soccer/...` — `selectCompetition` waits for exactly that
+  pathname prefix AND the confirmed `.sports-table__matchup` rows to have
+  rendered, rather than guessing at a "did the competition change" DOM
+  signal. A competition whose click doesn't produce that within the wait
+  window is reported `FAILED` (`CONTENT_DID_NOT_CHANGE`) in its own
   `competition_results[]` entry, never merged with the previous
   competition's fixtures.
-- **Country/competition identity** is read from the page's OWN URL after
-  each click, reusing `parser.js`'s already-confirmed
-  `parseBet9jaCompetitionUrl` — a single-page app that updates the URL
-  via `pushState` resolves this for free; one that doesn't leaves
-  `source_country`/`source_competition` honestly `null`, never guessed
-  from the clicked link's own text or attributes.
+- **Country/competition identity** is read from that same resolved URL,
+  reusing `parser.js`'s already-confirmed `parseBet9jaCompetitionUrl` —
+  never guessed from the clicked link's own (always `javascript:;`) href
+  or its visible text.
+
+A competition page is not confirmed to keep the inventory's menu DOM
+nodes around at all, so this module never reuses an element reference
+across a navigation: each competition is identified by its stable visible
+label text, `history.back()` (never a guessed "back"/breadcrumb click)
+returns to the inventory page after each one, and the menu is
+re-discovered fresh before looking up the next label. A label that no
+longer resolves on re-discovery is reported
+`FAILED`/`LINK_NOT_FOUND_ON_REDISCOVERY` for that one competition only; a
+`history.back()` that never restores the menu is a safe stop
+(`COULD_NOT_RETURN_TO_INVENTORY`), preserving everything already
+captured rather than losing it. Two different menu labels resolving to
+the same destination URL are deduplicated at the destination level
+(`SKIPPED_DUPLICATE_DESTINATION`), on top of the existing per-fixture
+`fixture_id` deduplication.
 
 Every fixture is captured by the exact same `parser.js` engine
 **Capture fixtures** uses (never re-implemented here) — the same
@@ -756,20 +783,24 @@ captured twice.
 `duplicates_skipped`, and `competition_results[]` — one entry per visited
 competition (`country`, `competition`, `capture_status` — `COMPLETE` or
 `FAILED`, `fixtures_seen`/`fixtures_parsed`/`fixtures_unresolved`,
-`failure_reason`). `fixtures[]` and `unparsed_records[]` carry every
-normalized `parser.js` fixture/exclusion field plus `source_country`/
-`source_competition`. Never `CAPTURE_OK` — capped at `CAPTURE_PARTIAL` —
-until the navigation flow itself has real-page validation, mirroring the
-same permanent-cap pattern `ticket_parser.js`'s MYBETS profile uses.
+`failure_reason` — now also `SKIPPED_DUPLICATE_DESTINATION` and
+`LINK_NOT_FOUND_ON_REDISCOVERY` alongside `CONTENT_DID_NOT_CHANGE`).
+`fixtures[]` and `unparsed_records[]` carry every normalized `parser.js`
+fixture/exclusion field plus `source_country`/`source_competition`. Never
+`CAPTURE_OK` — capped at `CAPTURE_PARTIAL` — until one real end-to-end
+capture succeeds against the live account, mirroring the same
+permanent-cap pattern `ticket_parser.js`'s MYBETS profile uses.
 
 ### Safety
 
 The only element this module ever calls `.click()` on is a discovered
 competition-menu link (a real, confirmed candidate: `href="javascript:;"`
 and non-empty visible text) — never Cashout, never account controls,
-never anything outside the confirmed competition menu. A dedicated
-"safety" test greps the compiled source for this guarantee, the same
-discipline used for `ticket_parser.js`.
+never anything outside the confirmed competition menu. Returning to the
+inventory page uses the browser's own `history.back()` navigation
+primitive, never a click on a guessed "back"/breadcrumb control. A
+dedicated "safety" test greps the compiled source for both guarantees,
+the same discipline used for `ticket_parser.js`.
 
 ## Capture settled bets
 
@@ -865,9 +896,14 @@ compiled source for this guarantee, the same discipline used for
 3. **Load unpacked** → select this `browser_extension/bet9ja_capture/`
    directory.
 4. Open a Bet9ja pre-match page, log in, click the extension icon, click
-   **Capture fixtures**. Try **Capture all Soccer fixtures** on the
-   Soccer page — until the menu-scoping selector is confirmed, expect
-   `competitions_available: 0`. Open your "Open Bets"/"My Bets" page and
+   **Capture fixtures**. Try **Capture all Soccer fixtures** from either
+   `/sport/soccer/1` or `/sportPage/1/coupons` — the menu-scoping
+   selector is now confirmed, so expect `competitions_available` > 0 and
+   a walk through every discovered competition; report back
+   `competitions_visited`/`competitions_failed` and any
+   `competition_results[].failure_reason` so `PARSER_VERSION` can be
+   bumped off its `unverified-menu-selectors` tag once a real run
+   succeeds end-to-end. Open your "Open Bets"/"My Bets" page and
    click **Capture open bets** — it will expand each ticket in turn and
    walk every numbered pagination page automatically before downloading
    one combined file. Switch to Settled Bets (or just click **Capture
@@ -960,17 +996,30 @@ synthetic HTML:
   accordion toggle or a verified numbered pagination item.
 
 `tests/soccer_walker.test.js` runs `soccer_walker.js` against a synthetic
-multi-competition jsdom harness (tests configure a container selector to
-exercise the real logic ahead of that selector being confirmed): the
-production default reporting zero competitions honestly, walking every
-discovered competition and tagging fixtures with source country/
-competition read from the page's own URL, deduplicating a fixture that
-legitimately appears under two competitions, a competition whose content
-never changes being reported `FAILED` rather than merged with the
-previous one, unresolved fixtures still carrying source tagging, the
-permanent `CAPTURE_PARTIAL` cap, decorative/icon-only and non-`javascript:;`
-links being excluded from discovery, and a safety test confirming
-`.click()` is only ever called on a discovered competition-menu link.
+multi-competition jsdom harness modeling the Round 1 confirmed
+`.menu-list.mt30` structure, where a competition page renders WITHOUT the
+inventory's menu at all (exercising `history.back()` + re-discovery for
+real, not an in-place swap): no container found and an empty container
+each failing closed with their own distinct reason, walking every
+discovered competition via the confirmed structure and tagging fixtures
+with source country/competition read from the page's own resolved URL,
+working from both supported starting routes
+(`/sport/soccer/1`/`/sportPage/1/coupons`), deduplicating a fixture that
+legitimately appears under two competitions, two menu labels resolving to
+the same destination URL being deduplicated
+(`SKIPPED_DUPLICATE_DESTINATION`) rather than re-captured, a competition
+whose click never navigates being reported `FAILED`/`CONTENT_DID_NOT_CHANGE`
+without blocking later competitions, a label that no longer resolves on
+re-discovery (`LINK_NOT_FOUND_ON_REDISCOVERY`) never crashing the walk, a
+`history.back()` that never restores the menu being a safe stop
+(`COULD_NOT_RETURN_TO_INVENTORY`) that preserves everything already
+captured, unresolved fixtures still carrying source tagging, the
+permanent `CAPTURE_PARTIAL` cap (and unchanged `PARSER_VERSION`) pending
+one real end-to-end success, decorative/icon-only, non-`javascript:;`,
+and outside-the-confirmed-container links being excluded from discovery,
+and a safety test confirming `.click()` is only ever called on a
+discovered competition-menu link and that returning to the inventory page
+never clicks a guessed control.
 
 `tests/settled_bets_parser.test.js` runs `settled_bets_parser.js` against
 a synthetic jsdom harness modeling the Round 1 confirmed structure: a
