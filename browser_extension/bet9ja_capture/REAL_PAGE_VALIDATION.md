@@ -158,3 +158,98 @@ per-row. Live/Zoom/virtual marking remains the one clearly open gap for a
 future selector-tuning PR (needs a real sample of each state). Once the
 local JSON capture confirms the above, this PR is ready to merge and
 ticket capture can begin.
+
+## Round 3 — 2026-09-11 (real downloaded captures, two pages)
+
+Two real downloaded envelopes supplied: one from the Highlights page
+(`/sport/soccer/1`, 30 real rows) and one from a Basketball competition
+page (`/competition/basketball/international/abaligapreseason/...`, 3
+real rows).
+
+**Highlights-page capture: a genuine success, with two real defects
+found and fixed in this round.**
+
+What passed (confirmed directly from the downloaded JSON): `CAPTURE_FAILED`
+gone; `30 = 18 parsed + 12 unresolved` reconciled; 18 Soccer fixtures
+normalized with unique ids and complete H/D/A prices; ordinary 1X2
+correctly separated from the real "1X2 1UP" and "1X2 2UP" markets (36
+`UNSUPPORTED_MARKET_FAMILY` records = 18 fixtures × 2 excluded markets
+each, exactly as expected); all `PRE_MATCH`; no account/balance/betslip
+data; `visible_page_only: true`.
+
+Two defects found and **fixed in this round**:
+
+1. **Date grouping failed** — every fixture had `date_heading_raw: null`
+   despite `sections_seen: 2`. Root cause: `.sports-head__date` is the
+   nearest preceding SIBLING of a `.sports-table`, not a child nested
+   inside one (the round-2 assumption). Fixed via
+   `findPrecedingDateHeading()`; the previous interleaved-child check is
+   kept as a harmless second signal.
+2. **12 false rows treated as fixture candidates** — real structural/
+   spacer/header `.table-f` elements with no matchup cell and empty time/
+   markets, appearing as noisy `MISSING_PARTICIPANTS` records. Fixed by
+   requiring a real `.sports-table__matchup` element before a `.table-f`
+   is even counted as a candidate row — a row whose matchup cell exists
+   but is missing a home/away name specifically still correctly falls
+   through to `MISSING_PARTICIPANTS`.
+
+**Basketball competition-page capture: kept as the real unsupported-sport
+validation sample.** What passed: `CAPTURE_FAILED` gone; one section,
+three rows found; teams/kickoff/three market families extracted
+correctly; all three correctly routed to `unparsed_records` as
+unsupported; no account/balance/betslip data; sanitized source URL.
+
+One defect found and **fixed in this round**: `sport_hint: ""` /
+`sport="UNKNOWN"` despite the URL explicitly containing
+`/competition/basketball/...`. `parseBet9jaCompetitionUrl()`'s pattern was
+hardcoded to the literal sport `soccer`; generalized to capture any sport
+slug, confirmed against this real basketball URL
+(`sportSlug: "BASKETBALL"`). Regression-tested directly.
+
+**On the `records_seen = records_parsed + records_unresolved` claim for
+the basketball capture** (reported as `3 ≠ 0 + 0`, "`records_unresolved`
+should be 3"): this is **not a defect — it is the documented, intentional
+definition of `records_unresolved`**, unchanged since PR #22 and
+re-stated explicitly in this PR: `records_unresolved` counts only records
+whose reason is a genuine parsing problem (`expected_unsupported: false`
+— e.g. `MISSING_PARTICIPANTS`, `INCOMPLETE_1X2_MARKET`); a record that is
+correctly identified but simply out of scope for this release
+(`expected_unsupported: true` — `UNSUPPORTED_SPORT`, `UNSUPPORTED_MARKET_FAMILY`,
+live/virtual/Zoom exclusion) is "working as intended," not unresolved. All
+three basketball rows are `UNSUPPORTED_SPORT` with `expected_unsupported: true`,
+so `records_unresolved: 0` is correct under that definition — see
+`README.md`'s "`unparsed_records[]` typed reasons" table, and
+`tests/parser.test.js`'s own reconciliation test, which states this exact
+caveat. Changing `records_unresolved` to count every unparsed record
+regardless of `expected_unsupported` would be a real, cross-cutting schema
+change affecting every existing consumer and test of this envelope — out
+of scope for a narrow selector-tuning correction. Flagged here rather than
+silently applied or silently ignored; happy to make that change in a
+dedicated PR if wanted, once weighed against what it would break.
+
+`date_heading_raw` was also `null` for all three basketball rows —
+consistent with defect 1 above (now fixed) rather than a separate issue.
+
+### Pass-criteria checklist update
+
+| Criterion | Status after round 3 | Notes |
+|---|---|---|
+| Date grouping (`date_heading_raw` populated) | ✅ Fixed and regression-tested | Sibling-based lookup, proven against a 2-`.sports-table` fixture matching the real page's structure. |
+| False structural rows excluded | ✅ Fixed and regression-tested | Matchup-cell gate; a genuinely missing home/away on a real matchup cell still audits correctly. |
+| Sport identification on non-Soccer competition pages | ✅ Fixed and regression-tested | Generic sport-slug URL pattern; basketball confirmed. |
+| Every visible Soccer 1X2 fixture captured once | ✅ Confirmed end-to-end | Real downloaded capture: 30 rows seen, 18 correctly normalized, 12 correctly excluded as structural. |
+| `records_seen = records_parsed + records_unresolved` | ✅ Holds, by design, once `expected_unsupported` is accounted for | Confirmed on both real captures; the basketball capture's apparent mismatch is the documented `expected_unsupported` exclusion, not a bug — see above. |
+| Live/Zoom/virtual events correctly marked | ❌ **Still the one open gap** | No real sample of any of these three states supplied yet. |
+
+### Recommendation
+
+Ticket capture should remain paused until: (1) this correction PR merges,
+and (2) fixture-ID stability is confirmed with a second real capture after
+a genuine odds change on the same fixture(s) (not yet directly supplied —
+round 1's before/after odds-change proof was a synthetic test fixture, not
+two real downloaded captures of the same live fixture). One ordinary
+Soccer **competition** page capture (e.g. England Premier League) — as
+opposed to the mixed Highlights page — would also close the loop on
+`region`/`competition` populating correctly end-to-end from a real
+download, not just from the four DOM-inspection-only competition pages
+checked in round 2.

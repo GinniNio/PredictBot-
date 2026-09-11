@@ -523,6 +523,45 @@ test('BET9JA_DESKTOP: an unrecognized URL and no sport-N id segment leaves sport
   assert.equal(envelope.unparsed_records[0].reason, 'UNSUPPORTED_SPORT');
 });
 
+test('BET9JA_DESKTOP: structural/spacer rows with no matchup cell are excluded entirely, not counted as a record', () => {
+  const { envelope } = capture('bet9ja_desktop_structural_spacer_rows.html');
+  // 3 real .table-f elements on the page; only 1 has a matchup cell.
+  assert.equal(envelope.coverage.records_seen, 1);
+  assert.equal(envelope.fixtures.length, 1);
+  assert.equal(envelope.unparsed_records.length, 0, 'the 2 structural rows must never appear as MISSING_PARTICIPANTS or any other record');
+  assert.equal(envelope.fixtures[0].participants.home, 'Ararat-Armenia');
+});
+
+test('BET9JA_DESKTOP: a matchup cell that exists but is missing an away name is still a MISSING_PARTICIPANTS record (contrast with structural rows)', () => {
+  const { envelope } = capture('bet9ja_desktop_mixed_pass_fail.html');
+  assert.equal(envelope.coverage.records_seen, 2);
+  assert.equal(envelope.unparsed_records.length, 1);
+  assert.equal(envelope.unparsed_records[0].reason, 'MISSING_PARTICIPANTS');
+});
+
+test('BET9JA_DESKTOP: sport slug is resolved generically from any /competition/{sport}/... URL, not hardcoded to soccer', () => {
+  const { envelope } = capture('bet9ja_desktop_basketball_competition_sample.html', {
+    sourceUrl: 'https://sports.bet9ja.com/competition/basketball/international/abaligapreseason/2-43353-9954756',
+  });
+  assert.equal(envelope.fixtures.length, 0, 'basketball is still correctly excluded from fixtures[]');
+  assert.equal(envelope.unparsed_records.length, 1);
+  const record = envelope.unparsed_records[0];
+  assert.equal(record.reason, 'UNSUPPORTED_SPORT');
+  assert.equal(record.raw.sport_hint, 'BASKETBALL', 'sport must be identified, not left as an empty/UNKNOWN hint');
+  assert.match(record.detail, /sport="BASKETBALL"/);
+  assert.equal(record.expected_unsupported, true);
+});
+
+test('BET9JA_DESKTOP: parseBet9jaCompetitionUrl resolves sport/country/competition generically for any sport', () => {
+  // Basketball is excluded before ever reaching fixtures[] (see the test
+  // above), so this is verified directly against the exported URL parser
+  // -- the same function captureFromDocument's fallback path calls.
+  const parsed = parser.parseBet9jaCompetitionUrl(
+    'https://sports.bet9ja.com/competition/basketball/international/abaligapreseason/2-43353-9954756'
+  );
+  assert.deepEqual(parsed, { sportSlug: 'BASKETBALL', countrySlug: 'international', competitionSlug: 'abaligapreseason' });
+});
+
 test('BET9JA_DESKTOP: for every records_seen, records_parsed + records_unresolved accounts for all of them', () => {
   // NOTE: this equality is NOT a universal invariant of the envelope --
   // records_unresolved deliberately excludes "expected unsupported" rows
@@ -536,6 +575,7 @@ test('BET9JA_DESKTOP: for every records_seen, records_parsed + records_unresolve
     'bet9ja_desktop_mixed_pass_fail.html',
     'bet9ja_desktop_nav_and_betslip_decoys.html',
     'bet9ja_desktop_date_headings_and_1up.html',
+    'bet9ja_desktop_structural_spacer_rows.html',
   ]) {
     const { envelope } = capture(fixtureName);
     assert.equal(
