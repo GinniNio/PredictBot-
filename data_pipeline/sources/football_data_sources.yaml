@@ -58,15 +58,18 @@
 # real file (the scheme has been stable historically, but "historically
 # stable" is not the same as "confirmed live"). Rather than silently
 # stopping the season list at 2324 with no explanation, both seasons are
-# listed explicitly below as `unconfirmed_seasons` per league — this
-# manifest attempts to download them like any other season, but any
-# feasibility-report row for one of these must never claim a URL was
-# "confirmed" it wasn't (see download_status: SOURCE_NOT_LISTED in
-# data_pipeline/report.py, assigned only when a season is NOT part of the
-# confirmed [first_season, latest_completed_season] range). Once a
-# live-download-capable environment actually confirms these seasons'
-# files resolve and validate, promote them into
-# `latest_completed_season` and drop them from `unconfirmed_seasons`.
+# listed explicitly below as `unconfirmed_seasons` per league — download.py
+# attempts them through the IDENTICAL download/retry/circuit-breaker logic
+# as every season in the confirmed [first_season, latest_completed_season]
+# range (see download.py's `run()`); the only difference is that this
+# manifest has not yet had a live-download-capable environment confirm
+# these two seasons resolve to a real file. If an attempt against one of
+# these genuinely comes back a 404 (the source confirms no file exists
+# there), report.py records that as `source_label: SOURCE_NOT_LISTED` — "we
+# tried, and confirmed there is no file there," never "we didn't try." Once
+# a live-download-capable environment actually confirms a season's file
+# resolves and validates (LIVE_SOURCE_VALIDATED), promote it into
+# `latest_completed_season` and drop it from `unconfirmed_seasons`.
 
 categories:
   - league_code: "E0"

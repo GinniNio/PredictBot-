@@ -27,6 +27,7 @@ from data_pipeline.download import (
     ERROR_CONNECTION,
     ERROR_HTTP,
     ERROR_NOT_ATTEMPTED_HOST_BLOCKED,
+    ERROR_NOT_FOUND,
     ERROR_TIMEOUT,
     download_one,
     load_manifest,
@@ -68,16 +69,29 @@ class ManifestLoadingTests(unittest.TestCase):
 class DownloadOneRetryAndTypedFailureTests(unittest.TestCase):
     def test_http_error_is_typed_and_not_retried_into_success(self):
         sleeps = []
-        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError("u", 404, "Not Found", {}, None)):
+        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError("u", 500, "Internal Server Error", {}, None)):
             outcome = download_one(
                 "E0", "Premier League", "9091", "https://example.invalid/9091/E0.csv",
                 Path("/tmp/does-not-matter"), max_attempts=3, sleep_fn=lambda s: sleeps.append(s),
             )
         self.assertFalse(outcome.success)
         self.assertEqual(outcome.error_type, ERROR_HTTP)
-        self.assertIn("404", outcome.error_detail)
+        self.assertIn("500", outcome.error_detail)
         self.assertEqual(outcome.attempts_made, 3)
         self.assertEqual(len(sleeps), 2)  # backoff happens between attempts 1-2 and 2-3, not after the last
+
+    def test_404_is_typed_distinctly_as_not_found_never_generic_http_error(self):
+        # A confirmed-absent file (this task's genuinely-absent case) must
+        # never be conflated with a generic HTTP-level rejection.
+        with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError("u", 404, "Not Found", {}, None)):
+            outcome = download_one(
+                "E0", "Premier League", "2425", "https://example.invalid/2425/E0.csv",
+                Path("/tmp/does-not-matter"), max_attempts=3, sleep_fn=lambda s: None,
+            )
+        self.assertFalse(outcome.success)
+        self.assertEqual(outcome.error_type, ERROR_NOT_FOUND)
+        self.assertNotEqual(outcome.error_type, ERROR_HTTP)
+        self.assertIn("404", outcome.error_detail)
 
     def test_timeout_is_typed_distinctly_from_http_error(self):
         with patch("urllib.request.urlopen", side_effect=socket.timeout("timed out")):
@@ -208,6 +222,100 @@ class CircuitBreakerTests(unittest.TestCase):
 
             self.assertEqual(result["circuit_breaker"]["tripped_hosts"], ["blocked.invalid"])
             self.assertEqual(len(result["circuit_breaker"]["events"]), 1)
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
+class UnconfirmedSeasonsAreAttemptedTests(unittest.TestCase):
+    """Proves `run()` attempts a manifest row's `unconfirmed_seasons`
+    through the identical download/retry logic as the confirmed
+    [first_season, latest_completed_season] range — never silently
+    skipped/left unattempted — and that a genuinely-absent (404) season is
+    reported distinctly from a network-level circuit-breaker skip."""
+
+    def _write_manifest(self, path: Path) -> None:
+        path.write_text(
+            "\n".join(
+                [
+                    "categories:",
+                    '  - league_code: "E0"',
+                    '    league_name: "Premier League"',
+                    '    url_pattern: "https://example.invalid/{season_code}/E0.csv"',
+                    '    file_type: "CSV"',
+                    '    first_season: "2223"',
+                    '    latest_completed_season: "2324"',
+                    '    unconfirmed_seasons: ["2425", "2526"]',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def test_unconfirmed_seasons_are_actually_requested_over_the_network(self):
+        import shutil
+        import tempfile
+
+        work_dir = Path(tempfile.mkdtemp(dir=str(REPO_ROOT)))
+        try:
+            manifest_path = work_dir / "manifest.yaml"
+            self._write_manifest(manifest_path)
+            requested_urls = []
+
+            def fake_urlopen(request, *args, **kwargs):
+                requested_urls.append(request.full_url)
+                raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                result = run(
+                    manifest_path=manifest_path,
+                    raw_dir=work_dir / "raw",
+                    retrieval_log_path=work_dir / "retrieval_log.json",
+                    sleep_fn=lambda s: None,
+                )
+
+            # 2 confirmed-range seasons (2223, 2324) + 2 unconfirmed
+            # (2425, 2526) = 4 total, ALL actually requested — never
+            # skipped up front just because they're "unconfirmed".
+            self.assertEqual(result["summary"]["total_manifest_entries"], 4)
+            self.assertEqual(result["summary"]["network_attempts_made"], 4)
+            requested_season_codes = {u.split("/")[-2] for u in requested_urls}
+            self.assertEqual(requested_season_codes, {"2223", "2324", "2425", "2526"})
+
+            for outcome in result["failed_attempts"]:
+                self.assertEqual(outcome["error_type"], ERROR_NOT_FOUND)
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    def test_confirmed_absent_404_is_distinct_from_circuit_broken_skip(self):
+        import shutil
+        import tempfile
+
+        work_dir = Path(tempfile.mkdtemp(dir=str(REPO_ROOT)))
+        try:
+            manifest_path = work_dir / "manifest.yaml"
+            self._write_manifest(manifest_path)
+
+            def fake_urlopen(request, *args, **kwargs):
+                # Every attempt in this manifest 404s (never a connection
+                # error), so the circuit breaker must never trip here —
+                # HTTP_NOT_FOUND is a real HTTP response, not a
+                # connection-level failure.
+                raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                result = run(
+                    manifest_path=manifest_path,
+                    raw_dir=work_dir / "raw",
+                    retrieval_log_path=work_dir / "retrieval_log.json",
+                    sleep_fn=lambda s: None,
+                )
+
+            self.assertEqual(result["summary"]["skipped_host_blocked"], 0)
+            self.assertEqual(result["circuit_breaker"]["tripped_hosts"], [])
+            not_found = [f for f in result["failed_attempts"] if f["error_type"] == ERROR_NOT_FOUND]
+            host_blocked = [f for f in result["failed_attempts"] if f["error_type"] == ERROR_NOT_ATTEMPTED_HOST_BLOCKED]
+            self.assertEqual(len(not_found), 4)
+            self.assertEqual(len(host_blocked), 0)
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 

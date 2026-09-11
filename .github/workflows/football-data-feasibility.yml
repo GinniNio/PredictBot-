@@ -77,7 +77,11 @@ jobs:
         run: |
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
+          import sys
           from pathlib import Path
+
+          sys.path.insert(0, ".")
+          from data_pipeline.report import format_aggregates_markdown, format_compact_summary_markdown
 
           report = json.loads(Path("data_pipeline/reports/feasibility_report.json").read_text(encoding="utf-8"))
           attempts_summary = report.get("source_attempts_summary", {})
@@ -94,6 +98,29 @@ jobs:
               print(f"| {label} | {label_counts.get(label, 0)} |")
           print("")
           print(f"> {report.get('note', '')}")
+
+          # PRIMARY reviewable evidence: this pipeline's compact
+          # per-league-season summary + aggregates, rendered here so a
+          # reviewer never needs to download the uploaded artifact (the
+          # full JSON/Markdown reports remain in the artifact as the
+          # secondary, detailed record).
+          print("")
+          print("### Per-league-season detail (no artifact download needed)")
+          print("")
+          compact_summary = report.get("compact_summary", [])
+          if not compact_summary:
+              print(
+                  "_No league-season file was actually downloaded in this run — see the "
+                  "source-attempt table above for the full attempt record._"
+              )
+          else:
+              for line in format_compact_summary_markdown(compact_summary):
+                  print(line)
+          print("")
+          print("### Aggregate totals")
+          print("")
+          for line in format_aggregates_markdown(report.get("aggregates", {"by_league": {}, "by_season": {}})):
+              print(line)
           PY
 
       - uses: actions/upload-artifact@v4
