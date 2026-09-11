@@ -1,0 +1,16 @@
+{
+  "ticket_type": "SINGLE",
+  "unit_stake": "10.00",
+  "max_return": "13.50",
+  "currency": "NGN",
+  "external_ticket_ref": "bet9ja-slip-EXAMPLE-0001",
+  "legs": [
+    {
+      "forecast_id": "fc_265da692c1fc7ac0",
+      "fixture_id": "E0-2024-08-17-arsenal-vs-wolves",
+      "market_type": "1X2",
+      "selection": "H",
+      "placed_odds": "1.35"
+    }
+  ]
+}

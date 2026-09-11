@@ -18,3 +18,24 @@ data_pipeline/raw/
 # Only the small evidence/report files it writes to data_pipeline/reports/
 # (row counts, hashes, the sanitized rejected-row sample) are committed.
 data_pipeline/dataset/
+
+# ledgers/: real forecast/betting ledger DATA (created by `python -m
+# ledgers.cli init`) never belongs in git -- it is personal betting/
+# financial history, not a repository artifact. The repository ships only
+# schemas, examples, and tooling (ledgers/*.py, ledgers/schemas/,
+# ledgers/examples/). The CLI's own default directory:
+ledger_data/
+# Any real ledger file, wherever an operator points --dir (the default
+# above is the common case, but this rule holds regardless of directory
+# name/location) -- a repository-committed example lives only under
+# ledgers/examples/*.json (never *.jsonl), so this blanket rule never
+# hides anything meant to be tracked.
+*.jsonl
+# Regenerated CSV views (ledgers.cli export-csv, default output
+# location) -- always a derived export of the JSONL ledgers above, never
+# hand-edited, never the source of truth, and never itself a repository
+# artifact (already covered by the ledger_data/ rule above; named
+# explicitly here for clarity). A blanket *.csv rule is deliberately NOT
+# used -- this repository already commits real CSV fixtures under
+# tests/fixtures/football_data/, which must stay tracked.
+ledger_data/csv/
