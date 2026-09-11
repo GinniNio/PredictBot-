@@ -174,7 +174,8 @@ class LeakageAndContractFieldTests(unittest.TestCase):
     def _records_for(self, league, season, include_kickoff_time=True):
         csv_path = raw_file_path(self.raw_dir, league, season)
         validation_result = validate_file(csv_path)
-        return build_file_records(csv_path, league, season, validation_result, include_kickoff_time)
+        records, _pending_count = build_file_records(csv_path, league, season, validation_result, include_kickoff_time)
+        return records
 
     def test_closing_observation_never_carries_opening_columns_and_vice_versa(self):
         records = self._records_for("E0", "1213")
@@ -254,13 +255,30 @@ class LeakageAndContractFieldTests(unittest.TestCase):
 
 class ProspectiveNullableResultTests(unittest.TestCase):
     """Regression coverage for a real defect found during independent
-    review: build_file_records originally filtered strictly to
+    review, and a second, narrower one found on a follow-up review of the
+    first fix: build_file_records originally filtered strictly to
     validate_file's generic usable_index_set, which flags ANY blank-FTR
     row as MISSING_RESULT and drops it — silently excluding exactly the
     not-yet-played fixtures split_prospective_paper_scoring's own contract
     row (required_fields: ...,result_nullable_until_settlement) exists to
-    admit. season_2526_prospective.csv has 3 rows: one played (complete
-    FTR) and two not yet played (blank FTHG/FTAG/FTR)."""
+    admit. The first fix's rescue rule ("include when MISSING_RESULT is
+    the row's SOLE issue") was still too narrow: a genuinely upcoming
+    fixture also has no closing line yet (Football-Data's generic per-row
+    check flags that as MISSING_OR_INVALID_ODDS too, alongside
+    MISSING_RESULT), and closing prices are benchmark-only per the
+    contract — their absence must never exclude an otherwise-valid
+    prospective row. The real fix (this class) is split-specific
+    eligibility (`resolve_split_row_requirements`/
+    `_row_eligible_for_split`) rather than a special-cased exception
+    layered onto the generic historical validator.
+
+    season_2526_prospective.csv has 3 rows: one played (complete FTR,
+    complete opening AND closing prices) and two not yet played (blank
+    FTHG/FTAG/FTR; complete opening prices; a closing PS* column set IS
+    present in this fixture's header, so a genuinely upcoming fixture
+    with no closing line yet is instead covered by
+    `season_2526_no_closing_yet.csv`, which omits closing columns
+    entirely)."""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -282,34 +300,138 @@ class ProspectiveNullableResultTests(unittest.TestCase):
         for record in pending:
             self.assertIsNone(record["result"])
         self.assertIsNotNone(settled[0]["result"])
-        # Evidence totals must reconcile: len(records) == usable_rows +
-        # pending_settlement_rows_included (never a silent mismatch).
+        # This task's item 6: source_rows == usable_settled_rows +
+        # pending_settlement_rows_included + rejected_unique_rows, always.
         totals = split_result["totals"]
-        self.assertEqual(len(split_result["records"]), totals["usable_rows"] + totals["pending_settlement_rows_included"])
+        self.assertEqual(totals["source_rows"], 3)
+        self.assertEqual(totals["usable_settled_rows"], 1)
         self.assertEqual(totals["pending_settlement_rows_included"], 2)
+        self.assertEqual(totals["rejected_unique_rows"], 0)
+        self.assertEqual(
+            totals["source_rows"],
+            totals["usable_settled_rows"] + totals["pending_settlement_rows_included"] + totals["rejected_unique_rows"],
+        )
 
-    def test_other_splits_never_include_a_pending_settlement_row(self):
+    def test_pending_result_with_missing_closing_odds_but_complete_opening_is_included(self):
+        # Test 1 of the operator's 6-item follow-up list: a genuinely
+        # upcoming fixture with no closing line yet, but complete opening
+        # prices, kickoff time, and valid teams, must be included in
+        # PROSPECTIVE — closing odds are benchmark-only, so their absence
+        # is never a prospective-eligibility blocker.
+        rows = load_contract_rows()
+        raw_dir = self.raw_dir
+        dest = raw_file_path(raw_dir, "E0", "2526")
+        shutil.copy(FIXTURES / "season_2526_no_closing_yet.csv", dest)
+        split_result = build_split("split_prospective_paper_scoring", raw_dir=raw_dir, contract_rows=rows)
+        self.assertEqual(len(split_result["records"]), 2)
+        for record in split_result["records"]:
+            self.assertTrue(record["result_pending_settlement"])
+            self.assertIsNone(record["result"])
+            # Complete opening prices present; no closing observation at
+            # all (the fixture has no PSC columns for these rows).
+            self.assertTrue(any(o["price_stage"] == PRICE_STAGE_OPENING for o in record["price_observations"]))
+            self.assertFalse(any(o["price_stage"] == PRICE_STAGE_CLOSING for o in record["price_observations"]))
+        totals = split_result["totals"]
+        self.assertEqual(totals["source_rows"], 2)
+        self.assertEqual(totals["pending_settlement_rows_included"], 2)
+        self.assertEqual(totals["rejected_unique_rows"], 0)
+
+    def test_pending_result_with_invalid_opening_odds_is_rejected(self):
+        # Test 2: a pending fixture with NO usable opening price at all
+        # must still be rejected from PROSPECTIVE (opening_1x2_prices_
+        # complete is mandatory there) even though its result is
+        # legitimately nullable.
+        rows = load_contract_rows()
+        raw_dir = self.raw_dir
+        dest = raw_file_path(raw_dir, "E0", "2526")
+        shutil.copy(FIXTURES / "season_2526_invalid_opening_odds.csv", dest)
+        split_result = build_split("split_prospective_paper_scoring", raw_dir=raw_dir, contract_rows=rows)
+        self.assertEqual(len(split_result["records"]), 0)
+        totals = split_result["totals"]
+        self.assertEqual(totals["source_rows"], 1)
+        self.assertEqual(totals["pending_settlement_rows_included"], 0)
+        self.assertEqual(totals["rejected_unique_rows"], 1)
+
+    def test_pending_result_with_missing_team_or_kickoff_is_rejected(self):
+        # Test 3: a pending fixture missing team identity, or missing
+        # kickoff time, is rejected regardless of its result being
+        # nullable — those are always-fatal / always-required
+        # independently of the result-nullable exception.
+        rows = load_contract_rows()
+        raw_dir = self.raw_dir
+        dest = raw_file_path(raw_dir, "E0", "2526")
+        shutil.copy(FIXTURES / "season_2526_missing_team_and_kickoff.csv", dest)
+        split_result = build_split("split_prospective_paper_scoring", raw_dir=raw_dir, contract_rows=rows)
+        self.assertEqual(len(split_result["records"]), 0)
+        totals = split_result["totals"]
+        self.assertEqual(totals["source_rows"], 2)
+        self.assertEqual(totals["rejected_unique_rows"], 2)
+
+    def test_missing_result_rescue_applies_only_to_prospective_split(self):
+        # Test 4: the same file, run through every OTHER split, must
+        # never rescue a blank-result row — result_nullable_until_
+        # settlement is only ever set for split_prospective_paper_scoring.
         rows = load_contract_rows()
         for split_id in ("split_model_dev_and_completed_eval", "split_closing_line_benchmark", "split_earlier_research_backtesting"):
             split_result = build_split(split_id, raw_dir=self.raw_dir, contract_rows=rows)
             self.assertEqual(split_result["totals"]["pending_settlement_rows_included"], 0, split_id)
             self.assertFalse(any(r["result_pending_settlement"] for r in split_result["records"]), split_id)
 
-    def test_a_row_with_missing_result_and_another_issue_is_still_excluded(self):
-        # A row missing BOTH team identity AND result must not be smuggled
-        # in just because one of its several problems is a blank result —
-        # allow_null_result only rescues a row whose SOLE issue is
-        # MISSING_RESULT.
-        csv_path = FIXTURES / "season_2526_prospective.csv"
-        validation_result = validate_file(csv_path)
-        records_without_rescue = build_file_records(
-            csv_path, "E0", "2526", validation_result, include_kickoff_time=True, allow_null_result=False
-        )
-        records_with_rescue = build_file_records(
-            csv_path, "E0", "2526", validation_result, include_kickoff_time=True, allow_null_result=True
-        )
-        self.assertEqual(len(records_without_rescue), 1)
-        self.assertEqual(len(records_with_rescue), 3)
+    def test_closing_odds_arriving_later_enriches_without_changing_fixture_identity(self):
+        # Test 5: the SAME fixture (same date/teams/season), built once
+        # before its closing line exists and once after, has an identical
+        # identity (league_code/season_code/date_raw/home_team/away_team)
+        # in both builds — only price_observations differ (closing
+        # observations appear once the line is available). This pipeline
+        # rebuilds from scratch each run (no incremental state), so this
+        # "stable identity" property holds structurally as long as
+        # identity fields are never derived from odds data — this test
+        # guards that property directly rather than assuming it.
+        rows = load_contract_rows()
+        before_dir = Path(self._tmpdir.name) / "raw_before"
+        after_dir = Path(self._tmpdir.name) / "raw_after"
+        before_dest = raw_file_path(before_dir, "E0", "2526")
+        after_dest = raw_file_path(after_dir, "E0", "2526")
+        before_dest.parent.mkdir(parents=True, exist_ok=True)
+        after_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(FIXTURES / "season_2526_before_closing_line.csv", before_dest)
+        shutil.copy(FIXTURES / "season_2526_after_closing_line.csv", after_dest)
+
+        before = build_split("split_prospective_paper_scoring", raw_dir=before_dir, contract_rows=rows)
+        after = build_split("split_prospective_paper_scoring", raw_dir=after_dir, contract_rows=rows)
+
+        def identity(record):
+            return (record["league_code"], record["season_code"], record["date_raw"], record["home_team"], record["away_team"])
+
+        before_by_identity = {identity(r): r for r in before["records"]}
+        after_by_identity = {identity(r): r for r in after["records"]}
+        # Every identity present before is still present after (the same
+        # fixture, never re-keyed by its odds).
+        self.assertTrue(set(before_by_identity) <= set(after_by_identity))
+        shared_identity = next(iter(before_by_identity))
+        before_record = before_by_identity[shared_identity]
+        after_record = after_by_identity[shared_identity]
+        self.assertFalse(any(o["price_stage"] == PRICE_STAGE_CLOSING for o in before_record["price_observations"]))
+        self.assertTrue(any(o["price_stage"] == PRICE_STAGE_CLOSING for o in after_record["price_observations"]))
+        # Everything except price_observations is unchanged.
+        for key in ("league_code", "season_code", "date_raw", "home_team", "away_team", "result", "result_pending_settlement"):
+            self.assertEqual(before_record[key], after_record[key], key)
+
+    def test_a_row_with_missing_result_and_another_fatal_issue_is_still_excluded(self):
+        # A row missing BOTH team identity AND result must not be
+        # smuggled in just because one of its several problems happens to
+        # be a blank result — MISSING_TEAM_IDENTITY is always-fatal,
+        # independent of any split's requirements.
+        rows = load_contract_rows()
+        raw_dir = self.raw_dir
+        dest = raw_file_path(raw_dir, "E0", "2526")
+        shutil.copy(FIXTURES / "season_2526_prospective.csv", dest)
+        split_result = build_split("split_prospective_paper_scoring", raw_dir=raw_dir, contract_rows=rows)
+        self.assertEqual(len(split_result["records"]), 3)  # sanity: the clean fixture's baseline
+
+        shutil.copy(FIXTURES / "season_2526_missing_team_and_kickoff.csv", dest)
+        split_result_broken = build_split("split_prospective_paper_scoring", raw_dir=raw_dir, contract_rows=rows)
+        self.assertEqual(len(split_result_broken["records"]), 0)
 
 
 class RejectedVsOccurrencesRegressionTests(unittest.TestCase):
@@ -332,16 +454,27 @@ class RejectedVsOccurrencesRegressionTests(unittest.TestCase):
         self.assertEqual(occurrences, 3)
 
     def test_build_split_totals_keep_the_same_distinction(self):
+        # triple_rejection_row_with_closing.csv's row 0 has complete
+        # opening AND closing prices plus a result — eligible for
+        # split_earlier_research_backtesting under its own split-specific
+        # requirements; row 1 is fatally broken (missing team identity)
+        # regardless of split.
         with tempfile.TemporaryDirectory() as tmp:
             raw_dir = Path(tmp) / "raw"
             dest = raw_file_path(raw_dir, "E0", "1213")
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(FIXTURES / "triple_rejection_row.csv", dest)
+            shutil.copy(FIXTURES / "triple_rejection_row_with_closing.csv", dest)
 
             rows = load_contract_rows()
             split_result = build_split("split_earlier_research_backtesting", raw_dir=raw_dir, contract_rows=rows)
             totals = split_result["totals"]
-            self.assertEqual(totals["rejected_unique_rows"], totals["source_rows"] - totals["usable_rows"])
+            self.assertEqual(totals["source_rows"], 2)
+            self.assertEqual(totals["usable_settled_rows"], 1)
+            self.assertEqual(totals["rejected_unique_rows"], 1)
+            self.assertEqual(
+                totals["source_rows"],
+                totals["usable_settled_rows"] + totals["pending_settlement_rows_included"] + totals["rejected_unique_rows"],
+            )
             self.assertLess(totals["rejected_unique_rows"], totals["validation_issue_occurrences"])
 
 

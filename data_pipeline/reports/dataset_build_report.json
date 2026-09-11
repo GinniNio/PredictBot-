@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-09-11T02:33:37+00:00",
+  "generated_at_utc": "2026-09-11T03:12:38+00:00",
   "contract_version": "1.0.0",
   "contract_status": "DRAFT_FOR_OPERATOR_REVIEW",
   "splits": {
@@ -16,10 +16,10 @@
       "include_excluded_seasons": false,
       "totals": {
         "source_rows": 0,
-        "usable_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
         "rejected_unique_rows": 0,
-        "validation_issue_occurrences": 0,
-        "pending_settlement_rows_included": 0
+        "validation_issue_occurrences": 0
       },
       "files": [
         {
@@ -192,10 +192,10 @@
       "include_excluded_seasons": false,
       "totals": {
         "source_rows": 0,
-        "usable_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
         "rejected_unique_rows": 0,
-        "validation_issue_occurrences": 0,
-        "pending_settlement_rows_included": 0
+        "validation_issue_occurrences": 0
       },
       "files": [
         {
@@ -363,10 +363,10 @@
       "include_excluded_seasons": false,
       "totals": {
         "source_rows": 0,
-        "usable_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
         "rejected_unique_rows": 0,
-        "validation_issue_occurrences": 0,
-        "pending_settlement_rows_included": 0
+        "validation_issue_occurrences": 0
       },
       "files": [
         {
@@ -414,10 +414,10 @@
       "include_excluded_seasons": false,
       "totals": {
         "source_rows": 0,
-        "usable_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
         "rejected_unique_rows": 0,
-        "validation_issue_occurrences": 0,
-        "pending_settlement_rows_included": 0
+        "validation_issue_occurrences": 0
       },
       "files": [
         {

@@ -26,39 +26,53 @@ workflow); this module is exercised in this repository's own test suite
 exclusively against `tests/fixtures/football_data/` fixtures copied into a
 temporary raw-directory layout, never real Football-Data content.
 
-Four labels, EXPLICITLY DISTINCT (this task's core reporting requirement
-— never conflate them):
+Four labels per split, EXPLICITLY DISTINCT (this task's core reporting
+requirement — never conflate them), with the first three always
+reconciling exactly: `source_rows == usable_settled_rows +
+pending_settlement_rows_included + rejected_unique_rows`:
 
 - `source_rows`               — total rows read from a file (before any
-                                  validation judgment).
-- `usable_rows`                — rows `validation.validate_file` found no
-                                  issue with at all. These are always
-                                  written into a split's dataset file;
-                                  `split_prospective_paper_scoring` ALSO
-                                  writes a row whose sole issue is a blank
-                                  (not-yet-settled) result, with
-                                  `result: None` — see
-                                  `pending_settlement_rows_included` below
-                                  and `build_file_records`'s own
-                                  docstring.
-- `rejected_unique_rows`       — `source_rows - usable_rows`: ONE count
-                                  per row, even if that row tripped several
-                                  typed rejection reasons at once.
+                                  eligibility judgment).
+- `usable_settled_rows`        — rows THIS SPLIT'S OWN requirements
+                                  (`resolve_split_row_requirements`,
+                                  `_row_eligible_for_split`) admit with a
+                                  real, non-null result. Split-specific,
+                                  never `validate_file`'s generic,
+                                  split-unaware `usable_fixtures` — a row
+                                  missing a field this split never
+                                  required (e.g. an incomplete closing
+                                  line for a split that only needs
+                                  opening prices) is usable HERE even
+                                  though Football-Data's generic per-row
+                                  check would flag it.
+- `pending_settlement_rows_included` — rows admitted with `result: None`
+                                  because this split's contract declares
+                                  `result_nullable_until_settlement`
+                                  (`split_prospective_paper_scoring`
+                                  only; always `0` for every other
+                                  split — see
+                                  `ProspectiveNullableResultTests` and
+                                  `SplitSpecificEligibilityTests`).
+- `rejected_unique_rows`       — `source_rows - (usable_settled_rows +
+                                  pending_settlement_rows_included)`:
+                                  rows THIS split's own requirements
+                                  reject (an always-fatal integrity issue,
+                                  or a genuinely missing required field
+                                  for THIS split specifically) — ONE count
+                                  per row, split-specific, never the
+                                  generic file-level rejection count.
 - `validation_issue_occurrences` — the sum of every typed rejection
-                                  reason's occurrence count
+                                  reason's occurrence count from the
+                                  file's GENERIC `validate_file` pass
                                   (`FileValidationResult.rejection_reason_counts`)
-                                  — CAN exceed `rejected_unique_rows` when a
-                                  row trips multiple reasons, or a file has
+                                  — kept as background diagnostic
+                                  evidence, deliberately NOT part of the
+                                  three-way reconciliation above (it can
+                                  exceed even `source_rows` when a row
+                                  trips several reasons or a file has
                                   multiple odds-column sets each
-                                  independently flagged. This distinction
-                                  already exists correctly in
-                                  `validation.py` (`rejected_fixtures` vs.
-                                  `rejection_reason_counts`) — this module
-                                  only surfaces it explicitly, never
-                                  reimplements or blurs it. See
-                                  `tests/test_dataset_builder.py`'s
-                                  `RejectedVsOccurrencesRegressionTests`
-                                  for the regression test guarding this.
+                                  independently flagged, and it is not
+                                  split-aware).
 
 Season-exclusion fail-closed gate: every season strictly before season
 `1213` (2012-13, no closing odds at all — see the contract), and season
@@ -109,7 +123,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from data_pipeline.manifest_yaml import load_yaml_categories_file
 from data_pipeline.schema_inspection import column_drift, inspect_header, read_csv_rows_with_encoding
-from data_pipeline.validation import FileValidationResult, RejectionReason, validate_file
+from data_pipeline.validation import FileValidationResult, RejectionReason, _is_numeric_positive, validate_file
 
 CONTRACT_PATH = REPO_ROOT / "docs" / "adapters" / "data" / "soccer_1x2_dataset_contract.yaml"
 DEFAULT_RAW_DIR = REPO_ROOT / "data_pipeline" / "raw"
@@ -154,6 +168,148 @@ def _split_csv_field(value: str | None) -> list[str]:
     if not value:
         return []
     return [part.strip() for part in value.split(",") if part.strip()]
+
+
+# Rejection reasons that exclude a row from EVERY split, unconditionally —
+# genuine data-integrity problems no split's required-fields can ever
+# waive: a duplicate/conflicting fixture, an unidentified team, an
+# unparseable date, an invalid result label, or an impossible scoreline
+# are never "acceptable" just because a split doesn't happen to need the
+# affected field. Deliberately excludes MISSING_RESULT,
+# MISSING_OR_INVALID_ODDS, and INCOMPLETE_THREE_WAY_PRICE — those three
+# ARE split-conditional (see `resolve_split_row_requirements` and
+# `_row_eligible_for_split` below), since whether a blank result or an
+# incomplete/missing odds column set is acceptable depends entirely on
+# what that split's own contract row actually requires.
+_ALWAYS_FATAL_REASONS = frozenset(
+    {
+        RejectionReason.DUPLICATE_FIXTURE,
+        RejectionReason.MISSING_TEAM_IDENTITY,
+        RejectionReason.INVALID_RESULT_LABEL,
+        RejectionReason.IMPOSSIBLE_SCORE,
+        RejectionReason.CONFLICTING_FIXTURE,
+        RejectionReason.UNPARSEABLE_DATE,
+    }
+)
+
+
+def resolve_split_row_requirements(split_row: dict[str, Any]) -> dict[str, bool]:
+    """Derive per-row inclusion requirements from a split's OWN
+    `required_fields` contract string — never a hardcoded per-split_id
+    branch, so a future contract edit (e.g. a new split, or a split's
+    required_fields changing) is picked up automatically without a
+    matching code change. This directly answers the design the operator
+    asked for: split-specific validation requirements instead of
+    progressively bolting exceptions onto the one generic historical
+    validator.
+
+    Recognized `required_fields` tokens (comma-separated, see the
+    contract's own grammar note):
+    - `result`                          -> `require_result`
+    - `result_nullable_until_settlement` -> `allow_null_result` (mutually
+      exclusive in practice with `result` — no current split lists both)
+    - `kickoff_time`                    -> `require_kickoff_time`
+    - `opening_1x2_prices_complete`,
+      `opening_and_closing_1x2_prices`  -> `require_opening_complete`
+    - `closing_1x2_prices_complete_pinnacle`,
+      `opening_and_closing_1x2_prices`  -> `require_closing_complete`
+    Any other token (`date`, `home_team`, `away_team`) is always required
+    by every split's own row-integrity check (`_ALWAYS_FATAL_REASONS`
+    already excludes a row missing team identity or an unparseable date
+    unconditionally) and needs no split-specific flag here."""
+
+    tokens = set(_split_csv_field(split_row.get("required_fields")))
+    return {
+        "require_result": "result" in tokens,
+        "allow_null_result": "result_nullable_until_settlement" in tokens,
+        "require_kickoff_time": "kickoff_time" in tokens,
+        "require_opening_complete": "opening_1x2_prices_complete" in tokens or "opening_and_closing_1x2_prices" in tokens,
+        "require_closing_complete": "closing_1x2_prices_complete_pinnacle" in tokens or "opening_and_closing_1x2_prices" in tokens,
+    }
+
+
+def _finding_fully_priced(row: dict[str, str | None], finding) -> bool:
+    return all(
+        _is_numeric_positive(row.get(col))
+        for col in (finding.home_col, finding.draw_col, finding.away_col)
+    )
+
+
+def _opening_prices_complete(row: dict[str, str | None], odds_findings) -> bool:
+    """True if AT LEAST ONE opening-or-only bookmaker finding has all
+    three outcomes numerically priced for this row. Not every opening
+    bookmaker needs to be complete — a fixture missing one bookmaker's
+    opening line while another's is fully priced still has usable opening
+    prices; see the module docstring's reference-bookmaker-choice note
+    for why OPENING observations are built from every bookmaker found."""
+
+    return any(f.variant != "closing" and _finding_fully_priced(row, f) for f in odds_findings)
+
+
+def _closing_prices_complete(row: dict[str, str | None], odds_findings) -> bool:
+    """True if the Pinnacle closing finding (the only bookmaker CLOSING
+    observations are ever built from — see the module docstring) has all
+    three outcomes numerically priced for this row. A row with an
+    incomplete or altogether missing Pinnacle closing line is
+    `closing_prices_complete=False` even if every opening bookmaker is
+    fully priced — the two completeness checks are independent, per
+    split's own, independent requirement flags."""
+
+    return any(f.variant == "closing" and f.is_pinnacle and _finding_fully_priced(row, f) for f in odds_findings)
+
+
+def _row_eligible_for_split(
+    row: dict[str, str | None],
+    row_issues: list,
+    ftr_col: str | None,
+    time_col: str | None,
+    odds_findings,
+    requirements: dict[str, bool],
+) -> tuple[bool, bool]:
+    """Decide whether one row belongs in a split's dataset, per that
+    split's OWN requirements (`resolve_split_row_requirements`) — never
+    the one-size-fits-all `FileValidationResult.row_results[i].usable`
+    flag, which conflates every split's needs into a single boolean (the
+    real defect this function replaces: a genuinely upcoming prospective
+    fixture with complete opening prices but no closing line yet, or a
+    training-split row with complete opening prices but an incomplete
+    closing line it doesn't even need, must not be excluded just because
+    Football-Data's generic per-row check flags an irrelevant column).
+
+    Returns `(eligible, result_pending_settlement)`. A row failing any
+    `_ALWAYS_FATAL_REASONS` check is never eligible for ANY split,
+    regardless of requirements — those are integrity problems, not
+    field-availability ones."""
+
+    if any(issue.reason in _ALWAYS_FATAL_REASONS for issue in row_issues):
+        return False, False
+
+    result_raw = (row.get(ftr_col) or "").strip() if ftr_col else ""
+    result_blank = not result_raw
+    # A blank result is fatal only when this split actually requires a
+    # result AND has not separately declared results nullable-until-
+    # settlement. A split requiring neither (e.g.
+    # split_closing_line_benchmark's current contract row lists no result
+    # requirement at all) treats a blank result as simply not its
+    # concern — never fatal, never flagged pending-settlement (that flag
+    # is reserved for the split that explicitly declared
+    # result_nullable_until_settlement).
+    if result_blank and requirements["require_result"] and not requirements["allow_null_result"]:
+        return False, False
+
+    if requirements["require_kickoff_time"]:
+        time_raw = (row.get(time_col) or "").strip() if time_col else ""
+        if not time_raw:
+            return False, False
+
+    if requirements["require_opening_complete"] and not _opening_prices_complete(row, odds_findings):
+        return False, False
+
+    if requirements["require_closing_complete"] and not _closing_prices_complete(row, odds_findings):
+        return False, False
+
+    result_pending_settlement = requirements["allow_null_result"] and result_blank
+    return True, result_pending_settlement
 
 
 def load_contract_rows(contract_path: Path = CONTRACT_PATH) -> dict[str, dict[str, Any]]:
@@ -324,22 +480,22 @@ def build_file_records(
     validation_result: FileValidationResult,
     include_kickoff_time: bool,
     source_retrieved_at: str | None = None,
-    allow_null_result: bool = False,
-) -> list[dict[str, Any]]:
-    """Build normalized per-match records for every USABLE row of one
-    file, plus — only when `allow_null_result=True` (the
-    `split_prospective_paper_scoring` split only, per its contract row's
-    `result_nullable_until_settlement` required field) — every row whose
-    ONLY validation issue is `MISSING_RESULT` (a fixture that simply
-    hasn't been played yet has a blank FTR column and nothing else wrong
-    with it). Such a row is included with `result: None` rather than
-    dropped, since dropping it would silently exclude exactly the
-    not-yet-settled fixtures the prospective split exists to score. A row
-    with `MISSING_RESULT` alongside any OTHER issue (bad date, missing
-    team identity, etc.) is still excluded — a genuinely malformed row is
-    never smuggled in just because one of its several problems happens to
-    be a blank result. Every other split leaves `allow_null_result` at its
-    default `False` and behaves exactly as before (usable rows only).
+    requirements: dict[str, bool] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Build normalized per-match records for one file, using SPLIT-
+    SPECIFIC row requirements (`requirements`, from
+    `resolve_split_row_requirements`) rather than
+    `FileValidationResult.row_results[i].usable`'s one-size-fits-all
+    flag — see `_row_eligible_for_split`'s own docstring for the real
+    defect this replaces: a genuinely upcoming prospective fixture with
+    complete opening prices but no closing line yet (or a training-split
+    row with complete opening prices but an incomplete closing line it
+    doesn't even need) must not be excluded just because Football-Data's
+    generic per-row check flags a column this split never required.
+    `requirements=None` defaults to requiring nothing beyond the always-
+    fatal integrity checks (every field optional) — every real call site
+    passes an explicit `requirements` dict from the split's own contract
+    row.
 
     `include_kickoff_time` reflects the split's own contract row (kickoff
     time is only meaningful from season 1920 onward — see
@@ -347,7 +503,21 @@ def build_file_records(
     always `None`, even if the file happens to carry a `Time` column
     (never inferred from the file — from the split's contract instead, so
     a stray `Time` column in an older-season file can never leak a
-    kickoff time this split's contract says is unavailable)."""
+    kickoff time this split's contract says is unavailable).
+
+    Returns `(records, pending_settlement_count)` — the second value is
+    `sum(r["result_pending_settlement"] for r in records)`, returned
+    directly rather than requiring the caller to re-derive it, so
+    `source_rows == len(records) + <rows this function excluded>` and
+    `pending_settlement_count` stay trivially reconcilable from one call."""
+
+    requirements = requirements or {
+        "require_result": False,
+        "allow_null_result": False,
+        "require_kickoff_time": False,
+        "require_opening_complete": False,
+        "require_closing_complete": False,
+    }
 
     all_rows, _encoding = read_csv_rows_with_encoding(csv_path)
     header = all_rows[0] if all_rows else []
@@ -369,21 +539,18 @@ def build_file_records(
     )
     time_col = core.get("kickoff_time")
 
-    records: list[dict[str, Any]] = []
-    usable_index_set = {r.row_index for r in validation_result.row_results if r.usable}
-    null_result_index_set: set[int] = set()
-    if allow_null_result:
-        for r in validation_result.row_results:
-            if r.usable or r.row_index in usable_index_set:
-                continue
-            reasons = {issue.reason for issue in r.issues}
-            if reasons == {RejectionReason.MISSING_RESULT}:
-                null_result_index_set.add(r.row_index)
+    issues_by_index = {r.row_index: r.issues for r in validation_result.row_results}
 
+    records: list[dict[str, Any]] = []
+    pending_settlement_count = 0
     for idx, row in enumerate(rows):
-        if idx not in usable_index_set and idx not in null_result_index_set:
+        row_issues = issues_by_index.get(idx, [])
+        eligible, result_pending = _row_eligible_for_split(row, row_issues, ftr_col, time_col, odds_findings, requirements)
+        if not eligible:
             continue
         result_raw = (row.get(ftr_col) or "").strip() if ftr_col else ""
+        if result_pending:
+            pending_settlement_count += 1
         records.append(
             {
                 "league_code": league_code,
@@ -393,11 +560,11 @@ def build_file_records(
                 "home_team": (row.get(home_col) or "").strip() if home_col else None,
                 "away_team": (row.get(away_col) or "").strip() if away_col else None,
                 "result": result_raw.upper() or None,
-                "result_pending_settlement": idx in null_result_index_set,
+                "result_pending_settlement": result_pending,
                 "price_observations": _price_observations_for_row(row, odds_findings, source_retrieved_at),
             }
         )
-    return records
+    return records, pending_settlement_count
 
 
 def sample_rejected_rows(
@@ -475,14 +642,10 @@ def build_split(
     split_row = contract_rows[split_id]
     season_codes_for_split = resolve_split_season_codes(split_id, contract_rows, include_excluded_seasons)
     include_kickoff_time = split_row.get("kickoff_time_available", True) is not False
-    # Driven by the contract's own `required_fields` string, never a
-    # hardcoded split_id check — a row whose ONLY validation issue is a
-    # blank result is included with result=None for a split whose
-    # contract explicitly says results are nullable-until-settlement (see
-    # build_file_records' own docstring for why: dropping such a row
-    # would silently exclude exactly the not-yet-played fixtures a
-    # prospective split exists to score).
-    allow_null_result = "result_nullable_until_settlement" in (split_row.get("required_fields") or "")
+    # Driven entirely by the contract's own `required_fields` string,
+    # never a hardcoded split_id branch — see
+    # `resolve_split_row_requirements`'s own docstring.
+    requirements = resolve_split_row_requirements(split_row)
 
     retrieved_at_by_key: dict[tuple[str, str], str | None] = {}
     if retrieval_log:
@@ -494,17 +657,22 @@ def build_split(
     rejected_sample: list[dict[str, Any]] = []
     totals = {
         "source_rows": 0,
-        "usable_rows": 0,
-        "rejected_unique_rows": 0,
-        "validation_issue_occurrences": 0,
-        # Only ever nonzero for a split with allow_null_result=True: rows
-        # whose sole issue was a blank (not-yet-settled) result, included
-        # in `records` with result=None rather than dropped. These are
-        # counted separately from `usable_rows` (validate_file's generic,
-        # split-unaware usability check) precisely so len(records) is
-        # always reconcilable from this totals dict:
-        # len(records) == usable_rows + pending_settlement_rows_included.
+        # `usable_settled_rows` and `rejected_unique_rows` below are THIS
+        # SPLIT'S OWN eligibility decision (`_row_eligible_for_split`),
+        # never validate_file's generic, split-unaware usable_fixtures/
+        # rejected_fixtures — a row this split doesn't need closing odds
+        # for, say, is usable here even if the generic per-row check
+        # flags an incomplete closing column it never asked about. These
+        # three ALWAYS reconcile exactly, per split, per file, and in
+        # aggregate: source_rows == usable_settled_rows +
+        # pending_settlement_rows_included + rejected_unique_rows.
+        "usable_settled_rows": 0,
         "pending_settlement_rows_included": 0,
+        "rejected_unique_rows": 0,
+        # Generic, FILE-level (not split-specific) diagnostic count from
+        # validate_file — kept as background evidence, deliberately never
+        # folded into the three-way reconciliation above.
+        "validation_issue_occurrences": 0,
     }
 
     for league_code in LEAGUE_CODES:
@@ -518,24 +686,25 @@ def build_split(
 
             validation_result = validate_file(csv_path)
             occurrences = sum(validation_result.rejection_reason_counts.values())
-            file_records = build_file_records(
+            file_records, pending_settlement_in_file = build_file_records(
                 csv_path,
                 league_code,
                 season_code,
                 validation_result,
                 include_kickoff_time,
                 source_retrieved_at=retrieved_at_by_key.get((league_code, season_code)),
-                allow_null_result=allow_null_result,
+                requirements=requirements,
             )
             records.extend(file_records)
             rejected_sample.extend(sample_rejected_rows(validation_result, league_code, season_code))
-            pending_settlement_in_file = sum(1 for r in file_records if r["result_pending_settlement"])
+            usable_settled_in_file = len(file_records) - pending_settlement_in_file
+            rejected_unique_in_file = validation_result.total_rows - len(file_records)
 
             totals["source_rows"] += validation_result.total_rows
-            totals["usable_rows"] += validation_result.usable_fixtures
-            totals["rejected_unique_rows"] += validation_result.rejected_fixtures
-            totals["validation_issue_occurrences"] += occurrences
+            totals["usable_settled_rows"] += usable_settled_in_file
             totals["pending_settlement_rows_included"] += pending_settlement_in_file
+            totals["rejected_unique_rows"] += rejected_unique_in_file
+            totals["validation_issue_occurrences"] += occurrences
 
             files_evidence.append(
                 {
@@ -544,10 +713,10 @@ def build_split(
                     "missing": False,
                     "file_path": str(csv_path.relative_to(REPO_ROOT)) if csv_path.is_relative_to(REPO_ROOT) else str(csv_path),
                     "source_rows": validation_result.total_rows,
-                    "usable_rows": validation_result.usable_fixtures,
-                    "rejected_unique_rows": validation_result.rejected_fixtures,
-                    "validation_issue_occurrences": occurrences,
+                    "usable_settled_rows": usable_settled_in_file,
                     "pending_settlement_rows_included": pending_settlement_in_file,
+                    "rejected_unique_rows": rejected_unique_in_file,
+                    "validation_issue_occurrences": occurrences,
                     "rejection_reason_counts": {k: v for k, v in validation_result.rejection_reason_counts.items() if v},
                 }
             )
@@ -696,14 +865,12 @@ def build_dataset_report(
 
 
 def _format_totals_markdown(totals: dict[str, int]) -> str:
-    text = (
-        f"source_rows={totals['source_rows']}, usable_rows={totals['usable_rows']}, "
+    return (
+        f"source_rows={totals['source_rows']}, usable_settled_rows={totals['usable_settled_rows']}, "
+        f"pending_settlement_rows_included={totals['pending_settlement_rows_included']}, "
         f"rejected_unique_rows={totals['rejected_unique_rows']}, "
         f"validation_issue_occurrences={totals['validation_issue_occurrences']}"
     )
-    if totals.get("pending_settlement_rows_included"):
-        text += f", pending_settlement_rows_included={totals['pending_settlement_rows_included']}"
-    return text
 
 
 def write_dataset_build_report(
@@ -721,23 +888,28 @@ def write_dataset_build_report(
     )
     lines.append("")
     lines.append(
-        "Four row-count labels below are EXPLICITLY DISTINCT and never conflated: "
-        "`source_rows` (every row read), `usable_rows` (passed every validation "
-        "check), `rejected_unique_rows` (`source_rows - usable_rows`, one per row), "
-        "and `validation_issue_occurrences` (sum of every typed rejection reason's "
-        "occurrence count — can exceed `rejected_unique_rows` when a row trips "
-        "multiple reasons)."
+        "Row-count labels below are EXPLICITLY DISTINCT and never conflated, and the "
+        "first three always reconcile exactly: `source_rows == usable_settled_rows + "
+        "pending_settlement_rows_included + rejected_unique_rows`. `source_rows` is "
+        "every row read; `usable_settled_rows` and `rejected_unique_rows` are THIS "
+        "SPLIT'S OWN eligibility decision (never the generic, split-unaware "
+        "validate_file check — see dataset_builder.py's module docstring); "
+        "`pending_settlement_rows_included` is nonzero only for "
+        "split_prospective_paper_scoring (not-yet-played fixtures admitted with a "
+        "null result); `validation_issue_occurrences` is generic FILE-level "
+        "diagnostic evidence, deliberately outside the three-way reconciliation."
     )
     lines.append("")
     lines.append("## Per-split summary")
     lines.append("")
-    lines.append("| Split | Season codes | Source rows | Usable | Rejected (unique) | Issue occurrences | Dataset SHA-256 | Closing-line-benchmark label required |")
-    lines.append("|---|---|---:|---:|---:|---:|---|---|")
+    lines.append("| Split | Season codes | Source rows | Usable (settled) | Pending settlement | Rejected (unique) | Issue occurrences | Dataset SHA-256 | Closing-line-benchmark label required |")
+    lines.append("|---|---|---:|---:|---:|---:|---:|---|---|")
     for split_id, split in report["splits"].items():
         totals = split["totals"]
         lines.append(
             f"| {split_id} | {', '.join(split['season_codes']) or '(none)'} | {totals['source_rows']} | "
-            f"{totals['usable_rows']} | {totals['rejected_unique_rows']} | {totals['validation_issue_occurrences']} | "
+            f"{totals['usable_settled_rows']} | {totals['pending_settlement_rows_included']} | "
+            f"{totals['rejected_unique_rows']} | {totals['validation_issue_occurrences']} | "
             f"`{split['dataset_file_sha256'][:12]}…` | {split['closing_line_benchmark_model_label'] or 'no'} |"
         )
     lines.append("")

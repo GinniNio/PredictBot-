@@ -2,16 +2,16 @@
 
 Contract version `1.0.0` (status: `DRAFT_FOR_OPERATOR_REVIEW`). Combined dataset snapshot hash: `8a460f1223fb8fa7b089ef7f305fbb028522b7a1428624d6617c75430e3371e4`.
 
-Four row-count labels below are EXPLICITLY DISTINCT and never conflated: `source_rows` (every row read), `usable_rows` (passed every validation check), `rejected_unique_rows` (`source_rows - usable_rows`, one per row), and `validation_issue_occurrences` (sum of every typed rejection reason's occurrence count — can exceed `rejected_unique_rows` when a row trips multiple reasons).
+Row-count labels below are EXPLICITLY DISTINCT and never conflated, and the first three always reconcile exactly: `source_rows == usable_settled_rows + pending_settlement_rows_included + rejected_unique_rows`. `source_rows` is every row read; `usable_settled_rows` and `rejected_unique_rows` are THIS SPLIT'S OWN eligibility decision (never the generic, split-unaware validate_file check — see dataset_builder.py's module docstring); `pending_settlement_rows_included` is nonzero only for split_prospective_paper_scoring (not-yet-played fixtures admitted with a null result); `validation_issue_occurrences` is generic FILE-level diagnostic evidence, deliberately outside the three-way reconciliation.
 
 ## Per-split summary
 
-| Split | Season codes | Source rows | Usable | Rejected (unique) | Issue occurrences | Dataset SHA-256 | Closing-line-benchmark label required |
-|---|---|---:|---:|---:|---:|---|---|
-| split_model_dev_and_completed_eval | 1920, 2021, 2122, 2223, 2324, 2425 | 0 | 0 | 0 | 0 | `37517e5f3dc6…` | no |
-| split_closing_line_benchmark | 1920, 2021, 2122, 2223, 2324, 2425 | 0 | 0 | 0 | 0 | `37517e5f3dc6…` | CLOSING_LINE_BENCHMARK_MODEL |
-| split_prospective_paper_scoring | 2526 | 0 | 0 | 0 | 0 | `37517e5f3dc6…` | no |
-| split_earlier_research_backtesting | 1213, 1314, 1516, 1617, 1718, 1819 | 0 | 0 | 0 | 0 | `37517e5f3dc6…` | CLOSING_LINE_BENCHMARK_MODEL |
+| Split | Season codes | Source rows | Usable (settled) | Pending settlement | Rejected (unique) | Issue occurrences | Dataset SHA-256 | Closing-line-benchmark label required |
+|---|---|---:|---:|---:|---:|---:|---|---|
+| split_model_dev_and_completed_eval | 1920, 2021, 2122, 2223, 2324, 2425 | 0 | 0 | 0 | 0 | 0 | `37517e5f3dc6…` | no |
+| split_closing_line_benchmark | 1920, 2021, 2122, 2223, 2324, 2425 | 0 | 0 | 0 | 0 | 0 | `37517e5f3dc6…` | CLOSING_LINE_BENCHMARK_MODEL |
+| split_prospective_paper_scoring | 2526 | 0 | 0 | 0 | 0 | 0 | `37517e5f3dc6…` | no |
+| split_earlier_research_backtesting | 1213, 1314, 1516, 1617, 1718, 1819 | 0 | 0 | 0 | 0 | 0 | `37517e5f3dc6…` | CLOSING_LINE_BENCHMARK_MODEL |
 
 ## Season 1415 diagnostic — UNRESOLVED, pending human review
 

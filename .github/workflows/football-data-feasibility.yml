@@ -168,27 +168,29 @@ jobs:
           )
           print("")
           print(
-              "Five labels below are EXPLICITLY DISTINCT and never conflated: "
-              "`source_rows` (every row read), `usable_rows` (passed every "
-              "validation check), `rejected_unique_rows` (`source_rows - "
-              "usable_rows`, one per row), `validation_issue_occurrences` "
-              "(sum of every typed rejection reason's occurrence count — can "
-              "exceed `rejected_unique_rows` when a row trips multiple reasons), "
-              "and `pending_settlement_rows_included` (split_prospective_paper_scoring "
-              "only: not-yet-played fixtures included with a null result, per the "
-              "contract's result_nullable_until_settlement field — "
-              "`len(records) == usable_rows + pending_settlement_rows_included`)."
+              "Labels below are EXPLICITLY DISTINCT and never conflated. The first "
+              "three always reconcile exactly: `source_rows == usable_settled_rows + "
+              "pending_settlement_rows_included + rejected_unique_rows`. "
+              "`usable_settled_rows` and `rejected_unique_rows` are THIS SPLIT'S OWN "
+              "eligibility decision (never the generic, split-unaware validate_file "
+              "check — a row missing a field this split never required is still "
+              "usable here). `pending_settlement_rows_included` is nonzero only for "
+              "split_prospective_paper_scoring (not-yet-played fixtures admitted with "
+              "a null result, per the contract's result_nullable_until_settlement "
+              "field). `validation_issue_occurrences` is generic FILE-level "
+              "diagnostic evidence (sum of every typed rejection reason's occurrence "
+              "count), deliberately outside the three-way reconciliation."
           )
           print("")
-          print("| Split | Season codes | Source rows | Usable | Rejected (unique) | Issue occurrences | Pending settlement | Closing-line-benchmark label required |")
+          print("| Split | Season codes | Source rows | Usable (settled) | Pending settlement | Rejected (unique) | Issue occurrences | Closing-line-benchmark label required |")
           print("|---|---|---:|---:|---:|---:|---:|---|")
           for split_id, split in report["splits"].items():
               totals = split["totals"]
               print(
                   f"| {split_id} | {', '.join(split['season_codes']) or '(none)'} | "
-                  f"{totals['source_rows']} | {totals['usable_rows']} | "
-                  f"{totals['rejected_unique_rows']} | {totals['validation_issue_occurrences']} | "
+                  f"{totals['source_rows']} | {totals['usable_settled_rows']} | "
                   f"{totals['pending_settlement_rows_included']} | "
+                  f"{totals['rejected_unique_rows']} | {totals['validation_issue_occurrences']} | "
                   f"{split['closing_line_benchmark_model_label'] or 'no'} |"
               )
           print("")
