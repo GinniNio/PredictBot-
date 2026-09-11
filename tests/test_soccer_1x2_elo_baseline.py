@@ -27,9 +27,9 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from data_pipeline.dataset_builder import raw_file_path
+from data_pipeline.dataset_builder import LEAGUE_CODES, raw_file_path
 
-from research.soccer_1x2_elo_baseline import calibration, evaluate, hash_provenance, model, train
+from research.soccer_1x2_elo_baseline import calibration, evaluate, evidence, hash_provenance, model, train
 from research.soccer_1x2_elo_baseline.elo import (
     HOME_ADVANTAGE_ELO_BONUS,
     INITIAL_RATING,
@@ -808,19 +808,63 @@ class EvaluateMetricsTests(unittest.TestCase):
 class HashProvenanceTests(unittest.TestCase):
     """Operator-mandated correction: this PR must never freeze hashes
     calculated from synthetic fixtures (or any local run) as if they were
-    the real, live-data expected values. `expected_hashes.json` ships with
-    every split UNFROZEN_PENDING_LIVE_RUN; `hash_provenance.py` only ever
-    READS that file and compares — it never writes it, and a real hash
-    only ever gets pinned there by a human, in a separate PR."""
+    the real, live-data expected values. `expected_hashes.json` starts
+    with every split UNFROZEN_PENDING_LIVE_RUN; `hash_provenance.py` only
+    ever READS that file and compares — it never writes it, and a real
+    hash only ever gets pinned there by a human, in a separate PR (as of
+    this baseline's first live run, all four ARE pinned — see the second
+    test below)."""
 
-    def test_shipped_expected_hashes_file_is_all_unfrozen(self):
-        # Guards against ever accidentally committing a real-looking hash
-        # (e.g. one computed from this sandbox's synthetic fixtures) as if
-        # it were a genuine live-data expected value.
+    def test_shipped_expected_hashes_file_has_valid_hashes_or_unfrozen_with_full_provenance(self):
+        # Every split's expected value is either the literal
+        # UNFROZEN_PENDING_LIVE_RUN placeholder, or a real-looking SHA-256
+        # hex digest (64 lowercase hex chars) whose own provenance_by_split
+        # entry is fully filled in (run id, commit, URL, retrieval
+        # timestamp, source manifest hash) -- never a bare hash with no
+        # traceable origin, and never a hash calculated from this
+        # sandbox's synthetic fixtures.
         expected = hash_provenance.load_expected_hashes()
-        for split_id in train.FROZEN_SPLIT_IDS:
-            self.assertEqual(expected["split_hashes"][split_id], hash_provenance.UNFROZEN_STATUS, split_id)
-        self.assertEqual(expected["frozen_dataset_hash"], hash_provenance.UNFROZEN_STATUS)
+        provenance = expected["provenance_by_split"]
+        required_provenance_fields = {
+            "workflow_run_id",
+            "commit_sha",
+            "workflow_run_url",
+            "retrieved_at_utc",
+            "source_url_manifest_hash",
+        }
+        for key in (*train.FROZEN_SPLIT_IDS, "frozen_dataset_hash"):
+            value = expected["split_hashes"][key] if key in expected["split_hashes"] else expected["frozen_dataset_hash"]
+            if value == hash_provenance.UNFROZEN_STATUS:
+                self.assertIsNone(provenance[key], f"{key}: UNFROZEN but provenance is not null")
+                continue
+            self.assertRegex(value, r"^[0-9a-f]{64}$", f"{key}: pinned value is not a 64-char hex SHA-256 digest")
+            self.assertIsNotNone(provenance[key], f"{key}: pinned but has no provenance entry")
+            self.assertTrue(
+                required_provenance_fields.issubset(provenance[key].keys()),
+                f"{key}: provenance entry missing one of {required_provenance_fields}",
+            )
+
+    def test_pinned_hashes_are_never_computed_from_this_sandboxs_synthetic_fixtures(self):
+        # The specific failure mode this whole module exists to prevent:
+        # a hash computed from tests/fixtures/football_data/ content must
+        # never equal one of the pinned, real-data expected values.
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            result = train.train_pipeline(raw_dir=raw_dir)
+            expected = hash_provenance.load_expected_hashes()
+            for split_id in train.FROZEN_SPLIT_IDS:
+                pinned = expected["split_hashes"][split_id]
+                if pinned == hash_provenance.UNFROZEN_STATUS:
+                    continue
+                self.assertNotEqual(
+                    result.frozen_hashes.split_hashes[split_id],
+                    pinned,
+                    f"{split_id}: this sandbox's fixture-derived hash must never equal the pinned real-data hash",
+                )
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
 
     def test_unfrozen_expected_is_always_candidate_never_mismatch(self):
         expected = {
@@ -882,15 +926,54 @@ class HashProvenanceTests(unittest.TestCase):
         hash_provenance.check_frozen_hashes(computed, "y", expected=expected)
         self.assertEqual(expected, expected_copy)
 
-    def test_evaluate_main_exits_nonzero_on_mismatch(self):
+    def test_evaluate_main_exits_nonzero_on_mismatch_when_evidence_is_live(self):
         # Full-pipeline guard: evaluate.main() must exit(1) when
         # expected_hashes.json (loaded via the real, unpatched
         # load_expected_hashes) has a pinned value that disagrees with a
-        # freshly computed hash. Patch only the expected-hashes loader —
-        # never the computed side — to simulate "a human already pinned a
-        # real hash, and this run's data has since drifted from it." All
-        # output paths point into a temp dir so this test never touches
-        # this repo's real committed report/artifact files.
+        # freshly computed hash -- AND ONLY when this run's own
+        # evidence_class is LIVE_SOURCE_VALIDATED (a pinned real hash is
+        # only ever expected to match a confirmed-live run; see
+        # evaluate.main()'s own comment on this gate). Patch the
+        # expected-hashes loader (to simulate "a human already pinned a
+        # real hash, and this run's data has since drifted from it") and
+        # evidence.classify_evidence (to simulate "this run's source is
+        # confirmed live") -- never the computed hash side. All output
+        # paths point into a temp dir so this test never touches this
+        # repo's real committed report/artifact files.
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            out_dir = Path(raw_dir_tmp) / "out"
+
+            import unittest.mock as mock
+
+            fake_expected = {
+                "split_hashes": {sid: "a-hash-that-will-never-match-fixture-content" for sid in train.FROZEN_SPLIT_IDS},
+                "frozen_dataset_hash": "a-hash-that-will-never-match-fixture-content",
+            }
+            with mock.patch.object(hash_provenance, "load_expected_hashes", return_value=fake_expected), mock.patch.object(
+                train.evidence, "classify_evidence", return_value=evidence.EVIDENCE_LIVE_SOURCE_VALIDATED
+            ):
+                with self.assertRaises(SystemExit) as ctx:
+                    evaluate.main(
+                        raw_dir=raw_dir,
+                        report_json_path=out_dir / "evaluation_report.json",
+                        report_markdown_path=out_dir / "evaluation_report.md",
+                        artifact_path=out_dir / "model_artifact.json",
+                    )
+            self.assertNotEqual(ctx.exception.code, 0)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_evaluate_main_does_not_exit_on_mismatch_when_evidence_is_not_live(self):
+        # The corrected half of the gate above: a MISMATCH against a
+        # pinned real hash must NEVER fail a run whose own evidence_class
+        # is not LIVE_SOURCE_VALIDATED (fixture, missing, or unusable
+        # source data was never expected to reproduce a real, pinned
+        # hash in the first place). This is the default for a fixture-
+        # populated raw_dir with no matching retrieval_log.json entry --
+        # no evidence-class mocking needed here, unlike the test above.
         raw_dir_tmp = tempfile.mkdtemp()
         try:
             raw_dir = Path(raw_dir_tmp) / "raw"
@@ -904,14 +987,15 @@ class HashProvenanceTests(unittest.TestCase):
                 "frozen_dataset_hash": "a-hash-that-will-never-match-fixture-content",
             }
             with mock.patch.object(hash_provenance, "load_expected_hashes", return_value=fake_expected):
-                with self.assertRaises(SystemExit) as ctx:
+                try:
                     evaluate.main(
                         raw_dir=raw_dir,
                         report_json_path=out_dir / "evaluation_report.json",
                         report_markdown_path=out_dir / "evaluation_report.md",
                         artifact_path=out_dir / "model_artifact.json",
                     )
-            self.assertNotEqual(ctx.exception.code, 0)
+                except SystemExit as exc:
+                    self.fail(f"evaluate.main() must not exit on a mismatch when evidence is not live (exit code {exc.code})")
         finally:
             shutil.rmtree(raw_dir_tmp, ignore_errors=True)
 
@@ -942,6 +1026,263 @@ class HashProvenanceTests(unittest.TestCase):
             self.assertTrue(artifact_path.exists(), "evaluate.main() must write model_artifact.json itself")
             written = json.loads(artifact_path.read_text(encoding="utf-8"))
             self.assertEqual(written, expected_result.model_artifact.to_dict())
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+
+class EvidenceClassificationTests(unittest.TestCase):
+    """Operator-mandated correction: `evidence_class` must be derived from
+    real source provenance (a SHA-256-confirmed match against
+    `data_pipeline/retrieval_log.json`'s own record of a real
+    football-data.co.uk download) -- NEVER from a split's own row count
+    or `status`. A synthetic, hand-crafted fixture reports a nonzero row
+    count and `status == "BUILT"` just as easily as a real download does,
+    so neither is a trustworthy signal on its own (see evidence.py's
+    docstring)."""
+
+    def _season_codes_for_frozen_splits(self, raw_dir: Path) -> dict[str, list[str]]:
+        from data_pipeline.dataset_builder import build_split, load_contract_rows
+
+        contract_rows = load_contract_rows()
+        return {
+            split_id: build_split(split_id, raw_dir=raw_dir, contract_rows=contract_rows)["season_codes"]
+            for split_id in train.FROZEN_SPLIT_IDS
+        }
+
+    def test_source_unavailable_when_no_raw_files_present(self):
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"  # never populated
+            season_codes = self._season_codes_for_frozen_splits(raw_dir)
+            result = evidence.classify_evidence(
+                raw_dir=raw_dir,
+                season_codes_by_frozen_split=season_codes,
+                league_codes=LEAGUE_CODES,
+                frozen_row_count=0,
+                retrieval_log_path=Path(raw_dir_tmp) / "no_such_retrieval_log.json",
+            )
+            self.assertEqual(result, evidence.EVIDENCE_SOURCE_UNAVAILABLE)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_source_not_usable_when_files_present_but_zero_frozen_rows(self):
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            season_codes = self._season_codes_for_frozen_splits(raw_dir)
+            result = evidence.classify_evidence(
+                raw_dir=raw_dir,
+                season_codes_by_frozen_split=season_codes,
+                league_codes=LEAGUE_CODES,
+                frozen_row_count=0,  # files exist, but nothing usable came of them
+                retrieval_log_path=Path(raw_dir_tmp) / "no_such_retrieval_log.json",
+            )
+            self.assertEqual(result, evidence.EVIDENCE_SOURCE_NOT_USABLE)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_fixture_only_validated_adversarial_nonempty_built_never_gets_live_label(self):
+        # The operator's own adversarial requirement: a synthetic,
+        # hand-crafted fixture that produces a nonzero row count (a real
+        # BUILT split) must NEVER be classified LIVE_SOURCE_VALIDATED just
+        # because files are present and usable. No retrieval_log.json
+        # entry exists for these fixture files at all, so this is the
+        # ordinary case, not a contrived one.
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            season_codes = self._season_codes_for_frozen_splits(raw_dir)
+            result = evidence.classify_evidence(
+                raw_dir=raw_dir,
+                season_codes_by_frozen_split=season_codes,
+                league_codes=LEAGUE_CODES,
+                frozen_row_count=5,  # nonzero -- files really did produce usable rows
+                retrieval_log_path=Path(raw_dir_tmp) / "no_such_retrieval_log.json",
+            )
+            self.assertEqual(result, evidence.EVIDENCE_FIXTURE_ONLY_VALIDATED)
+            self.assertNotEqual(result, evidence.EVIDENCE_LIVE_SOURCE_VALIDATED)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_live_source_validated_when_retrieval_log_confirms_matching_sha256(self):
+        import hashlib
+
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            season_codes = self._season_codes_for_frozen_splits(raw_dir)
+
+            downloads = []
+            for split_id, codes in season_codes.items():
+                for league_code in LEAGUE_CODES:
+                    for season_code in codes:
+                        path = raw_file_path(raw_dir, league_code, season_code)
+                        if path.exists():
+                            downloads.append(
+                                {
+                                    "league_code": league_code,
+                                    "season_code": season_code,
+                                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                                }
+                            )
+            retrieval_log_path = Path(raw_dir_tmp) / "retrieval_log.json"
+            retrieval_log_path.write_text(json.dumps({"downloads": downloads}), encoding="utf-8")
+
+            result = evidence.classify_evidence(
+                raw_dir=raw_dir,
+                season_codes_by_frozen_split=season_codes,
+                league_codes=LEAGUE_CODES,
+                frozen_row_count=5,
+                retrieval_log_path=retrieval_log_path,
+            )
+            self.assertEqual(result, evidence.EVIDENCE_LIVE_SOURCE_VALIDATED)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_fixture_only_when_retrieval_log_hash_does_not_match_current_file(self):
+        # A retrieval-log entry exists for the right (league, season), but
+        # its recorded sha256 does not match the CURRENT file content --
+        # e.g. a fixture was substituted in after the log was written.
+        # This must never be confirmed live.
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            season_codes = self._season_codes_for_frozen_splits(raw_dir)
+
+            downloads = [
+                {"league_code": "E0", "season_code": "1920", "sha256": "0" * 64},
+            ]
+            retrieval_log_path = Path(raw_dir_tmp) / "retrieval_log.json"
+            retrieval_log_path.write_text(json.dumps({"downloads": downloads}), encoding="utf-8")
+
+            result = evidence.classify_evidence(
+                raw_dir=raw_dir,
+                season_codes_by_frozen_split=season_codes,
+                league_codes=LEAGUE_CODES,
+                frozen_row_count=5,
+                retrieval_log_path=retrieval_log_path,
+            )
+            self.assertEqual(result, evidence.EVIDENCE_FIXTURE_ONLY_VALIDATED)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_missing_or_unreadable_retrieval_log_confirms_nothing(self):
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            confirmed = evidence._load_confirmed_live_hashes(Path(raw_dir_tmp) / "does_not_exist.json")
+            self.assertEqual(confirmed, {})
+
+            corrupt_path = Path(raw_dir_tmp) / "corrupt.json"
+            corrupt_path.write_text("{not valid json", encoding="utf-8")
+            self.assertEqual(evidence._load_confirmed_live_hashes(corrupt_path), {})
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_describe_evidence_class_covers_every_class(self):
+        for evidence_class in (
+            evidence.EVIDENCE_LIVE_SOURCE_VALIDATED,
+            evidence.EVIDENCE_FIXTURE_ONLY_VALIDATED,
+            evidence.EVIDENCE_SOURCE_UNAVAILABLE,
+            evidence.EVIDENCE_SOURCE_NOT_USABLE,
+        ):
+            text = evidence.describe_evidence_class(evidence_class)
+            self.assertIsInstance(text, str)
+            self.assertGreater(len(text), 0)
+
+    def test_train_pipeline_reports_fixture_only_validated_not_live(self):
+        # End-to-end: train_pipeline() against a fixture-populated raw_dir
+        # (this package's own test suite's normal case) must report
+        # evidence_class FIXTURE_ONLY_VALIDATED, never LIVE_SOURCE_VALIDATED,
+        # even though every frozen split here is genuinely BUILT with a
+        # nonzero row count.
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            result = train.train_pipeline(raw_dir=raw_dir)
+            self.assertEqual(result.evidence_class, evidence.EVIDENCE_FIXTURE_ONLY_VALIDATED)
+            self.assertGreater(sum(len(rows) for rows in result.rows_by_split.values()), 0)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_train_pipeline_reports_source_unavailable_with_empty_raw_dir(self):
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"  # never populated
+            result = train.train_pipeline(raw_dir=raw_dir)
+            self.assertEqual(result.evidence_class, evidence.EVIDENCE_SOURCE_UNAVAILABLE)
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+    def test_implementation_status_is_derived_only_from_evidence_class(self):
+        # build_evaluation_report's "implementation_status" text must
+        # track evidence_class alone -- swapping evidence_class on an
+        # otherwise-identical TrainingResult must change the reported
+        # text to exactly evidence.describe_evidence_class(...) for the
+        # new value, regardless of row counts or split statuses (which
+        # are left untouched here).
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            result = train.train_pipeline(raw_dir=raw_dir)
+            for evidence_class in (
+                evidence.EVIDENCE_LIVE_SOURCE_VALIDATED,
+                evidence.EVIDENCE_FIXTURE_ONLY_VALIDATED,
+                evidence.EVIDENCE_SOURCE_UNAVAILABLE,
+                evidence.EVIDENCE_SOURCE_NOT_USABLE,
+            ):
+                import dataclasses
+
+                swapped = dataclasses.replace(result, evidence_class=evidence_class)
+                report = evaluate.build_evaluation_report(swapped)
+                self.assertEqual(report["evidence_class"], evidence_class)
+                self.assertEqual(report["implementation_status"], evidence.describe_evidence_class(evidence_class))
+        finally:
+            shutil.rmtree(raw_dir_tmp, ignore_errors=True)
+
+
+class ReliabilityTableReportingTests(unittest.TestCase):
+    """Operator requirement: the complete reliability table (bin range,
+    sample count, mean confidence, observed accuracy) must be printed to
+    the job log/step summary and the committed report -- not just the
+    single scalar calibration_error derived from it."""
+
+    def test_markdown_reliability_table_lists_every_bin_with_required_columns(self):
+        metrics = {
+            "row_count": 4,
+            "reliability_table": [
+                {"bin_index": 0, "bin_range": [0.0, 0.5], "predicted_probability_midpoint": 0.2, "empirical_frequency": 0.25, "count": 4},
+                {"bin_index": 1, "bin_range": [0.5, 1.0], "predicted_probability_midpoint": None, "empirical_frequency": None, "count": 0},
+            ],
+        }
+        lines = evaluate._format_reliability_table_markdown("Model", metrics)
+        joined = "\n".join(lines)
+        self.assertIn("Bin range", joined)
+        self.assertIn("Count", joined)
+        self.assertIn("Mean confidence", joined)
+        self.assertIn("Observed accuracy", joined)
+        self.assertIn("0.2000", joined)
+        self.assertIn("0.2500", joined)
+        # The empty bin is still listed (count=0), never silently dropped.
+        self.assertIn("| [0.5, 1.0) | 0 | — | — |", joined)
+
+    def test_evaluation_report_carries_reliability_table_for_test_splits_and_rolling(self):
+        raw_dir_tmp = tempfile.mkdtemp()
+        try:
+            raw_dir = Path(raw_dir_tmp) / "raw"
+            _populate_raw_dir(raw_dir)
+            result = train.train_pipeline(raw_dir=raw_dir)
+            report = evaluate.build_evaluation_report(result)
+            for split_id in evaluate.TEST_SPLIT_IDS:
+                table = report["test_splits"][split_id]["model_metrics"]["reliability_table"]
+                self.assertEqual(len(table), evaluate.NUM_CALIBRATION_BINS)
+            rolling_table = report["rolling_settlement_observation"]["model_metrics"]["reliability_table"]
+            self.assertEqual(len(rolling_table), evaluate.NUM_CALIBRATION_BINS)
         finally:
             shutil.rmtree(raw_dir_tmp, ignore_errors=True)
 
