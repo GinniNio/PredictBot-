@@ -439,3 +439,119 @@ test('a full, uninterrupted multi-page walk that reaches the last known page rep
   assert.equal(envelope.resume_metadata.can_resume, false);
   assert.equal(envelope.resume_metadata.resume_hint, null);
 });
+
+// --- Round 2 real-capture corrections: expansion retry, Cancelled -> VOID,
+// capture_scope/date_range -- see settled_bets_parser.js's own EXPANSION
+// RETRY / CAPTURE SCOPE header comments for the real evidence behind each.
+
+test('a leg with the exact outcome text "Cancelled" normalizes to VOID, not UNRESOLVED', async () => {
+  const { envelope } = await captureSettled(
+    settledTicket({
+      ticketId: '9555555555',
+      resultItem: 'Lost',
+      legs: [settledLeg({ outcome: 'Cancelled' }), settledLeg({ outcome: 'Won' })],
+    })
+  );
+  assert.equal(envelope.coverage.tickets_parsed, 1);
+  const legs = envelope.tickets[0].legs;
+  assert.equal(legs[0].leg_status, 'VOID');
+  assert.equal(legs[0].leg_status_raw, 'Cancelled');
+  assert.equal(legs[0].settlement_resolution, 'EXPLICIT_BOOKMAKER_MARKUP');
+  assert.equal(legs[1].leg_status, 'WON');
+  // Ticket-level VOID inference stays disabled -- the ticket's own status
+  // still comes only from its own explicit summary text.
+  assert.equal(envelope.tickets[0].ticket_status, 'LOST');
+});
+
+test('a ticket whose first expansion attempt times out but whose retry succeeds is parsed, not left unresolved', async () => {
+  const ticketHtml = `
+    <div class="accordion-item">
+      <div class="accordion-toggle">Toggle</div>
+      <div class="accordion-text">Single</div>
+      <div class="mybets-holder">
+        <span class="mybets-date">Today 14:32</span>
+        <span class="mybets-holder__info-item">Stake: 10.00</span>
+        <span class="mybets-holder__info-item">Won 19.50</span>
+      </div>
+    </div>
+  `;
+  const doc = docFromHtml(`
+    <body>
+      <div class="mybets">
+        <div class="mybets__bets-item mybets__bets-item--current">Settled Bets</div>
+        <div id="ticket-list">${ticketHtml}</div>
+      </div>
+      <script>
+        const ticketEl = document.querySelector('.accordion-item');
+        const toggle = ticketEl.querySelector('.accordion-toggle');
+        let clicks = 0;
+        toggle.addEventListener('click', () => {
+          clicks += 1;
+          if (clicks === 1) {
+            // First attempt: opens, but content never finishes rendering
+            // (no ticket id, no legs yet) -- times out.
+            ticketEl.classList.add('accordion-item--open');
+          } else if (clicks === 2) {
+            // ensureTicketExpanded's own retry-collapse step.
+            ticketEl.classList.remove('accordion-item--open');
+          } else {
+            // Retry's re-open: now content is actually ready.
+            ticketEl.classList.add('accordion-item--open');
+            const head = document.createElement('div');
+            head.className = 'mybets-head__item';
+            head.textContent = 'Ticket ID: 900000123';
+            ticketEl.appendChild(head);
+            ticketEl.insertAdjacentHTML('beforeend', ${JSON.stringify(settledLeg({ outcome: 'Won' }))});
+          }
+        });
+      </script>
+    </body>
+  `);
+  const { envelope } = await settledParser.captureFromDocument(doc, SETTLED_CONTEXT);
+  assert.equal(envelope.coverage.tickets_parsed, 1);
+  assert.equal(envelope.coverage.tickets_unresolved, 0);
+  assert.equal(envelope.tickets[0].bet9ja_ticket_id, '900000123');
+});
+
+test('a ticket whose expansion never succeeds even after the one retry stays unresolved with readiness_diagnostics', async () => {
+  const ticketHtml = `
+    <div class="accordion-item">
+      <div class="accordion-toggle">Toggle</div>
+    </div>
+  `;
+  const doc = docFromHtml(`
+    <body>
+      <div class="mybets">
+        <div class="mybets__bets-item mybets__bets-item--current">Settled Bets</div>
+        <div id="ticket-list">${ticketHtml}</div>
+      </div>
+      <script>
+        const ticketEl = document.querySelector('.accordion-item');
+        const toggle = ticketEl.querySelector('.accordion-toggle');
+        toggle.addEventListener('click', () => ticketEl.classList.toggle('accordion-item--open'));
+      </script>
+    </body>
+  `);
+  const { envelope } = await settledParser.captureFromDocument(doc, SETTLED_CONTEXT);
+  assert.equal(envelope.coverage.tickets_parsed, 0);
+  assert.equal(envelope.coverage.tickets_unresolved, 1);
+  const unresolved = envelope.unresolved_tickets[0];
+  assert.equal(unresolved.reason, 'TICKET_EXPANSION_TIMEOUT');
+  assert.deepEqual(unresolved.readiness_diagnostics, {
+    open_class_seen: true,
+    ticket_id_seen: false,
+    leg_candidates_seen: 0,
+  });
+});
+
+test('capture_scope and date_range are present on every envelope, honestly null pending a confirmed date-range selector', async () => {
+  const { envelope } = await captureSettled(settledTicket({ resultItem: 'Won 1.00' }));
+  assert.equal(envelope.capture_scope, 'USER_SELECTED_DATE_RANGE');
+  assert.deepEqual(envelope.date_range, { from_raw: null, to_raw: null, timezone: 'UNRESOLVED_SITE_LOCAL_TIME' });
+  assert.ok(envelope.capture_status_reasons.includes('DATE_RANGE_DISPLAY_SELECTOR_UNVERIFIED'));
+
+  const doc = docFromHtml('<body><div class="mybets"></div></body>');
+  const { envelope: failedEnvelope } = await settledParser.captureFromDocument(doc, SETTLED_CONTEXT);
+  assert.equal(failedEnvelope.capture_scope, 'USER_SELECTED_DATE_RANGE');
+  assert.deepEqual(failedEnvelope.date_range, { from_raw: null, to_raw: null, timezone: 'UNRESOLVED_SITE_LOCAL_TIME' });
+});

@@ -66,16 +66,57 @@
  *     walker uses). MAX_PAGES_SAFETY_CAP is set well above the confirmed
  *     191 to avoid an unrelated cap tripping on a real, larger account.
  *
- * NORMALIZED OUTCOMES -- this evidence-backed first version recognizes
- * only the vocabulary actually observed on the real page: leg outcome
- * text "Won"/"Lost" (case-insensitive, exact) and ticket summary text
- * "Lost" / "Won <amount>". Every other leg/ticket status enum value
- * (`VOID`, `PUSH`, `HALF_WON`, `HALF_LOST`, `CASHED_OUT`,
- * `PARTIAL_RETURN`) stays in the schema as a valid value for a downstream
- * consumer, but this parser never EMITS one yet -- anything not exactly
- * "Won"/"Lost" resolves to `UNRESOLVED`, never guessed. Widen this
- * recognition set only against new real evidence of that markup, exactly
- * per this project's evidence-only-correction discipline.
+ * NORMALIZED OUTCOMES -- this evidence-backed version recognizes the
+ * vocabulary actually observed on the real page: leg outcome text
+ * "Won"/"Lost"/"Cancelled" (case-insensitive, exact; Round 2 real
+ * evidence: 4 of 583 real legs, across 4 separate tickets, showed the
+ * exact leg outcome text "Cancelled" for the SAME underlying fixture --
+ * now normalized to `leg_status: 'VOID'` /
+ * `settlement_resolution: 'EXPLICIT_BOOKMAKER_MARKUP'`), and ticket
+ * summary text "Lost" / "Won <amount>". Ticket-level VOID inference
+ * remains deliberately DISABLED -- no real voided TICKET summary (as
+ * opposed to a voided leg inside an otherwise Won/Lost ticket) has been
+ * observed yet, so `parseTicketSummary` is unchanged this round. Every
+ * other leg/ticket status enum value (`PUSH`, `HALF_WON`, `HALF_LOST`,
+ * `CASHED_OUT`, `PARTIAL_RETURN`, and ticket-level `VOID`) stays in the
+ * schema as a valid value for a downstream consumer, but this parser
+ * never EMITS one yet -- anything unrecognized resolves to `UNRESOLVED`,
+ * never guessed. Widen this recognition set only against new real
+ * evidence of that markup, exactly per this project's
+ * evidence-only-correction discipline.
+ *
+ * EXPANSION RETRY -- Round 2 real evidence: a real 23-page, 115-ticket
+ * capture found 13 tickets (pages 3, 15-17, 20-22) that timed out on
+ * their FIRST expansion attempt (`TICKET_EXPANSION_TIMEOUT`) despite
+ * every successfully-expanded ticket parsing all of its legs cleanly --
+ * evidence this is an intermittent rendering-timing issue, not a
+ * settlement-parsing defect. `ensureTicketExpanded` now allows exactly
+ * ONE bounded retry: if the ticket is (or became, from this call's own
+ * click) open but never became ready, it is first returned to a
+ * collapsed state (or confirmed already collapsed), then
+ * `.accordion-toggle` is clicked again and the SAME readiness wait is
+ * repeated -- now requiring, in addition to the open class and ticket id,
+ * at least one candidate (non-structural) `.mybets-item` to be present,
+ * since a real ticket with zero visible legs is never actually ready to
+ * parse. A retry that also fails keeps `TICKET_EXPANSION_TIMEOUT` (never
+ * silently drops the ticket) and the resulting `unresolved_tickets` entry
+ * carries `readiness_diagnostics` (`open_class_seen`, `ticket_id_seen`,
+ * `leg_candidates_seen`) recording exactly what state the ticket was
+ * left in, so a future round has concrete evidence instead of needing a
+ * fresh DevTools session.
+ *
+ * CAPTURE SCOPE / DATE RANGE -- Round 2 correction: an earlier estimate
+ * of 191 Settled Bets pages was wrong (a raw count of ALL pagination
+ * elements, not genuine numbered pages); a real capture's own page-by-
+ * page evidence found 23. Bet9ja's Settled Bets view is understood to be
+ * scoped to whatever date range is currently selected on the page itself
+ * -- this module is READ-ONLY with respect to that range (it never
+ * selects or changes dates; the operator picks the range, then clicks
+ * capture once) and records it honestly in the envelope as
+ * `capture_scope`/`date_range`. No selector for the page's own displayed
+ * date-range control has been confirmed yet, so `date_range.from_raw`/
+ * `.to_raw` stay `null` (never guessed) until one is -- see
+ * `DATE_RANGE_SELECTORS` below.
  *
  * MONETARY VALUES -- captured as validated DECIMAL STRINGS (e.g. "189.00"),
  * never lossy JS floats. See toDecimalString().
@@ -109,7 +150,7 @@
 (function (root) {
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.2.0-real-settled-profile-round1';
+  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.3.0-round2-expansion-retry-cancelled-void';
 
   // Confirmed via live authenticated inspection (Round 1). See the
   // REAL-DOM PROFILE header comment above for the full contract.
@@ -146,6 +187,16 @@
   // so a future round can wire it in without a structural change here.
   const SYSTEM_SETTLEMENT_SELECTORS = {
     breakdown: null,
+  };
+
+  // ROUND 2: no confirmed selector for the Settled Bets view's own
+  // displayed date-range control has been supplied yet. See the CAPTURE
+  // SCOPE / DATE RANGE header comment above -- kept as an explicit,
+  // mutable placeholder (mirrors SYSTEM_SETTLEMENT_SELECTORS.breakdown)
+  // so a future round can wire it in without a structural change here.
+  const DATE_RANGE_SELECTORS = {
+    fromDisplay: null,
+    toDisplay: null,
   };
 
   const NUMBERED_PAGE_TEXT = /^\d+$/;
@@ -202,15 +253,16 @@
     return match ? toDecimalString(match[0]) : null;
   }
 
-  // See NORMALIZED OUTCOMES above -- exact "Won"/"Lost" text only, for
-  // both legs and tickets. Anything else resolves to UNRESOLVED. VOID,
-  // PUSH, HALF_WON, HALF_LOST, CASHED_OUT and PARTIAL_RETURN remain valid
-  // schema values a downstream consumer may see from a future parser
-  // version, but this version never emits them.
-  function normalizeWonLost(rawText) {
+  // See NORMALIZED OUTCOMES above -- exact "Won"/"Lost"/"Cancelled" leg
+  // outcome text only. Anything else resolves to UNRESOLVED. PUSH,
+  // HALF_WON, HALF_LOST and CASHED_OUT remain valid schema values a
+  // downstream consumer may see from a future parser version, but this
+  // version never emits them.
+  function normalizeLegOutcome(rawText) {
     const t = (rawText || '').trim().toLowerCase();
     if (t === 'won') return { normalized: 'WON', resolution: 'EXPLICIT_BOOKMAKER_MARKUP' };
     if (t === 'lost') return { normalized: 'LOST', resolution: 'EXPLICIT_BOOKMAKER_MARKUP' };
+    if (t === 'cancelled' || t === 'canceled') return { normalized: 'VOID', resolution: 'EXPLICIT_BOOKMAKER_MARKUP' };
     if (!t) return { normalized: 'UNRESOLVED', resolution: 'MISSING_STATUS_TEXT' };
     return { normalized: 'UNRESOLVED', resolution: 'UNRECOGNIZED_STATUS_TEXT' };
   }
@@ -231,24 +283,88 @@
     return { idRaw: firstRaw, id: firstRaw || null };
   }
 
-  async function ensureTicketExpanded(ticketEl) {
-    const isReadyToParse = () =>
-      ticketEl.classList.contains(SELECTORS.ticketOpenClass) && !!ticketEl.querySelector(SELECTORS.ticketIdHeadItem);
+  function countLegCandidates(ticketEl) {
+    return Array.from(ticketEl.querySelectorAll(SELECTORS.legRow)).filter(isCandidateMybetsLeg).length;
+  }
 
-    const wasAlreadyOpen = ticketEl.classList.contains(SELECTORS.ticketOpenClass);
-    if (!wasAlreadyOpen) {
+  function readinessDiagnostics(ticketEl) {
+    return {
+      open_class_seen: ticketEl.classList.contains(SELECTORS.ticketOpenClass),
+      ticket_id_seen: !!ticketEl.querySelector(SELECTORS.ticketIdHeadItem),
+      leg_candidates_seen: countLegCandidates(ticketEl),
+    };
+  }
+
+  /**
+   * One expand-and-wait attempt: clicks `.accordion-toggle` if not already
+   * open, then waits for the open class, the ticket id, AND at least one
+   * candidate (non-structural) leg to all be present together -- see the
+   * EXPANSION RETRY header comment for why the leg-candidate condition was
+   * added this round.
+   */
+  async function attemptExpand(ticketEl) {
+    const isReadyToParse = () =>
+      ticketEl.classList.contains(SELECTORS.ticketOpenClass) &&
+      !!ticketEl.querySelector(SELECTORS.ticketIdHeadItem) &&
+      countLegCandidates(ticketEl) > 0;
+
+    if (!ticketEl.classList.contains(SELECTORS.ticketOpenClass)) {
       const toggle = ticketEl.querySelector(SELECTORS.toggle);
       if (!toggle) {
-        return { opened: false, wasAlreadyOpen: false, reason: 'TOGGLE_NOT_FOUND' };
+        return { ok: false, reason: 'TOGGLE_NOT_FOUND' };
       }
       toggle.click();
     }
 
     if (isReadyToParse()) {
-      return { opened: true, wasAlreadyOpen, reason: null };
+      return { ok: true, reason: null };
     }
     const ready = await waitFor(isReadyToParse, EXPAND_TIMEOUT_MS, EXPAND_POLL_INTERVAL_MS);
-    return { opened: ready, wasAlreadyOpen, reason: ready ? null : 'TICKET_EXPANSION_TIMEOUT' };
+    return { ok: ready, reason: ready ? null : 'TICKET_EXPANSION_TIMEOUT' };
+  }
+
+  /**
+   * See the EXPANSION RETRY header comment. `wasAlreadyOpen` in the
+   * returned result always reflects the ticket's state BEFORE this
+   * function touched it at all (even across a retry's own
+   * collapse/reopen cycle), so the caller's collapseIfNeeded restores the
+   * correct original state regardless of how many attempts this call
+   * made.
+   */
+  async function ensureTicketExpanded(ticketEl) {
+    const wasAlreadyOpen = ticketEl.classList.contains(SELECTORS.ticketOpenClass);
+
+    const first = await attemptExpand(ticketEl);
+    if (first.ok) {
+      return { opened: true, wasAlreadyOpen, reason: null, retried: false, diagnostics: null };
+    }
+    if (first.reason === 'TOGGLE_NOT_FOUND') {
+      return { opened: false, wasAlreadyOpen, reason: 'TOGGLE_NOT_FOUND', retried: false, diagnostics: readinessDiagnostics(ticketEl) };
+    }
+
+    // ONE bounded retry -- first return the ticket to a collapsed state
+    // (or confirm it already is one), then try the full expand-and-wait
+    // sequence again from scratch.
+    if (ticketEl.classList.contains(SELECTORS.ticketOpenClass)) {
+      const toggle = ticketEl.querySelector(SELECTORS.toggle);
+      if (toggle) {
+        toggle.click();
+        await waitFor(() => !ticketEl.classList.contains(SELECTORS.ticketOpenClass), EXPAND_TIMEOUT_MS, EXPAND_POLL_INTERVAL_MS);
+      }
+    }
+
+    const retry = await attemptExpand(ticketEl);
+    if (retry.ok) {
+      return { opened: true, wasAlreadyOpen, reason: null, retried: true, diagnostics: null };
+    }
+
+    return {
+      opened: false,
+      wasAlreadyOpen,
+      reason: retry.reason === 'TOGGLE_NOT_FOUND' ? 'TOGGLE_NOT_FOUND' : 'TICKET_EXPANSION_TIMEOUT',
+      retried: true,
+      diagnostics: readinessDiagnostics(ticketEl),
+    };
   }
 
   function collapseIfNeeded(ticketEl, wasAlreadyOpen) {
@@ -326,7 +442,7 @@
       normalizeForHash(competitionRaw),
     ]);
 
-    const { normalized: legStatus, resolution: legStatusResolution } = normalizeWonLost(legOutcomeRaw);
+    const { normalized: legStatus, resolution: legStatusResolution } = normalizeLegOutcome(legOutcomeRaw);
 
     return {
       ok: true,
@@ -539,8 +655,8 @@
     };
   }
 
-  function makeUnresolvedTicket({ reason, detail, sourceIndex, raw }) {
-    return { reason, detail: detail || null, source_index: sourceIndex, raw };
+  function makeUnresolvedTicket({ reason, detail, sourceIndex, raw, readinessDiagnostics: diagnostics }) {
+    return { reason, detail: detail || null, source_index: sourceIndex, raw, readiness_diagnostics: diagnostics || null };
   }
 
   function makeExcludedTicket({ reason, detail, sourceIndex, ticketIdRaw }) {
@@ -570,9 +686,10 @@
       if (!expandResult.opened) {
         const record = makeUnresolvedTicket({
           reason: expandResult.reason === 'TOGGLE_NOT_FOUND' ? 'TICKET_TOGGLE_NOT_FOUND' : 'TICKET_EXPANSION_TIMEOUT',
-          detail: `Could not confirm ticket[${index}] ready to parse.`,
+          detail: `Could not confirm ticket[${index}] ready to parse${expandResult.retried ? ' after one retry' : ''}.`,
           sourceIndex: index,
-          raw: { reason: expandResult.reason },
+          raw: { reason: expandResult.reason, retried: expandResult.retried },
+          readinessDiagnostics: expandResult.diagnostics,
         });
         aggregate.unresolvedTickets.push(record);
         ticketsUnresolvedThisPage += 1;
@@ -780,6 +897,19 @@
     }
   }
 
+  /**
+   * Reads the Settled Bets view's own currently-selected date range,
+   * never selects or changes it. See the CAPTURE SCOPE / DATE RANGE
+   * header comment above -- both fields stay `null` (never guessed) until
+   * a real selector for the page's own displayed range control is
+   * confirmed.
+   */
+  function readDateRange(doc) {
+    const fromRaw = DATE_RANGE_SELECTORS.fromDisplay ? text(doc.querySelector(DATE_RANGE_SELECTORS.fromDisplay)) || null : null;
+    const toRaw = DATE_RANGE_SELECTORS.toDisplay ? text(doc.querySelector(DATE_RANGE_SELECTORS.toDisplay)) || null : null;
+    return { from_raw: fromRaw, to_raw: toRaw, timezone: 'UNRESOLVED_SITE_LOCAL_TIME' };
+  }
+
   function findSettledTabElement(doc) {
     return Array.from(doc.querySelectorAll(SELECTORS.tabItem)).find((el) => text(el) === SETTLED_TAB_TEXT) || null;
   }
@@ -819,12 +949,14 @@
     };
   }
 
-  function failedEnvelope(envelopeBase, reasons) {
+  function failedEnvelope(envelopeBase, reasons, doc) {
     return {
       envelope: {
         ...envelopeBase,
         capture_status: 'CAPTURE_FAILED',
         capture_status_reasons: reasons,
+        capture_scope: 'USER_SELECTED_DATE_RANGE',
+        date_range: doc ? readDateRange(doc) : { from_raw: null, to_raw: null, timezone: 'UNRESOLVED_SITE_LOCAL_TIME' },
         coverage: emptyCoverage(),
         page_results: [],
         tickets: [],
@@ -854,17 +986,17 @@
 
     const normalizedSourceUrl = (context.sourceUrl || '').toLowerCase();
     if (!normalizedSourceUrl.includes('/mybets')) {
-      return failedEnvelope(envelopeBase, ['NOT_ON_MYBETS_PAGE']);
+      return failedEnvelope(envelopeBase, ['NOT_ON_MYBETS_PAGE'], doc);
     }
 
     const { activated, reason: activationFailureReason } = await activateSettledView(doc);
     if (!activated) {
-      return failedEnvelope(envelopeBase, [activationFailureReason]);
+      return failedEnvelope(envelopeBase, [activationFailureReason], doc);
     }
 
     const mybetsRoot = doc.querySelector(SELECTORS.root);
     if (!mybetsRoot) {
-      return failedEnvelope(envelopeBase, ['MYBETS_ROOT_NOT_FOUND']);
+      return failedEnvelope(envelopeBase, ['MYBETS_ROOT_NOT_FOUND'], doc);
     }
 
     const seenTickets = new Map();
@@ -902,7 +1034,9 @@
 
     const statusReasons = [
       'SYSTEM_SETTLEMENT_BREAKDOWN_SELECTOR_UNVERIFIED',
-      'ONLY_WON_LOST_OUTCOMES_RECOGNIZED_SO_FAR',
+      'ONLY_WON_LOST_CANCELLED_OUTCOMES_RECOGNIZED_SO_FAR',
+      'TICKET_LEVEL_VOID_INFERENCE_DISABLED_PENDING_REAL_EVIDENCE',
+      'DATE_RANGE_DISPLAY_SELECTOR_UNVERIFIED',
     ];
     if (duplicateTicketsSkipped > 0) statusReasons.push('DUPLICATE_TICKET_IDS_SKIPPED');
     statusReasons.push(`PAGINATION_STOPPED_${stoppedReason}`);
@@ -945,6 +1079,8 @@
         ...envelopeBase,
         capture_status: captureStatus,
         capture_status_reasons: statusReasons,
+        capture_scope: 'USER_SELECTED_DATE_RANGE',
+        date_range: readDateRange(doc),
         coverage: {
           pages_available: pagesAvailable,
           pages_visited: pagesVisited,
@@ -971,6 +1107,7 @@
     PARSER_VERSION,
     SELECTORS,
     SYSTEM_SETTLEMENT_SELECTORS,
+    DATE_RANGE_SELECTORS,
   };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

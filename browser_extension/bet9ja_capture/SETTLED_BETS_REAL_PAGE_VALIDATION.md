@@ -107,14 +107,101 @@ from the confirmed shapes above)
   ever disagree in a way this parser should reconcile (e.g. a voided leg
   in an otherwise-won system ticket) -- not yet observed.
 
-### Recommendation for Round 2
+### Recommendation for Round 1 (superseded by Round 2's own results below)
 
-Run this module against the real, authenticated 191-page account (a
-representative subset first, e.g. the first ~5 pages, is a reasonable
-initial check before a full run given the page count) and report the same
-kind of reconciliation table TICKET_REAL_PAGE_VALIDATION.md's Round 5/6
-used: pages visited vs. available, tickets seen/parsed/unresolved,
-duplicate/conflicting IDs, and any leg or ticket that resolved
-`UNRESOLVED` for a reason other than an outcome word this round didn't
-yet cover -- so any real gap traces to a specific page/ticket rather than
-being inferred from the aggregate counts alone.
+Run this module against the real, authenticated account (a representative
+subset first, e.g. the first ~5 pages, is a reasonable initial check
+before a full run) and report the same kind of reconciliation table
+TICKET_REAL_PAGE_VALIDATION.md's Round 5/6 used: pages visited vs.
+available, tickets seen/parsed/unresolved, duplicate/conflicting IDs, and
+any leg or ticket that resolved `UNRESOLVED` for a reason other than an
+outcome word this round didn't yet cover -- so any real gap traces to a
+specific page/ticket rather than being inferred from the aggregate counts
+alone.
+
+## Round 2 -- 2026-09-11 (real end-to-end capture; expansion-timeout and
+Cancelled-outcome corrections)
+
+**Status: real 23-page, 115-ticket capture run end-to-end against the
+live, authenticated account. All page and ticket totals reconciled
+exactly. Two real defects found and fixed this round; `capture_status`
+remains permanently `CAPTURE_PARTIAL` pending the still-open gaps below.**
+
+### Results
+
+| Check | Result |
+| --- | ---: |
+| Pages discovered/visited | 23 / 23 |
+| Tickets seen | 115 |
+| Tickets parsed | 102 |
+| Tickets unresolved | 13 |
+| Legs seen/parsed | 583 / 583 |
+| Unique parsed ticket IDs | 102 / 102 |
+| Ticket statuses | 76 won, 26 lost |
+| Won tickets with payout | 76 / 76 |
+| Lost tickets with null payout | 26 / 26 |
+| Sensitive-data indicators | 0 |
+
+`115 seen = 102 parsed + 13 unresolved`; `583 legs seen = 583 legs
+parsed`.
+
+### Correction to Round 1's own page-count estimate
+
+Round 1's "191 numbered pages confirmed present" was wrong -- it counted
+every pagination DOM element (including First/Previous/Next/Last-style
+controls, apparently miscounted as part of one numbered-page list), not
+genuine numbered pages. This capture's own page-by-page evidence (23
+pages, 5 ticket containers per page, exact reconciliation at every level)
+is the validated total for this capture; treat page counts going forward
+as scoped to whatever date range is selected on the page (see CAPTURE
+SCOPE / DATE RANGE in `settled_bets_parser.js`'s header comment), not the
+account's complete history.
+
+### Defect 1 -- 13 intermittent expansion timeouts (fixed)
+
+All 13 unresolved tickets (pages 3, 15, 16, 17, 20, 21, 22) failed with
+`TICKET_EXPANSION_TIMEOUT` on their first attempt, despite every
+successfully-expanded ticket parsing all of its legs cleanly -- evidence
+of an intermittent rendering-timing issue, not a settlement-parsing
+defect. Fixed via one bounded retry (collapse-or-confirm-collapsed, then
+re-expand and re-check readiness, now also requiring at least one
+candidate leg present) plus `readiness_diagnostics` on any ticket that
+still fails after the retry. Not yet re-run against the real account to
+confirm the retry actually eliminates these on a live page (unit-tested
+against synthetic markup only) -- see Round 3 recommendation below.
+
+### Defect 2 -- "Cancelled" is a real leg outcome (fixed)
+
+4 of 583 real legs, across 4 separate tickets, exposed the exact leg
+outcome text "Cancelled" -- all four for the same underlying fixture.
+Now normalized to `leg_status: 'VOID'` /
+`settlement_resolution: 'EXPLICIT_BOOKMAKER_MARKUP'`. Ticket-level VOID
+inference remains deliberately disabled -- no real voided TICKET summary
+(as opposed to a voided leg inside an otherwise Won/Lost ticket) has been
+observed.
+
+### What is still NOT confirmed
+
+- **The expansion-retry fix has not itself been re-run against the live
+  account.** This round's fix is evidence-driven (13 real timeouts, all
+  clearing on a first-attempt-fails story) but only unit-tested against
+  synthetic markup so far.
+- **System-settlement combination breakdown** -- still no confirmed
+  selector; `system_settlement` stays entirely `null`-valued.
+- **The date-range display control** -- no confirmed selector for reading
+  back the page's own currently-selected date range;
+  `date_range.from_raw`/`.to_raw` stay `null`.
+- **Outcomes beyond Won/Lost/Cancelled** -- no real example of Push, Half
+  Won, Half Lost, Cashed Out, or a voided TICKET (not just leg) has been
+  observed yet.
+- **`settled_at_raw`/`settled_at_utc`** -- still no confirmed
+  settlement-date selector distinct from `.mybets-date`.
+
+### Recommendation for Round 3
+
+Repeat one real capture. Closure criteria before the settled-bets ledger
+importer begins: 23 pages visited (or whatever the then-current date
+range and account contain), tickets seen matching the account (subject to
+change), expansion timeouts eliminated or materially reduced by the
+retry, the four cancelled legs normalizing to `VOID`, and ticket/page
+reconciliation remaining exact.
