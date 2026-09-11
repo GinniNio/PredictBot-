@@ -25,7 +25,11 @@
         cursor: default;
         opacity: 0.6;
       }
-      #status {
+      #ticket-capture-button {
+        margin-top: 8px;
+      }
+      #status,
+      #ticket-status {
         margin-top: 10px;
         font-size: 12px;
         white-space: pre-wrap;
@@ -33,22 +37,26 @@
         padding: 8px;
         display: none;
       }
-      #status.ok {
+      #status.ok,
+      #ticket-status.ok {
         display: block;
         background: #e6f4ea;
         color: #1e4620;
       }
-      #status.partial {
+      #status.partial,
+      #ticket-status.partial {
         display: block;
         background: #fff4e5;
         color: #663c00;
       }
-      #status.failed {
+      #status.failed,
+      #ticket-status.failed {
         display: block;
         background: #fdecea;
         color: #611a15;
       }
-      #status.error {
+      #status.error,
+      #ticket-status.error {
         display: block;
         background: #fdecea;
         color: #611a15;
@@ -57,6 +65,11 @@
         font-size: 11px;
         color: #555;
         margin-top: 10px;
+      }
+      hr {
+        margin: 14px 0;
+        border: none;
+        border-top: 1px solid #ddd;
       }
     </style>
   </head>
@@ -67,6 +80,14 @@
     <p class="note">
       Reads only the fixture markets visible on the current tab. Never reads cookies, tokens,
       balances, account details, or betslip contents. Makes no network requests.
+    </p>
+    <hr />
+    <button id="ticket-capture-button" type="button">Capture open bets</button>
+    <div id="ticket-status"></div>
+    <p class="note">
+      Read-only. Open pre-match tickets only -- no bet placement, no cashout, no live/Zoom/Virtual
+      tickets. Ticket-boundary selectors are unverified placeholders pending real-page validation;
+      see TICKET_REAL_PAGE_VALIDATION.md.
     </p>
   </body>
   <script src="popup.js"></script>

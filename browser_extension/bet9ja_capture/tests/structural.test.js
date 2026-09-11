@@ -66,7 +66,7 @@ test('manifest permissions are exactly activeTab, scripting, downloads -- no hos
 });
 
 test('no source file in this extension calls fetch or XMLHttpRequest', () => {
-  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js'];
+  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js'];
   for (const filename of sourceFiles) {
     const source = fs.readFileSync(path.join(ROOT, filename), 'utf-8');
     // Actual call/construction patterns only -- not a bare substring match,
@@ -78,9 +78,30 @@ test('no source file in this extension calls fetch or XMLHttpRequest', () => {
 });
 
 test('no source file in this extension reads document.cookie', () => {
-  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js'];
+  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js'];
   for (const filename of sourceFiles) {
     const source = fs.readFileSync(path.join(ROOT, filename), 'utf-8');
     assert.ok(!source.includes('document.cookie'), `${filename} must never read document.cookie`);
   }
+});
+
+test('content.js only ever (re)assigns one ticket-capture entry point, never appends to a list', () => {
+  const assignments = contentJs.match(/window\.__bet9jaTicketCaptureRun\s*=/g) || [];
+  assert.equal(assignments.length, 1, 'exactly one assignment to window.__bet9jaTicketCaptureRun expected');
+});
+
+test('popup.js registers the ticket-capture button click listener exactly once, at module load', () => {
+  const listenerMatches = popupJs.match(/ticketButton\.addEventListener\(/g) || [];
+  assert.equal(listenerMatches.length, 1, 'expected exactly one ticketButton.addEventListener call in popup.js');
+});
+
+test('popup.js has a synchronous re-entrancy guard before the first await in the ticket-capture click handler', () => {
+  const handlerStart = popupJs.indexOf("ticketButton.addEventListener('click'");
+  assert.notEqual(handlerStart, -1, 'ticket-capture click handler not found');
+  const handlerBody = popupJs.slice(handlerStart);
+  const firstAwaitIndex = handlerBody.indexOf('await ');
+  const guardIndex = handlerBody.indexOf('ticketCaptureInFlight');
+  const disableIndex = handlerBody.indexOf('ticketButton.disabled = true');
+  assert.ok(guardIndex !== -1 && guardIndex < firstAwaitIndex, 'ticketCaptureInFlight guard must appear before the first await');
+  assert.ok(disableIndex !== -1 && disableIndex < firstAwaitIndex, 'ticketButton.disabled = true must appear before the first await');
 });

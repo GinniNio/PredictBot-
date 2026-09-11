@@ -18,4 +18,16 @@
       previousIndex: previousIndex || {},
     });
   };
+
+  // Second, independent entry point for the "Capture open bets" button --
+  // injected alongside ticket_parser.js only, never together with a bet
+  // placement/cashout action. See ticket_parser.js's own header comment
+  // for scope and the fail-closed ticket-boundary contract.
+  window.__bet9jaTicketCaptureRun = function (sourceUrl, pageTitle, capturedAtUtc) {
+    return window.Bet9jaTicketCapture.captureFromDocument(document, {
+      sourceUrl,
+      pageTitle,
+      capturedAtUtc,
+    });
+  };
 })();
