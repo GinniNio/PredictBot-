@@ -106,3 +106,73 @@ one open pre-match single, upload the resulting JSON (or the
 the result here as Round 1 — following exactly the round-by-round,
 evidence-only correction discipline `REAL_PAGE_VALIDATION.md` used for
 fixture capture. Do not guess at a selector fix ahead of that evidence.
+
+## Round 1 — 2026-09-11
+
+**Tester-supplied facts** (from two downloaded capture JSON files, both
+against the real, authenticated My Bets page):
+
+| Field | Value | Source |
+|---|---|---|
+| Source URL | `https://sports.bet9ja.com/myBets/` | Both capture JSON files' `source_url` |
+| Capture 1 timestamp | 2026-09-11T15:03:30.108Z | `8579e84d-bet9jaopenbets20260911T150330Z.json` |
+| Capture 2 timestamp | 2026-09-11T15:03:45.270Z | `e03002df-bet9jaopenbets20260911T150345Z.json` |
+| Time between captures | 15.16 seconds | Difference of the two `captured_at_utc` values |
+
+**Result: FAILED, correctly — exactly the predicted Round-0 outcome.**
+
+Both captures returned:
+```json
+{
+  "capture_status": "CAPTURE_FAILED",
+  "capture_status_reasons": ["TICKET_SELECTORS_UNVERIFIED_PLACEHOLDER", "NO_TICKETS_FOUND"],
+  "coverage": { "tickets_seen": 0, "tickets_parsed": 0, "tickets_unresolved": 0, "tickets_expected_excluded": 0, "legs_seen": 0, "legs_parsed": 0 },
+  "tickets": [], "unresolved_tickets": [], "excluded_tickets": []
+}
+```
+
+Confirmed directly from the two JSON files:
+- The extension loaded, ran on a single click, and produced exactly one
+  download each time — no crash, no partial output.
+- `capture_status: CAPTURE_FAILED` with named reasons
+  (`TICKET_SELECTORS_UNVERIFIED_PLACEHOLDER`, `NO_TICKETS_FOUND`) — no
+  ticket was ever falsely reported as captured (`tickets: []`,
+  `tickets_parsed: 0`).
+- `tickets`, `unresolved_tickets`, and `excluded_tickets` are all empty —
+  nothing invented, nothing partially admitted. This is the fail-closed
+  contract working exactly as designed: `TICKET_SELECTORS.root`/`.ticket`
+  matched nothing on the real My Bets page, so the parser correctly
+  reported total failure rather than guessing at a boundary.
+- `coverage.tickets_seen (0) = tickets_parsed (0) + tickets_unresolved (0)
+  + tickets_expected_excluded (0)` — the row-accounting invariant holds
+  even in the zero-ticket case.
+- `source_url` sanitized correctly (`https://sports.bet9ja.com/myBets/`,
+  no query string or fragment).
+- No account balance, credentials, cookie, or unrelated page content
+  appears anywhere in either file.
+
+**What this round does NOT yet tell us:** whether the account actually had
+an open pre-match ticket showing on that page at capture time. A
+`NO_TICKETS_FOUND` failure is consistent with either (a) the real page
+using different markup than `TICKET_SELECTORS` guesses, or (b) there being
+no open ticket at all to find. Round 1 cannot distinguish these — that
+distinction needs either confirmation that an open ticket was visible on
+screen at capture time, or (preferably, per the fixture-capture precedent)
+a live DOM inspection of the My Bets page's actual markup, the same way
+the date-heading fix in `REAL_PAGE_VALIDATION.md` round 4 came from the
+user's own live inspection rather than another guess.
+
+### Recommendation for Round 2
+
+Before guessing at a `TICKET_SELECTORS` fix: confirm at least one open
+pre-match ticket was visibly rendered on `https://sports.bet9ja.com/myBets/`
+at capture time, then supply either (a) a sanitized HTML sample of that
+ticket's markup (redacting stake/odds values is fine — only the structure
+matters), or (b) the output of a browser DevTools inspection identifying:
+the ticket container element and how it's identified (class, `id`, or
+`data-*` attribute), the ticket-id text location, each leg's home/away/
+market/selection/odds elements, and whether legs carry the same
+`_event-{id}`-style identity marker confirmed on the fixtures page. Do not
+guess a fix from the failure alone — this is exactly the same "no more
+guessing without evidence" line the fixture-capture parser held after its
+own two wrong date-heading guesses.
