@@ -171,5 +171,43 @@ class ValidationTests(unittest.TestCase):
             self.assertEqual(errors, [], f"{filename}: {errors}")
 
 
+class GitignoreTests(unittest.TestCase):
+    """Contract: operational files stay outside Git -- schemas, examples,
+    and tooling are committed; real *.jsonl ledger data and generated CSV
+    exports are not, regardless of which directory an operator points
+    --dir at."""
+
+    def _is_ignored(self, relative_path: str) -> bool:
+        import subprocess
+
+        result = subprocess.run(
+            ["git", "check-ignore", "--quiet", relative_path], cwd=REPO_ROOT, capture_output=True
+        )
+        return result.returncode == 0
+
+    def test_any_jsonl_file_anywhere_is_gitignored(self):
+        self.assertTrue(self._is_ignored("ledger_data/forecast-ledger.jsonl"))
+        self.assertTrue(self._is_ignored("some/other/path/betting-ledger.jsonl"))
+
+    def test_default_csv_export_directory_is_gitignored(self):
+        self.assertTrue(self._is_ignored("ledger_data/csv/forecasts.csv"))
+
+    def test_committed_schemas_and_examples_are_never_ignored(self):
+        self.assertFalse(self._is_ignored("ledgers/schemas/forecast_ledger.v1.schema.json"))
+        self.assertFalse(self._is_ignored("ledgers/schemas/betting_ledger.v1.schema.json"))
+        self.assertFalse(self._is_ignored("ledgers/examples/forecast_example.json"))
+        self.assertFalse(self._is_ignored("ledgers/examples/ticket_example.json"))
+
+    def test_committed_tooling_modules_are_never_ignored(self):
+        for module in ("forecast_ledger.py", "betting_ledger.py", "money.py", "storage.py", "cli.py"):
+            self.assertFalse(self._is_ignored(f"ledgers/{module}"))
+
+    def test_existing_committed_csv_fixtures_are_not_caught_by_a_blanket_rule(self):
+        # Guards against a future edit tightening the CSV ignore rule to
+        # a blanket *.csv, which would silently stop tracking this
+        # repo's real, already-committed CSV test fixtures.
+        self.assertFalse(self._is_ignored("tests/fixtures/football_data/season_1920_with_kickoff.csv"))
+
+
 if __name__ == "__main__":
     unittest.main()

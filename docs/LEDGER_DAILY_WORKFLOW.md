@@ -91,7 +91,15 @@ ledger.
    staked, referencing each leg's `forecast_id`. Nothing is ever placed
    into the betting ledger that doesn't already have a forecast-ledger
    record — a ticket leg with no matching `forecast_id` is a data-entry
-   mistake to fix, not something to paper over.
+   mistake to fix, not something to paper over. A leg referencing a
+   forecast whose `stop_reason` is set is **rejected outright** — never
+   placed, no matter what `classification` or `operator_decision` the
+   forecast itself carries; a STOP is structural, not a suggestion.
+   Every stake, odds, and return value in a ticket JSON file must be
+   written as a **decimal string** (`"10.00"`, never `10.0`) — a JSON
+   number silently becomes a binary float in most parsers, and this
+   package refuses that outright rather than accept a value that can't
+   be trusted to the cent.
 8. **Import results and score both ledgers separately** once matches
    finish: `ledgers.cli record-result <forecast_id> <H|D|A>` scores the
    forecast (Brier score, log loss, opening-vs-closing market
@@ -100,6 +108,13 @@ ledger.
    These are two different numbers about two different things — a ticket
    can win money on a poorly-calibrated forecast, or lose money on a
    well-calibrated one — and this workflow never conflates them.
+   Settlement is a one-time transition: re-running the same
+   `record-result`/`settle-ticket` command with the same input is a safe
+   no-op, but a DIFFERENT result/leg-outcome for an already-scored
+   forecast or an already-settled ticket is refused, never silently
+   overwritten — and a ticket already `VOIDED` or `CASHED_OUT` cannot
+   then be `SETTLED` (or vice versa); once a ticket reaches any one
+   terminal state, it stays there.
 9. **Regenerate the CSV views** (`ledgers.cli export-csv`) whenever you
    want to look at the day's (or the running) ledger state in Excel.
    These files are always fully regenerated, never hand-edited, and
@@ -125,7 +140,11 @@ truth. The ledgers structurally rule each one out:
 - **One generated operator summary per batch.** `daily_batch_summary`
   returns a single dict for a `batch_id`, computed fresh from the
   ledgers each time it's called — never several overlapping report
-  versions appended together.
+  versions appended together. Its `tickets` totals (`total_staked`/
+  `total_returned`/`total_profit_loss`) are aggregated ONCE PER
+  `ticket_id`, exactly like `tickets.csv`'s one row per ticket — a
+  multi-leg or system ticket never inflates these totals by its leg or
+  combination count.
 
 ## What this workflow does not do (yet)
 
@@ -160,10 +179,10 @@ python -m ledgers.cli place-ticket ledgers/examples/ticket_example.json
 # Once the match result is known
 python -m ledgers.cli record-result <forecast_id> H --closing-odds '{"H":1.8,"D":3.5,"A":4.5}'
 
-# Once the ticket settles
+# Once the ticket settles (--actual-return is a decimal STRING, never a float)
 python -m ledgers.cli settle-ticket <ticket_id> SETTLED --leg-results '[{"leg_index":0,"outcome":"WON"}]'
 python -m ledgers.cli settle-ticket <ticket_id> VOIDED --reason "bookmaker cancelled"
-python -m ledgers.cli settle-ticket <ticket_id> CASHED_OUT --actual-return 15.0
+python -m ledgers.cli settle-ticket <ticket_id> CASHED_OUT --actual-return "15.00"
 
 # Inspect
 python -m ledgers.cli validate

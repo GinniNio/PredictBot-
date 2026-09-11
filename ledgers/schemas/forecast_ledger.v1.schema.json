@@ -15,10 +15,10 @@
   },
   "event_payloads": {
     "RECORDED": {
+      "description": "model_probabilities/model_version/artifact_hash/input_hash/output_hash are ALL nullable together -- a STOP-rejected candidate that never had a model run on it is recorded with every one of these null, never a fabricated placeholder. When model_probabilities is non-null, model_version/artifact_hash/output_hash MUST also be non-null (provenance is mandatory alongside any real probability -- enforced in code by forecast_ledger.py's _require_model_provenance, not just documented here).",
       "required": [
         "created_at_utc", "fixture_id", "sport", "league", "kickoff_utc",
-        "market_type", "offered_odds", "model_probabilities", "model_version",
-        "artifact_hash", "input_hash", "output_hash", "classification"
+        "market_type", "offered_odds", "classification"
       ],
       "properties": {
         "created_at_utc": {"type": "string", "format": "date-time"},
@@ -32,18 +32,18 @@
           "required": ["H", "D", "A"],
           "properties": {"H": {"type": "number"}, "D": {"type": "number"}, "A": {"type": "number"}}
         },
+        "market_devig_probabilities": {"type": ["object", "null"]},
         "model_probabilities": {
-          "type": "object",
+          "type": ["object", "null"],
           "required": ["H", "D", "A"],
           "properties": {"H": {"type": "number"}, "D": {"type": "number"}, "A": {"type": "number"}}
         },
-        "model_version": {"type": "string"},
-        "artifact_hash": {"type": "string"},
-        "input_hash": {"type": "string"},
-        "output_hash": {"type": "string"},
+        "model_version": {"type": ["string", "null"]},
+        "artifact_hash": {"type": ["string", "null"]},
+        "input_hash": {"type": ["string", "null"]},
+        "output_hash": {"type": ["string", "null"]},
         "classification": {"type": "string"},
         "selection_status": {"type": "string", "enum": ["considered", "shortlisted", "placed", "skipped"], "default": "considered"},
-        "market_probabilities": {"type": ["object", "null"]},
         "batch_id": {"type": ["string", "null"]},
         "capture_id": {"type": ["string", "null"]},
         "source": {"type": ["string", "null"]},

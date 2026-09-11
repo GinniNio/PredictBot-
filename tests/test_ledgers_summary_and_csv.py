@@ -1,5 +1,6 @@
 """Tests for ledgers/summary.py and ledgers/csv_export.py: the STOP-
-exclusion invariant, one summary per batch, and derived CSV views."""
+exclusion invariant, one summary per batch, ticket totals aggregated
+once per ticket_id, and derived CSV views."""
 
 from __future__ import annotations
 
@@ -8,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -18,23 +20,21 @@ from ledgers import betting_ledger, csv_export, forecast_ledger, summary
 
 
 def _record(fc_path, fixture_id, batch_id, stop_reason=None, selection_status="considered"):
-    event = forecast_ledger.build_recorded_event(
+    kwargs = dict(
         fixture_id=fixture_id,
         sport="soccer",
         league="E0",
         kickoff_utc="2024-01-01T14:00:00+00:00",
         market_type="1X2",
         offered_odds={"H": 1.9, "D": 3.4, "A": 4.2},
-        model_probabilities={"H": 0.0, "D": 0.0, "A": 0.0} if stop_reason else {"H": 0.5, "D": 0.3, "A": 0.2},
-        model_version="v1",
-        artifact_hash="h",
-        input_hash="h",
-        output_hash="h",
         classification="RESEARCH-MODEL",
         batch_id=batch_id,
         stop_reason=stop_reason,
         selection_status=selection_status,
     )
+    if stop_reason is None:
+        kwargs.update(model_probabilities={"H": 0.5, "D": 0.3, "A": 0.2}, model_version="v1", artifact_hash="h", input_hash="h", output_hash="h")
+    event = forecast_ledger.build_recorded_event(**kwargs)
     forecast_ledger.append_recorded(fc_path, event)
     return event["forecast_id"]
 
@@ -75,6 +75,47 @@ class SummaryTests(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertIn("fixtures_captured", result)
 
+    def test_ticket_totals_aggregated_once_per_ticket_id_not_per_leg(self):
+        # A single 3-leg SYSTEM ticket (multiple legs, multiple
+        # combinations) must contribute its total_stake/actual_return/
+        # profit_loss to the summary exactly ONCE -- never once per leg
+        # and never once per combination.
+        fc1 = _record(self.fc_path, "f1", "batch-1")
+        fc2 = _record(self.fc_path, "f2", "batch-1")
+        fc3 = _record(self.fc_path, "f3", "batch-1")
+        legs = [
+            {"forecast_id": fc1, "fixture_id": "f1", "market_type": "1X2", "selection": "H", "placed_odds": "2.0"},
+            {"forecast_id": fc2, "fixture_id": "f2", "market_type": "1X2", "selection": "H", "placed_odds": "2.0"},
+            {"forecast_id": fc3, "fixture_id": "f3", "market_type": "1X2", "selection": "H", "placed_odds": "2.0"},
+        ]
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM", unit_stake="1.00", max_return="9999", currency="NGN", legs=legs, system_sizes=[2, 3]
+        )
+        betting_ledger.append_placed(self.bet_path, event)
+        betting_ledger.settle_computed(self.bet_path, event["ticket_id"], [{"leg_index": i, "outcome": "WON"} for i in range(3)])
+
+        result = summary.daily_batch_summary(self.fc_path, self.bet_path, "batch-1")
+        self.assertEqual(result["tickets"]["tickets_linked"], 1)  # one ticket, not 3 (one per leg)
+        self.assertEqual(Decimal(result["tickets"]["total_staked"]), Decimal("4.00"))  # 1.00 * 4 combos, once
+        self.assertEqual(Decimal(result["tickets"]["total_returned"]), Decimal("20.00"))
+
+    def test_ticket_totals_never_double_counted_when_linked_by_multiple_legs(self):
+        # A ticket with TWO legs both belonging to the same batch must
+        # still be counted once, not twice, in tickets_linked/total_staked.
+        fc1 = _record(self.fc_path, "f1", "batch-1")
+        fc2 = _record(self.fc_path, "f2", "batch-1")
+        legs = [
+            {"forecast_id": fc1, "fixture_id": "f1", "market_type": "1X2", "selection": "H", "placed_odds": "1.9"},
+            {"forecast_id": fc2, "fixture_id": "f2", "market_type": "1X2", "selection": "H", "placed_odds": "2.0"},
+        ]
+        event = betting_ledger.build_placed_event(
+            ticket_type="DOUBLE", unit_stake="10.00", max_return="100.00", currency="NGN", legs=legs
+        )
+        betting_ledger.append_placed(self.bet_path, event)
+        result = summary.daily_batch_summary(self.fc_path, self.bet_path, "batch-1")
+        self.assertEqual(result["tickets"]["tickets_linked"], 1)
+        self.assertEqual(Decimal(result["tickets"]["total_staked"]), Decimal("10.00"))
+
 
 class CsvExportTests(unittest.TestCase):
     def setUp(self):
@@ -104,12 +145,12 @@ class CsvExportTests(unittest.TestCase):
     def test_tickets_csv_and_ticket_legs_csv(self):
         event = betting_ledger.build_placed_event(
             ticket_type="DOUBLE",
-            unit_stake=10.0,
-            max_return=100.0,
+            unit_stake="10.00",
+            max_return="100.00",
             currency="NGN",
             legs=[
-                {"forecast_id": "fc_a", "fixture_id": "f1", "market_type": "1X2", "selection": "H", "placed_odds": 1.9},
-                {"forecast_id": "fc_b", "fixture_id": "f2", "market_type": "1X2", "selection": "A", "placed_odds": 2.0},
+                {"forecast_id": "fc_a", "fixture_id": "f1", "market_type": "1X2", "selection": "H", "placed_odds": "1.9"},
+                {"forecast_id": "fc_b", "fixture_id": "f2", "market_type": "1X2", "selection": "A", "placed_odds": "2.0"},
             ],
         )
         betting_ledger.append_placed(self.bet_path, event)
@@ -125,10 +166,15 @@ class CsvExportTests(unittest.TestCase):
         with (self.out_dir / "ticket_legs.csv").open() as f:
             leg_rows = list(csv.DictReader(f))
 
-        self.assertEqual(len(ticket_rows), 1)
+        self.assertEqual(len(ticket_rows), 1)  # one row per ticket, total_stake counted exactly once
         self.assertEqual(ticket_rows[0]["status"], "SETTLED")
+        self.assertEqual(Decimal(ticket_rows[0]["total_stake"]), Decimal("10.00"))
         self.assertEqual(len(leg_rows), 2)
         self.assertEqual({r["outcome"] for r in leg_rows}, {"WON"})
+        # ticket_legs.csv carries no stake/return column at all -- money
+        # totals live exactly once, on the tickets.csv row.
+        self.assertNotIn("total_stake", csv_export.TICKET_LEGS_CSV_COLUMNS)
+        self.assertNotIn("actual_return", csv_export.TICKET_LEGS_CSV_COLUMNS)
 
     def test_export_all_writes_every_view(self):
         _record(self.fc_path, "f1", "batch-1")

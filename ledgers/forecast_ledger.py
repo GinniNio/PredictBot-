@@ -14,14 +14,32 @@ list):
   re-importing the same forecast JSON is a safe no-op
   (``storage.append_if_new``); importing DIFFERENT content under the same
   ``(fixture_id, market_type, model_version)`` natural key is refused as a
-  conflict, never silently overwritten.
+  conflict, never silently overwritten. ``model_probabilities`` is
+  NULLABLE -- a STOP-rejected candidate that never had a model run on it
+  is recorded with ``model_probabilities: null``, never a fabricated
+  all-zero (or any other) probability distribution. WHEN
+  ``model_probabilities`` is present, ``model_version``/``artifact_hash``/
+  ``output_hash`` must also be present (provenance is mandatory alongside
+  any real probability -- see ``_require_model_provenance``); this
+  package never lets a forecast's mere presence in the ledger imply the
+  model that produced it is admitted, registered, or promotable --
+  ``classification`` is passed through byte-for-byte from the caller,
+  never inferred or upgraded from whether probabilities/provenance are
+  present.
 - ``SELECTION_UPDATED`` -- the operator's own considered/shortlisted/
-  placed/skipped decision, changed over the forecast's lifecycle.
+  placed/skipped decision, changed over the forecast's lifecycle. Never
+  gated for idempotency (unlike RECORDED/SCORED) because a real sequence
+  of distinct selection changes over time is expected, not a duplicate
+  import of the same one.
 - ``SCORED`` -- appended once the real result is known: Brier score, log
   loss (``ledgers/scoring.py``, self-contained, never imported from the
   research backtest module), and an opening-vs-closing market comparison
   reusing the already-reviewed pricing engine (read-only import, registers
-  nothing).
+  nothing). A ONE-TIME lifecycle transition
+  (``storage.append_terminal_if_new``): re-scoring with the identical
+  result/closing-odds input is a safe no-op (never a duplicated score);
+  re-scoring with a DIFFERENT result or closing odds is refused as a
+  conflict, never silently overwriting the original score.
 
 This module never trains, modifies, registers, or reclassifies a model --
 it only records and scores forecasts a model already produced.
@@ -42,7 +60,15 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 from ledgers import ids, scoring
-from ledgers.storage import AppendResult, append_always, append_if_new, all_entity_ids, latest_state, read_all
+from ledgers.storage import (
+    AppendResult,
+    all_entity_ids,
+    append_event,
+    append_if_new,
+    append_terminal_if_new,
+    latest_state,
+    read_all,
+)
 
 SCHEMA_VERSION = "1.0.0"
 SCHEMA_NAME = "forecast_ledger.v1"
@@ -50,6 +76,8 @@ SCHEMA_NAME = "forecast_ledger.v1"
 EVENT_RECORDED = "RECORDED"
 EVENT_SELECTION_UPDATED = "SELECTION_UPDATED"
 EVENT_SCORED = "SCORED"
+
+TERMINAL_EVENTS = {EVENT_SCORED}
 
 SELECTION_STATUSES = ("considered", "shortlisted", "placed", "skipped")
 
@@ -60,6 +88,32 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _require_model_provenance(
+    model_probabilities: dict[str, float] | None,
+    model_version: str | None,
+    artifact_hash: str | None,
+    output_hash: str | None,
+) -> None:
+    """Ledger-level guardrail: a real model_probabilities value must never
+    be recorded without knowing which model/version/artifact produced
+    it. Never enforced the other way around -- a STOP-rejected candidate
+    with no model run at all legitimately has every one of these fields
+    null."""
+
+    if model_probabilities is None:
+        return
+    missing = [
+        name
+        for name, value in (("model_version", model_version), ("artifact_hash", artifact_hash), ("output_hash", output_hash))
+        if not value
+    ]
+    if missing:
+        raise ValueError(
+            f"model_probabilities was supplied but provenance field(s) {missing} were not -- "
+            "a real probability must always carry model_version/artifact_hash/output_hash."
+        )
+
+
 def build_recorded_event(
     *,
     fixture_id: str,
@@ -68,12 +122,12 @@ def build_recorded_event(
     kickoff_utc: str,
     market_type: str,
     offered_odds: dict[str, float],
-    model_probabilities: dict[str, float],
-    model_version: str,
-    artifact_hash: str,
-    input_hash: str,
-    output_hash: str,
     classification: str,
+    model_probabilities: dict[str, float] | None = None,
+    model_version: str | None = None,
+    artifact_hash: str | None = None,
+    input_hash: str | None = None,
+    output_hash: str | None = None,
     created_at_utc: str | None = None,
     selection_status: str = "considered",
     batch_id: str | None = None,
@@ -86,7 +140,11 @@ def build_recorded_event(
 ) -> dict[str, Any]:
     """Build (never appends) one RECORDED event. ``forecast_id`` is
     derived deterministically from ``(fixture_id, market_type,
-    model_version)`` -- see ``ledgers/ids.py``.
+    model_version)`` -- see ``ledgers/ids.py`` (``model_version`` defaults
+    to the literal string ``"no_model"`` in the natural key when no model
+    ran at all, e.g. a STOP-rejected candidate, so its forecast_id is
+    still stable and distinct from a real model's forecast for the same
+    fixture/market).
 
     ``batch_id``/``capture_id``/``source``/``captured_at_utc`` trace a
     forecast back to the capture session (e.g. a manual Bet9ja JSON
@@ -97,18 +155,21 @@ def build_recorded_event(
     jurisdictional STOP) before or instead of a full forecast score --
     such a record is still written (every candidate is recorded, STOP or
     not) but MUST be excluded from any ranked/candidate view (see
-    ``ledgers/summary.py::ranked_forecasts``). ``operator_decision`` is
+    ``ledgers/summary.py::ranked_forecasts``) and from ticket legs (see
+    ``betting_ledger.check_legs_not_stopped``). ``operator_decision`` is
     the human's own recorded judgement, distinct from the mechanical
-    ``selection_status`` pipeline stage. ``market_probabilities`` is
-    computed here (never taken from the caller) via the already-reviewed
-    pricing engine, read-only, from ``offered_odds`` -- ``None`` (with an
-    error code, never a crash) if ``offered_odds`` is not a valid,
-    complete market."""
+    ``selection_status`` pipeline stage -- and never a way to bypass the
+    STOP-to-ticket check, which reads ``stop_reason`` alone.
+    ``market_devig_probabilities`` is computed here (never taken from the
+    caller) via the already-reviewed pricing engine, read-only, from
+    ``offered_odds`` -- ``None`` (with an error code, never a crash) if
+    ``offered_odds`` is not a valid, complete market."""
 
     if selection_status not in SELECTION_STATUSES:
         raise ValueError(f"selection_status must be one of {SELECTION_STATUSES}, got {selection_status!r}")
+    _require_model_provenance(model_probabilities, model_version, artifact_hash, output_hash)
 
-    fc_id = ids.forecast_id(fixture_id, market_type, model_version)
+    fc_id = ids.forecast_id(fixture_id, market_type, model_version or "no_model")
     payload: dict[str, Any] = {
         "created_at_utc": created_at_utc or _now_utc(),
         "fixture_id": fixture_id,
@@ -117,7 +178,7 @@ def build_recorded_event(
         "kickoff_utc": kickoff_utc,
         "market_type": market_type,
         "offered_odds": offered_odds,
-        "market_probabilities": _fair_probabilities(offered_odds),
+        "market_devig_probabilities": _fair_probabilities(offered_odds),
         "model_probabilities": model_probabilities,
         "model_version": model_version,
         "artifact_hash": artifact_hash,
@@ -143,11 +204,14 @@ def build_recorded_event(
 
 
 def _fair_probabilities(offered_odds: dict[str, float]) -> dict[str, Any] | None:
-    """De-vigged fair H/D/A probabilities from ``offered_odds``, reusing
-    the already-reviewed pricing engine (read-only import; registers
-    nothing, touches no adapter dispatch table). ``None`` (with an error
-    code) rather than a crash when ``offered_odds`` is missing or not a
-    valid, complete market -- a forecast is still recorded either way."""
+    """De-vigged fair H/D/A probabilities from ``offered_odds`` -- named
+    explicitly as MARKET's own de-vigged probability, never the
+    ambiguous "market_probability" (which could be misread as an offered/
+    implied price rather than a de-vigged fair one). Reuses the already-
+    reviewed pricing engine (read-only import; registers nothing, touches
+    no adapter dispatch table). ``None`` (with an error code) rather than
+    a crash when ``offered_odds`` is missing or not a valid, complete
+    market -- a forecast is still recorded either way."""
 
     from pcbf_calculator.pricing.engine import PricingFailure, analyze_market
 
@@ -162,9 +226,12 @@ def _fair_probabilities(offered_odds: dict[str, float]) -> dict[str, Any] | None
 
 def append_recorded(ledger_path: Path, event: dict[str, Any]) -> AppendResult:
     """Idempotently append a RECORDED event built by
-    ``build_recorded_event``."""
+    ``build_recorded_event``. Ignores ``created_at_utc`` when comparing
+    against an existing record: two independent builds of the same
+    logical forecast, neither passing ``created_at_utc`` explicitly (it
+    then defaults to "now"), must still compare as the same forecast."""
 
-    return append_if_new(ledger_path, event, id_field="forecast_id")
+    return append_if_new(ledger_path, event, id_field="forecast_id", ignore_keys_in_payload_comparison=frozenset({"created_at_utc"}))
 
 
 def append_selection_updated(
@@ -181,7 +248,7 @@ def append_selection_updated(
         payload["note"] = note
     if operator_decision is not None:
         payload["operator_decision"] = operator_decision
-    append_always(
+    append_event(
         ledger_path,
         {
             "schema_version": SCHEMA_VERSION,
@@ -211,8 +278,8 @@ def _market_comparison(offered_odds: dict[str, float], closing_odds: dict[str, f
         return {"error": exc.code}
 
     return {
-        "opening_fair_probabilities": {o["outcome"]: o["fair_probability"] for o in opening["outcomes"]},
-        "closing_fair_probabilities": {o["outcome"]: o["fair_probability"] for o in closing["outcomes"]},
+        "opening_market_devig_probabilities": {o["outcome"]: o["fair_probability"] for o in opening["outcomes"]},
+        "closing_market_devig_probabilities": {o["outcome"]: o["fair_probability"] for o in closing["outcomes"]},
         "opening_bookmaker_margin": opening["bookmaker_margin"],
         "closing_bookmaker_margin": closing["bookmaker_margin"],
     }
@@ -223,20 +290,28 @@ def score_and_append(
     forecast_id: str,
     actual_result: str,
     closing_odds: dict[str, float] | None = None,
-) -> dict[str, Any]:
+) -> AppendResult:
     """Compute Brier score and log loss for ``forecast_id`` from its own
     RECORDED ``model_probabilities`` against ``actual_result``, build the
     opening-vs-closing market comparison when ``closing_odds`` is given,
-    and append the SCORED event. Raises ``KeyError`` if ``forecast_id`` has
-    no RECORDED event yet -- never fabricates one."""
+    and append the SCORED event -- a ONE-TIME lifecycle transition (see
+    ``storage.append_terminal_if_new``): re-running this with the
+    identical ``actual_result``/``closing_odds`` is a safe no-op
+    (``DUPLICATE_SKIPPED``); a DIFFERENT result or closing odds is
+    refused (``CONFLICT``), never silently re-scored. Raises ``KeyError``
+    if ``forecast_id`` has no RECORDED event at all, and ``ValueError``
+    if it does but has no ``model_probabilities`` to score (e.g. a
+    STOP-rejected candidate) -- never fabricates a score."""
 
     if actual_result not in scoring.CLASS_ORDER:
         raise ValueError(f"actual_result must be one of {scoring.CLASS_ORDER}, got {actual_result!r}")
 
     records = read_all(ledger_path)
     state = latest_state(records, "forecast_id", forecast_id)
-    if "model_probabilities" not in state:
+    if "fixture_id" not in state:
         raise KeyError(f"forecast_id {forecast_id!r} has no RECORDED event in {ledger_path}")
+    if state.get("model_probabilities") is None:
+        raise ValueError(f"forecast_id {forecast_id!r} has no model_probabilities to score (model_probabilities is null)")
 
     probabilities = state["model_probabilities"]
     brier = scoring.multiclass_brier(probabilities, actual_result)
@@ -257,8 +332,7 @@ def score_and_append(
             "settled_at_utc": _now_utc(),
         },
     }
-    append_always(ledger_path, event)
-    return event
+    return append_terminal_if_new(ledger_path, event, id_field="forecast_id", terminal_event_types=TERMINAL_EVENTS)
 
 
 def current_state(ledger_path: Path, forecast_id: str) -> dict[str, Any]:

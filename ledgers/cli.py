@@ -35,7 +35,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from ledgers import betting_ledger, csv_export, forecast_ledger, summary, validation
-from ledgers.storage import APPENDED, CONFLICT, DUPLICATE_SKIPPED
+from ledgers.storage import APPENDED, DUPLICATE_SKIPPED, NOT_YET_PLACED
 
 DEFAULT_LEDGER_DIR = Path("ledger_data")
 
@@ -82,12 +82,16 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 
 def _report_append(result) -> int:
+    entity_id = result.record.get("forecast_id") or result.record.get("ticket_id")
     if result.status == APPENDED:
-        print(f"Appended {result.record['event_type']} for {result.record.get('forecast_id') or result.record.get('ticket_id')}")
+        print(f"Appended {result.record['event_type']} for {entity_id}")
         return 0
     if result.status == DUPLICATE_SKIPPED:
         print("Duplicate of an existing record -- skipped (idempotent re-import).")
         return 0
+    if result.status == NOT_YET_PLACED:
+        print(f"REJECTED: {entity_id} has no PLACED event yet -- cannot settle a ticket that was never placed.")
+        return 2
     print("CONFLICT: a record with this id and event_type already exists with DIFFERENT content.")
     print(f"  existing: {json.dumps(result.conflicting_record, sort_keys=True)}")
     print(f"  new:      {json.dumps(result.record, sort_keys=True)}")
@@ -111,15 +115,24 @@ def _cmd_update_selection(args: argparse.Namespace) -> int:
 
 def _cmd_record_result(args: argparse.Namespace) -> int:
     closing_odds = json.loads(args.closing_odds) if args.closing_odds else None
-    event = forecast_ledger.score_and_append(_forecast_path(args.dir), args.forecast_id, args.result, closing_odds)
-    print(f"Appended SCORED for {args.forecast_id}: brier={event['payload']['brier_score']:.4f} log_loss={event['payload']['log_loss']:.4f}")
-    return 0
+    result = forecast_ledger.score_and_append(_forecast_path(args.dir), args.forecast_id, args.result, closing_odds)
+    if result.status == APPENDED:
+        print(
+            f"Appended SCORED for {args.forecast_id}: "
+            f"brier={result.record['payload']['brier_score']:.4f} log_loss={result.record['payload']['log_loss']:.4f}"
+        )
+        return 0
+    return _report_append(result)
 
 
 def _cmd_place_ticket(args: argparse.Namespace) -> int:
     data = json.loads(args.input.read_text(encoding="utf-8"))
     event = betting_ledger.build_placed_event(**data)
-    result = betting_ledger.append_placed(_betting_path(args.dir), event)
+    try:
+        result = betting_ledger.place_ticket_checked(_betting_path(args.dir), _forecast_path(args.dir), event)
+    except betting_ledger.StopLinkedLegError as exc:
+        print(f"REJECTED: {exc}")
+        return 2
     return _report_append(result)
 
 
@@ -127,22 +140,25 @@ def _cmd_settle_ticket(args: argparse.Namespace) -> int:
     ledger_path = _betting_path(args.dir)
     if args.event_type == "SETTLED":
         leg_results = json.loads(args.leg_results)
-        event = betting_ledger.settle_computed(ledger_path, args.ticket_id, leg_results)
+        result = betting_ledger.settle_computed(ledger_path, args.ticket_id, leg_results)
     elif args.event_type == "VOIDED":
-        event = betting_ledger.void_ticket(ledger_path, args.ticket_id, reason=args.reason)
+        result = betting_ledger.void_ticket(ledger_path, args.ticket_id, reason=args.reason)
     elif args.event_type == "CASHED_OUT":
         if args.actual_return is None:
             print("CASHED_OUT requires --actual-return")
             return 2
-        event = betting_ledger.cash_out(ledger_path, args.ticket_id, args.actual_return)
+        result = betting_ledger.cash_out(ledger_path, args.ticket_id, args.actual_return)
     else:
         print(f"Unknown event_type: {args.event_type}")
         return 2
-    print(
-        f"Appended {event['event_type']} for {args.ticket_id}: "
-        f"actual_return={event['payload']['actual_return']} profit_loss={event['payload']['profit_loss']}"
-    )
-    return 0
+
+    if result.status == APPENDED:
+        print(
+            f"Appended {result.record['event_type']} for {args.ticket_id}: "
+            f"actual_return={result.record['payload']['actual_return']} profit_loss={result.record['payload']['profit_loss']}"
+        )
+        return 0
+    return _report_append(result)
 
 
 def _cmd_export_csv(args: argparse.Namespace) -> int:
@@ -205,7 +221,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_settle_ticket.add_argument("event_type", choices=["SETTLED", "VOIDED", "CASHED_OUT"])
     p_settle_ticket.add_argument("--leg-results", dest="leg_results", default=None, help='JSON list, e.g. \'[{"leg_index":0,"outcome":"WON"}]\' (SETTLED only)')
     p_settle_ticket.add_argument("--reason", default=None, help="VOIDED only")
-    p_settle_ticket.add_argument("--actual-return", dest="actual_return", type=float, default=None, help="CASHED_OUT only")
+    p_settle_ticket.add_argument("--actual-return", dest="actual_return", type=str, default=None, help='CASHED_OUT only; a decimal string, e.g. "15.00" (never a float)')
     p_settle_ticket.set_defaults(func=_cmd_settle_ticket)
 
     p_export_csv = subparsers.add_parser("export-csv", help="Regenerate derived CSV views for Excel")

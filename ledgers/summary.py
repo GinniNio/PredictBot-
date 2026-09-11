@@ -20,6 +20,7 @@ never appear in a ranked view.
 from __future__ import annotations
 
 import sys
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from ledgers import money
 from ledgers.betting_ledger import all_ticket_ids
 from ledgers.betting_ledger import current_state as betting_current_state
 from ledgers.forecast_ledger import all_forecast_ids
@@ -55,7 +57,15 @@ def ranked_forecasts(forecast_ledger_path: Path, batch_id: str | None = None) ->
 def daily_batch_summary(forecast_ledger_path: Path, betting_ledger_path: Path, batch_id: str) -> dict[str, Any]:
     """Exactly one summary dict for ``batch_id`` -- the four totals the
     daily workflow reports, plus the batch_id itself so a caller never
-    has to guess which batch a summary describes."""
+    has to guess which batch a summary describes.
+
+    Ticket totals (``tickets_linked``/``total_staked``/``total_returned``/
+    ``total_profit_loss``) are aggregated ONCE PER ``ticket_id`` -- each
+    ticket's own PLACED ``total_stake`` and (once settled) ``actual_return``/
+    ``profit_loss`` are added exactly once, never once per leg, matching
+    the same rule the CSV export (``csv_export.export_tickets_csv``, one
+    row per ticket_id) already enforces. All money arithmetic is
+    ``Decimal`` (``ledgers/money.py``), never a binary float."""
 
     batch_states = _batch_forecast_states(forecast_ledger_path, batch_id)
     fixtures_captured = len({s["fixture_id"] for s in batch_states if s.get("fixture_id")})
@@ -67,11 +77,22 @@ def daily_batch_summary(forecast_ledger_path: Path, betting_ledger_path: Path, b
 
     ticket_states = [betting_current_state(betting_ledger_path, tk_id) for tk_id in all_ticket_ids(betting_ledger_path)]
     batch_forecast_ids = {s["forecast_id"] for s in batch_states}
+
     betting_records_written = 0
-    for ticket_state in ticket_states:
+    tickets_linked = 0
+    total_staked = Decimal(0)
+    total_returned = Decimal(0)
+    total_profit_loss = Decimal(0)
+    for ticket_state in ticket_states:  # one iteration per ticket_id -- never per leg
         legs = ticket_state.get("legs", [])
-        if any(leg.get("forecast_id") in batch_forecast_ids for leg in legs):
-            betting_records_written += ticket_state.get("_event_count", 0)
+        if not any(leg.get("forecast_id") in batch_forecast_ids for leg in legs):
+            continue
+        betting_records_written += ticket_state.get("_event_count", 0)
+        tickets_linked += 1
+        total_staked += money.to_decimal(ticket_state["total_stake"])
+        if "actual_return" in ticket_state:
+            total_returned += money.to_decimal(ticket_state["actual_return"])
+            total_profit_loss += money.to_decimal(ticket_state["profit_loss"])
 
     return {
         "batch_id": batch_id,
@@ -81,5 +102,11 @@ def daily_batch_summary(forecast_ledger_path: Path, betting_ledger_path: Path, b
         "records_written": {
             "forecast_ledger": forecast_records_written,
             "betting_ledger": betting_records_written,
+        },
+        "tickets": {
+            "tickets_linked": tickets_linked,
+            "total_staked": money.decimal_str(total_staked),
+            "total_returned": money.decimal_str(total_returned),
+            "total_profit_loss": money.decimal_str(total_profit_loss),
         },
     }
