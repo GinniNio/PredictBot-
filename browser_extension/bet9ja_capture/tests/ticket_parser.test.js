@@ -5,7 +5,7 @@ const ticketParser = require('../ticket_parser.js');
 const { BASE_CONTEXT } = require('./helpers.js');
 
 function docFromHtml(html) {
-  return new JSDOM(html).window.document;
+  return new JSDOM(html, { runScripts: 'dangerously' }).window.document;
 }
 
 function leg({ home, away, market = '1X2', selection = 'H', odds = '1.95', eventId, statusHint = '' } = {}) {
@@ -44,13 +44,13 @@ function ticket({
   `;
 }
 
-function capture(html, extraContext) {
+async function capture(html, extraContext) {
   const doc = docFromHtml(`<div class="open-bets">${html}</div>`);
   return ticketParser.captureFromDocument(doc, { ...BASE_CONTEXT, ...extraContext });
 }
 
-test('single ticket: one leg fully parsed', () => {
-  const { envelope } = capture(
+test('single ticket: one leg fully parsed', async () => {
+  const { envelope } = await capture(
     ticket({
       legs: [leg({ home: 'Arsenal', away: 'Chelsea', eventId: '832455154', odds: '1.95' })],
     })
@@ -83,19 +83,19 @@ test('single ticket: one leg fully parsed', () => {
   assert.equal(l.odds, 1.95);
 });
 
-test('fixture_id matches the fixture-capture extension\'s own scheme for the same event id', () => {
+test('fixture_id matches the fixture-capture extension\'s own scheme for the same event id', async () => {
   const parser = require('../parser.js');
   const Bet9jaIds = require('../ids.js');
   const expected = Bet9jaIds.stableId('bxf', ['external', 'bet9ja-event-832455154']);
-  const { envelope } = capture(
+  const { envelope } = await capture(
     ticket({ legs: [leg({ home: 'Arsenal', away: 'Chelsea', eventId: '832455154' })] })
   );
   assert.equal(envelope.tickets[0].legs[0].fixture_id, expected);
   assert.ok(parser.PARSER_VERSION); // sanity: both modules load independently, no shared state
 });
 
-test('accumulator ticket: multiple legs, distinct fixture ids, unambiguous SYSTEM/DOUBLE/TREBLE normalize', () => {
-  const { envelope } = capture(
+test('accumulator ticket: multiple legs, distinct fixture ids, unambiguous SYSTEM/DOUBLE/TREBLE normalize', async () => {
+  const { envelope } = await capture(
     ticket({
       ticketId: 'TCK-ACCA-1',
       type: 'Treble',
@@ -114,8 +114,8 @@ test('accumulator ticket: multiple legs, distinct fixture ids, unambiguous SYSTE
   assert.equal(ids.size, 3, 'each leg must get its own distinct fixture_id');
 });
 
-test('unrecognized ticket type (e.g. a straight all-up "Accumulator" category): raw text kept, taxonomy gap flagged, never guessed', () => {
-  const { envelope } = capture(
+test('unrecognized ticket type (e.g. a straight all-up "Accumulator" category): raw text kept, taxonomy gap flagged, never guessed', async () => {
+  const { envelope } = await capture(
     ticket({ ticketId: 'TCK-ACC-4', type: 'Accumulator', legs: [leg({ home: 'A', away: 'B', eventId: '1' }), leg({ home: 'C', away: 'D', eventId: '2' }), leg({ home: 'E', away: 'F', eventId: '3' }), leg({ home: 'G', away: 'H', eventId: '4' })] })
   );
   const t = envelope.tickets[0];
@@ -127,8 +127,8 @@ test('unrecognized ticket type (e.g. a straight all-up "Accumulator" category): 
   assert.equal(envelope.capture_status, 'CAPTURE_OK');
 });
 
-test('system ticket: normalizes to SYSTEM, all legs captured', () => {
-  const { envelope } = capture(
+test('system ticket: normalizes to SYSTEM, all legs captured', async () => {
+  const { envelope } = await capture(
     ticket({
       ticketId: 'TCK-SYS-1',
       type: 'System',
@@ -145,8 +145,8 @@ test('system ticket: normalizes to SYSTEM, all legs captured', () => {
   assert.equal(t.legs.length, 4);
 });
 
-test('two tickets, each with its own leg scan: repeated fixture across separate tickets never merges or cross-contaminates', () => {
-  const { envelope } = capture(
+test('two tickets, each with its own leg scan: repeated fixture across separate tickets never merges or cross-contaminates', async () => {
+  const { envelope } = await capture(
     ticket({ ticketId: 'TCK-A', legs: [leg({ home: 'Arsenal', away: 'Chelsea', eventId: '5001', odds: '1.90' })] }) +
       ticket({ ticketId: 'TCK-B', legs: [leg({ home: 'Arsenal', away: 'Chelsea', eventId: '5001', odds: '1.85' })] })
   );
@@ -165,7 +165,7 @@ test('two tickets, each with its own leg scan: repeated fixture across separate 
   assert.equal(b.legs[0].odds, 1.85);
 });
 
-test('expanded vs collapsed view: both find the same tickets when both are present in the DOM', () => {
+test('expanded vs collapsed view: both find the same tickets when both are present in the DOM', async () => {
   // "Collapsed" in this DOM-in/envelope-out design just means: whatever is
   // actually rendered in the DOM at capture time is what gets captured --
   // there is no confirmed real-page evidence yet for a genuinely
@@ -179,15 +179,15 @@ test('expanded vs collapsed view: both find the same tickets when both are prese
       ${ticket({ ticketId: 'TCK-EXPANDED', legs: [leg({ home: 'C', away: 'D', eventId: '9002' })] })}
     </div>
   `;
-  const { envelope } = capture(html);
+  const { envelope } = await capture(html);
   assert.equal(envelope.coverage.tickets_seen, 2);
   assert.equal(envelope.coverage.tickets_parsed, 2);
   const ids = envelope.tickets.map((t) => t.bet9ja_ticket_id).sort();
   assert.deepEqual(ids, ['TCK-COLLAPSED', 'TCK-EXPANDED']);
 });
 
-test('fail closed: a leg with missing participants voids the WHOLE ticket, not just that leg', () => {
-  const { envelope } = capture(
+test('fail closed: a leg with missing participants voids the WHOLE ticket, not just that leg', async () => {
+  const { envelope } = await capture(
     ticket({
       ticketId: 'TCK-BAD-LEG',
       legs: [
@@ -203,8 +203,8 @@ test('fail closed: a leg with missing participants voids the WHOLE ticket, not j
   assert.match(envelope.unresolved_tickets[0].detail, /leg\[1\]/);
 });
 
-test('fail closed: unparseable odds on any leg voids the whole ticket', () => {
-  const { envelope } = capture(
+test('fail closed: unparseable odds on any leg voids the whole ticket', async () => {
+  const { envelope } = await capture(
     ticket({
       legs: [leg({ home: 'Arsenal', away: 'Chelsea', eventId: '1', odds: 'n/a' })],
     })
@@ -213,21 +213,21 @@ test('fail closed: unparseable odds on any leg voids the whole ticket', () => {
   assert.equal(envelope.unresolved_tickets[0].reason, 'LEG_FAILED_TO_PARSE');
 });
 
-test('missing ticket id: never guessed a synthetic one, routed to unresolved_tickets', () => {
+test('missing ticket id: never guessed a synthetic one, routed to unresolved_tickets', async () => {
   const html = `
     <div class="ticket">
       <span class="ticket__status">OPEN</span>
       ${leg({ home: 'A', away: 'B', eventId: '1' })}
     </div>
   `;
-  const { envelope } = capture(html);
+  const { envelope } = await capture(html);
   assert.equal(envelope.tickets.length, 0);
   assert.equal(envelope.unresolved_tickets.length, 1);
   assert.equal(envelope.unresolved_tickets[0].reason, 'MISSING_TICKET_ID');
 });
 
-test('live leg excludes the whole ticket (no live tickets, per scope boundary)', () => {
-  const { envelope } = capture(
+test('live leg excludes the whole ticket (no live tickets, per scope boundary)', async () => {
+  const { envelope } = await capture(
     ticket({
       legs: [leg({ home: 'A', away: 'B', eventId: '1' }), leg({ home: 'C', away: 'D', eventId: '2', statusHint: 'LIVE' })],
     })
@@ -237,24 +237,24 @@ test('live leg excludes the whole ticket (no live tickets, per scope boundary)',
   assert.equal(envelope.excluded_tickets[0].reason, 'TICKET_EXCLUDED_LIVE_OR_VIRTUAL_OR_ZOOM_LEG');
 });
 
-test('virtual and Zoom legs are excluded the same way as live', () => {
+test('virtual and Zoom legs are excluded the same way as live', async () => {
   for (const hint of ['VIRTUAL', 'ZOOM']) {
-    const { envelope } = capture(ticket({ legs: [leg({ home: 'A', away: 'B', eventId: '1', statusHint: hint })] }));
+    const { envelope } = await capture(ticket({ legs: [leg({ home: 'A', away: 'B', eventId: '1', statusHint: hint })] }));
     assert.equal(envelope.tickets.length, 0, hint);
     assert.equal(envelope.excluded_tickets[0].reason, 'TICKET_EXCLUDED_LIVE_OR_VIRTUAL_OR_ZOOM_LEG', hint);
   }
 });
 
-test('settled/cashed-out tickets are excluded as out of scope, not treated as unresolved or errors', () => {
+test('settled/cashed-out tickets are excluded as out of scope, not treated as unresolved or errors', async () => {
   for (const status of ['SETTLED', 'WON', 'LOST', 'CASHED_OUT']) {
-    const { envelope } = capture(ticket({ status, legs: [leg({ home: 'A', away: 'B', eventId: '1' })] }));
+    const { envelope } = await capture(ticket({ status, legs: [leg({ home: 'A', away: 'B', eventId: '1' })] }));
     assert.equal(envelope.tickets.length, 0, status);
     assert.equal(envelope.excluded_tickets[0].reason, 'TICKET_STATUS_OUT_OF_SCOPE', status);
     assert.notEqual(envelope.capture_status, 'CAPTURE_FAILED');
   }
 });
 
-test('no explicit placement timestamp: never guessed via Date.parse, reported unresolved with raw text preserved', () => {
+test('no explicit placement timestamp: never guessed via Date.parse, reported unresolved with raw text preserved', async () => {
   const html = `
     <div class="ticket" data-ticket-id="TCK-NOTIME">
       <span class="ticket__status">OPEN</span>
@@ -262,14 +262,14 @@ test('no explicit placement timestamp: never guessed via Date.parse, reported un
       ${leg({ home: 'A', away: 'B', eventId: '1' })}
     </div>
   `;
-  const { envelope } = capture(html);
+  const { envelope } = await capture(html);
   const t = envelope.tickets[0];
   assert.equal(t.placed_at_utc, null);
   assert.equal(t.placed_at_resolution, 'UNRESOLVED_NO_EXPLICIT_TIMESTAMP');
   assert.equal(t.placed_at_raw, 'Today 14:32');
 });
 
-test('no source event id on a leg: falls back to a natural key, flagged as the weaker resolution path', () => {
+test('no source event id on a leg: falls back to a natural key, flagged as the weaker resolution path', async () => {
   const html = `
     <div class="ticket" data-ticket-id="TCK-NOEVENTID">
       <span class="ticket__status">OPEN</span>
@@ -282,45 +282,45 @@ test('no source event id on a leg: falls back to a natural key, flagged as the w
       </div>
     </div>
   `;
-  const { envelope } = capture(html);
+  const { envelope } = await capture(html);
   const l = envelope.tickets[0].legs[0];
   assert.equal(l.source_event_id, null);
   assert.equal(l.fixture_id_resolution, 'NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID');
   assert.match(l.fixture_id, /^bxf_[0-9a-f]{16}$/);
 });
 
-test('no tickets found at all: CAPTURE_FAILED, not a silent empty success', () => {
-  const { envelope } = capture('');
+test('no tickets found at all: CAPTURE_FAILED, not a silent empty success', async () => {
+  const { envelope } = await capture('');
   assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
   assert.ok(envelope.capture_status_reasons.includes('NO_TICKETS_FOUND'));
   assert.equal(envelope.tickets.length, 0);
 });
 
-test('unrecognized ticket status is routed to unresolved_tickets, never silently included or dropped', () => {
-  const { envelope } = capture(ticket({ status: 'WEIRD_STATUS', legs: [leg({ home: 'A', away: 'B', eventId: '1' })] }));
+test('unrecognized ticket status is routed to unresolved_tickets, never silently included or dropped', async () => {
+  const { envelope } = await capture(ticket({ status: 'WEIRD_STATUS', legs: [leg({ home: 'A', away: 'B', eventId: '1' })] }));
   assert.equal(envelope.tickets.length, 0);
   assert.equal(envelope.unresolved_tickets[0].reason, 'UNRECOGNIZED_TICKET_STATUS');
 });
 
-test('every capture always flags the placeholder-selector caveat, regardless of outcome', () => {
-  const { envelope } = capture(ticket());
+test('every capture always flags the placeholder-selector caveat, regardless of outcome', async () => {
+  const { envelope } = await capture(ticket());
   assert.ok(envelope.capture_status_reasons.includes('TICKET_SELECTORS_UNVERIFIED_PLACEHOLDER'));
 });
 
-test('privacy: unresolved/excluded ticket records never carry more than the documented allowlisted fields', () => {
-  const { envelope } = capture(
+test('privacy: unresolved/excluded ticket records never carry more than the documented allowlisted fields', async () => {
+  const { envelope } = await capture(
     ticket({ status: 'SETTLED', legs: [leg({ home: 'A', away: 'B', eventId: '1' })] })
   );
   const excluded = envelope.excluded_tickets[0];
   assert.deepEqual(Object.keys(excluded).sort(), ['detail', 'reason', 'source_index', 'ticket_id_raw'].sort());
 });
 
-test('coverage invariant: tickets_seen = tickets_parsed + tickets_unresolved + tickets_expected_excluded', () => {
+test('coverage invariant: tickets_seen = tickets_parsed + tickets_unresolved + tickets_expected_excluded', async () => {
   const html =
     ticket({ ticketId: 'TCK-OK', legs: [leg({ home: 'A', away: 'B', eventId: '1' })] }) + // parsed
     ticket({ ticketId: 'TCK-BAD', legs: [leg({ home: '', away: '', eventId: '2' })] }) + // unresolved
     ticket({ ticketId: 'TCK-SETTLED', status: 'SETTLED', legs: [leg({ home: 'C', away: 'D', eventId: '3' })] }); // expected-excluded
-  const { envelope } = capture(html);
+  const { envelope } = await capture(html);
   const c = envelope.coverage;
   assert.equal(c.tickets_seen, 3);
   assert.equal(c.tickets_parsed, 1);
@@ -329,26 +329,26 @@ test('coverage invariant: tickets_seen = tickets_parsed + tickets_unresolved + t
   assert.equal(c.tickets_seen, c.tickets_parsed + c.tickets_unresolved + c.tickets_expected_excluded);
 });
 
-test('ticket id stays stable regardless of an expanded/collapsed wrapper class around the same ticket markup', () => {
+test('ticket id stays stable regardless of an expanded/collapsed wrapper class around the same ticket markup', async () => {
   const ticketHtml = ticket({ ticketId: 'TCK-STABLE', legs: [leg({ home: 'A', away: 'B', eventId: '1' })] });
   const collapsedDoc = docFromHtml(`<div class="open-bets"><div class="ticket-group collapsed">${ticketHtml}</div></div>`);
   const expandedDoc = docFromHtml(`<div class="open-bets"><div class="ticket-group expanded">${ticketHtml}</div></div>`);
-  const collapsed = ticketParser.captureFromDocument(collapsedDoc, BASE_CONTEXT).envelope;
-  const expanded = ticketParser.captureFromDocument(expandedDoc, BASE_CONTEXT).envelope;
+  const collapsed = (await ticketParser.captureFromDocument(collapsedDoc, BASE_CONTEXT)).envelope;
+  const expanded = (await ticketParser.captureFromDocument(expandedDoc, BASE_CONTEXT)).envelope;
   assert.equal(collapsed.tickets[0].bet9ja_ticket_id, 'TCK-STABLE');
   assert.equal(expanded.tickets[0].bet9ja_ticket_id, 'TCK-STABLE');
   assert.equal(collapsed.tickets[0].bet9ja_ticket_id, expanded.tickets[0].bet9ja_ticket_id);
 });
 
-test('total stake is preserved separately from each leg\'s own odds -- singles, accumulators, and system tickets alike', () => {
-  const single = capture(
+test('total stake is preserved separately from each leg\'s own odds -- singles, accumulators, and system tickets alike', async () => {
+  const single = (await capture(
     ticket({ unitStake: '10.00', totalStake: '10.00', legs: [leg({ home: 'A', away: 'B', eventId: '1', odds: '1.95' })] })
-  ).envelope.tickets[0];
+  )).envelope.tickets[0];
   assert.equal(single.total_stake, 10);
   assert.equal(single.legs[0].odds, 1.95);
   assert.notEqual(single.total_stake, single.legs[0].odds);
 
-  const acca = capture(
+  const acca = (await capture(
     ticket({
       type: 'Treble',
       unitStake: '5.00',
@@ -359,11 +359,11 @@ test('total stake is preserved separately from each leg\'s own odds -- singles, 
         leg({ home: 'E', away: 'F', eventId: '3', odds: '1.50' }),
       ],
     })
-  ).envelope.tickets[0];
+  )).envelope.tickets[0];
   assert.equal(acca.total_stake, 5);
   assert.deepEqual(acca.legs.map((l) => l.odds), [1.9, 2.1, 1.5]);
 
-  const system = capture(
+  const system = (await capture(
     ticket({
       type: 'System',
       unitStake: '2.00',
@@ -375,13 +375,13 @@ test('total stake is preserved separately from each leg\'s own odds -- singles, 
         leg({ home: 'G', away: 'H', eventId: '4', odds: '1.50' }),
       ],
     })
-  ).envelope.tickets[0];
+  )).envelope.tickets[0];
   assert.equal(system.unit_stake, 2);
   assert.equal(system.total_stake, 12, 'total_stake is a distinct field from unit_stake -- never derived from leg odds');
   assert.equal(system.legs.length, 4);
 });
 
-test('privacy: a ticket embedded inside unrelated page chrome (nav/balance/footer) never leaks that chrome', () => {
+test('privacy: a ticket embedded inside unrelated page chrome (nav/balance/footer) never leaks that chrome', async () => {
   const doc = docFromHtml(`
     <body>
       <nav class="site-nav">Account balance: $482.10 | Log out | Betslip (3)</nav>
@@ -391,9 +391,274 @@ test('privacy: a ticket embedded inside unrelated page chrome (nav/balance/foote
       <footer>Copyright Bet9ja. Your session token: abc123.</footer>
     </body>
   `);
-  const { envelope } = ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
   const rawText = JSON.stringify(envelope.unresolved_tickets).toLowerCase();
   for (const banned of ['balance', 'account', 'betslip', 'cookie', 'token', 'password', 'login', 'session']) {
     assert.ok(!rawText.includes(banned), `unresolved_tickets unexpectedly contains "${banned}"`);
   }
+});
+
+// --- MYBETS profile: real selectors confirmed 2026-09-11, see -----------
+// TICKET_REAL_PAGE_VALIDATION.md Round 2 and ticket_parser.js's own
+// "MYBETS PROFILE" header comment for exactly what is/isn't confirmed.
+//
+// jsdom's real accordion click/class-toggle behavior is simulated with a
+// plain inline <script> attaching a click listener that toggles the
+// `.accordion-item--open` class synchronously -- close enough to a real
+// (fast) UI transition to exercise ensureTicketExpanded's wait loop
+// without needing real timers beyond one polling interval.
+
+function mybetsLeg({
+  selection = 'Home Win',
+  odds = '1.95',
+  market = '1X2',
+  fixtureAndTime = 'Arsenal - Chelsea, 20 Sep 15:00',
+  competition = 'England - Premier League',
+  eventId,
+} = {}) {
+  const idAttr = eventId ? ` id="prematch_event-${eventId}"` : '';
+  return `
+    <div class="mybets-item">
+      <div class="mybets-item__row">
+        <span class="mybets-bet"${idAttr}>${selection}</span>
+        <span class="mybets-odd">${odds}</span>
+      </div>
+      <div class="mybets-item__row">${market}</div>
+      <div class="mybets-item__row">${fixtureAndTime}</div>
+      <div class="mybets-item__row">${competition}</div>
+    </div>
+  `;
+}
+
+function mybetsTicket({
+  ticketId = '9001234567',
+  placedAtRaw = 'Today 14:32',
+  legs = [mybetsLeg()],
+  systemTable = '',
+  infoItems = ['Stake: 10.00', 'Max Return: 19.50'],
+  open = false,
+} = {}) {
+  return `
+    <div class="accordion-item${open ? ' accordion-item--open' : ''}">
+      <div class="accordion-toggle">Toggle</div>
+      <div class="mybets-holder">
+        <span class="mybets-date">${placedAtRaw}</span>
+        ${infoItems.map((t) => `<span class="mybets-holder__info-item">${t}</span>`).join('')}
+      </div>
+      <div class="mybets-head__item">Ticket ID: ${ticketId}</div>
+      ${systemTable ? `<div class="mybets__systable">${systemTable}</div>` : ''}
+      ${legs.join('\n')}
+    </div>
+  `;
+}
+
+function mybetsCaptureHtml(ticketsHtml) {
+  return `
+    <body>
+      <div class="account-info">Balance: 482.10 | Log out</div>
+      <div class="mybets">${ticketsHtml}</div>
+      <script>
+        document.querySelectorAll('.accordion-item').forEach((item) => {
+          const toggle = item.querySelector('.accordion-toggle');
+          if (toggle) {
+            toggle.addEventListener('click', () => {
+              item.classList.toggle('accordion-item--open');
+            });
+          }
+        });
+      </script>
+    </body>
+  `;
+}
+
+async function captureMybets(ticketsHtml, extraContext) {
+  const doc = docFromHtml(mybetsCaptureHtml(ticketsHtml));
+  return ticketParser.captureFromDocument(doc, { ...BASE_CONTEXT, ...extraContext });
+}
+
+test('mybets: a collapsed ticket is expanded, parsed, and collapsed again', async () => {
+  const { envelope } = await captureMybets(mybetsTicket({ ticketId: '9001234567' }));
+  assert.equal(envelope.coverage.tickets_seen, 1);
+  assert.equal(envelope.coverage.tickets_parsed, 1);
+  assert.ok(envelope.capture_status_reasons.includes('MYBETS_SELECTOR_PROFILE_ACTIVE'));
+
+  const t = envelope.tickets[0];
+  assert.equal(t.bet9ja_ticket_id, '9001234567');
+  assert.equal(t.status, 'OPEN');
+  assert.equal(t.status_resolution, 'INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED');
+  assert.equal(t.placed_at_raw, 'Today 14:32');
+  assert.equal(t.placed_at_utc, null, 'no confirmed UTC timestamp markup -- never guessed');
+});
+
+test('mybets: an already-expanded ticket is left expanded afterward (never force-collapsed)', async () => {
+  const doc = docFromHtml(mybetsCaptureHtml(mybetsTicket({ ticketId: '111', open: true })));
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+  assert.equal(envelope.tickets.length, 1);
+  const ticketEl = doc.querySelector('.accordion-item');
+  assert.ok(ticketEl.classList.contains('accordion-item--open'), 'a ticket already open before capture must remain open after');
+});
+
+test('mybets: a collapsed ticket is restored to collapsed after capture', async () => {
+  const doc = docFromHtml(mybetsCaptureHtml(mybetsTicket({ ticketId: '222', open: false })));
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+  assert.equal(envelope.tickets.length, 1);
+  const ticketEl = doc.querySelector('.accordion-item');
+  assert.ok(!ticketEl.classList.contains('accordion-item--open'), 'a ticket this capture opened must be restored to collapsed');
+});
+
+test('mybets: five tickets on one page -- each expanded, parsed, and collapsed in its own turn, never cross-contaminated', async () => {
+  const html = [1, 2, 3, 4, 5]
+    .map((n) =>
+      mybetsTicket({
+        ticketId: `90012345${n}`,
+        legs: [mybetsLeg({ selection: `Selection ${n}`, odds: `${1 + n / 10}`, eventId: `${n}` })],
+      })
+    )
+    .join('\n');
+  const { envelope } = await captureMybets(html);
+  assert.equal(envelope.coverage.tickets_seen, 5);
+  assert.equal(envelope.coverage.tickets_parsed, 5);
+  const ids = envelope.tickets.map((t) => t.bet9ja_ticket_id).sort();
+  assert.deepEqual(ids, ['900123451', '900123452', '900123453', '900123454', '900123455']);
+  const oddsByTicket = Object.fromEntries(envelope.tickets.map((t) => [t.bet9ja_ticket_id, t.legs[0].odds]));
+  assert.equal(oddsByTicket['900123451'], 1.1);
+  assert.equal(oddsByTicket['900123455'], 1.5);
+});
+
+test('mybets: a system ticket\'s 6 legs (3 rows of 2) are all captured, and its system table marks ticket_type_normalized SYSTEM', async () => {
+  const legs = [1, 2, 3, 4, 5, 6].map((n) => mybetsLeg({ selection: `Sel ${n}`, eventId: `${n}` }));
+  const { envelope } = await captureMybets(
+    mybetsTicket({ ticketId: 'SYS-1', legs, systemTable: 'System Type: 2/4 | No. Bets: 6 | Unit Stake: 1.00 | Stake: 6.00' })
+  );
+  const t = envelope.tickets[0];
+  assert.equal(t.legs.length, 6);
+  assert.equal(t.ticket_type_normalized, 'SYSTEM');
+  assert.match(t.system_table_raw, /System Type/);
+  // Cell-level mapping is unconfirmed -- typed stake/return fields stay
+  // null even though the raw table text is preserved for audit.
+  assert.equal(t.unit_stake, null);
+  assert.equal(t.total_stake, null);
+});
+
+test('mybets: fail closed -- a leg with an unexpected row count voids the whole ticket', async () => {
+  const malformedLeg = `<div class="mybets-item"><div class="mybets-item__row"><span class="mybets-bet">X</span><span class="mybets-odd">1.50</span></div></div>`;
+  const { envelope } = await captureMybets(mybetsTicket({ ticketId: 'BAD-ROWS', legs: [malformedLeg] }));
+  assert.equal(envelope.tickets.length, 0);
+  assert.equal(envelope.unresolved_tickets[0].reason, 'LEG_FAILED_TO_PARSE');
+  assert.match(envelope.unresolved_tickets[0].detail, /LEG_UNEXPECTED_ROW_COUNT/);
+});
+
+test('mybets: fail closed -- unparseable odds on any leg voids the whole ticket', async () => {
+  const { envelope } = await captureMybets(mybetsTicket({ legs: [mybetsLeg({ odds: 'n/a' })] }));
+  assert.equal(envelope.tickets.length, 0);
+  assert.equal(envelope.unresolved_tickets[0].reason, 'LEG_FAILED_TO_PARSE');
+});
+
+test('mybets: missing ticket id (no .mybets-head__item) is never guessed, routed to unresolved_tickets', async () => {
+  const html = `
+    <div class="accordion-item">
+      <div class="accordion-toggle">Toggle</div>
+      <div class="mybets-holder"><span class="mybets-date">Today 14:32</span></div>
+      ${mybetsLeg()}
+    </div>
+  `;
+  const { envelope } = await captureMybets(html);
+  assert.equal(envelope.tickets.length, 0);
+  assert.equal(envelope.unresolved_tickets[0].reason, 'MISSING_TICKET_ID');
+});
+
+test('mybets: a toggle that never adds the open class is reported as an expand timeout, never treated as empty', async () => {
+  const html = `
+    <div class="mybets">
+      <div class="accordion-item">
+        <div class="accordion-toggle">Toggle</div>
+        <div class="mybets-head__item">Ticket ID: 555</div>
+        ${mybetsLeg()}
+      </div>
+    </div>
+  `;
+  // No click listener attached in this doc -- the toggle click is a no-op,
+  // so the open class never appears.
+  const doc = docFromHtml(`<body>${html}</body>`);
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+  assert.equal(envelope.tickets.length, 0);
+  assert.equal(envelope.unresolved_tickets[0].reason, 'TICKET_EXPAND_TIMEOUT');
+});
+
+test('mybets: source_event_id and fixture_id are exposed per leg, matching the fixture-capture extension\'s own scheme', async () => {
+  const Bet9jaIds = require('../ids.js');
+  const expected = Bet9jaIds.stableId('bxf', ['external', 'bet9ja-event-999']);
+  const { envelope } = await captureMybets(mybetsTicket({ legs: [mybetsLeg({ eventId: '999' })] }));
+  const l = envelope.tickets[0].legs[0];
+  assert.equal(l.source_event_id, '999');
+  assert.equal(l.fixture_id, expected);
+  assert.equal(l.fixture_id_resolution, 'EXTERNAL_EVENT_ID');
+});
+
+test('mybets: no source_event_id falls back to the natural-key resolution, flagged as such', async () => {
+  const { envelope } = await captureMybets(mybetsTicket({ legs: [mybetsLeg()] }));
+  const l = envelope.tickets[0].legs[0];
+  assert.equal(l.source_event_id, null);
+  assert.equal(l.fixture_id_resolution, 'NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID');
+  assert.match(l.fixture_id, /^bxf_[0-9a-f]{16}$/);
+});
+
+test('mybets: coverage invariant holds (tickets_seen = tickets_parsed + tickets_unresolved + tickets_expected_excluded)', async () => {
+  const html =
+    mybetsTicket({ ticketId: 'OK-1' }) +
+    `<div class="accordion-item"><div class="accordion-toggle">Toggle</div>${mybetsLeg()}</div>`; // no ticket id
+  const { envelope } = await captureMybets(html);
+  const c = envelope.coverage;
+  assert.equal(c.tickets_seen, 2);
+  assert.equal(c.tickets_parsed, 1);
+  assert.equal(c.tickets_unresolved, 1);
+  assert.equal(c.tickets_seen, c.tickets_parsed + c.tickets_unresolved + c.tickets_expected_excluded);
+});
+
+test('mybets: never CAPTURE_OK -- unconfirmed live/Virtual/Zoom detection and stake mapping cap it at CAPTURE_PARTIAL', async () => {
+  const { envelope } = await captureMybets(mybetsTicket());
+  assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
+  assert.ok(envelope.capture_status_reasons.includes('LIVE_VIRTUAL_ZOOM_DETECTION_UNCONFIRMED_FOR_MYBETS_PROFILE'));
+  assert.ok(envelope.capture_status_reasons.includes('STAKE_RETURN_FIELD_MAPPING_UNCONFIRMED'));
+  assert.ok(envelope.capture_status_reasons.includes('PAGINATION_NOT_YET_AUTOMATED_SINGLE_PAGE_ONLY'));
+});
+
+test('mybets: single page only -- coverage names pages_captured=1 and pagination_automated=false', async () => {
+  const { envelope } = await captureMybets(mybetsTicket());
+  assert.equal(envelope.coverage.pages_captured, 1);
+  assert.equal(envelope.coverage.pagination_automated, false);
+});
+
+test('mybets: no tickets found under .mybets is still CAPTURE_FAILED, not a silent empty success', async () => {
+  const doc = docFromHtml('<body><div class="mybets"></div></body>');
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+  assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
+  assert.ok(envelope.capture_status_reasons.includes('NO_TICKETS_FOUND'));
+});
+
+test('mybets: privacy -- account info rendered outside .mybets never leaks into any ticket or leg raw field', async () => {
+  const { envelope } = await captureMybets(mybetsTicket());
+  const dump = JSON.stringify(envelope).toLowerCase();
+  for (const banned of ['balance', '482.10', 'log out']) {
+    assert.ok(!dump.includes(banned), `capture envelope unexpectedly contains "${banned}"`);
+  }
+});
+
+test('safety: ticket_parser.js only ever calls .click() on the confirmed accordion toggle, never a cashout/reload/betting control', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'ticket_parser.js'), 'utf-8');
+  // Strip comments first -- "cashout" and "reload" are deliberately named
+  // in this file's own documentation (the exclusion-zone comments), which
+  // is the opposite of a violation; only EXECUTABLE code is checked here.
+  const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+  const clickCalls = codeOnly.match(/\w+\.click\(\)/g) || [];
+  assert.ok(clickCalls.length > 0, 'expected at least one .click() call (the accordion toggle)');
+  for (const call of clickCalls) {
+    assert.equal(call, 'toggle.click()', `unexpected click target: ${call}`);
+  }
+  assert.ok(!/cashout/i.test(codeOnly), 'ticket_parser.js must never reference cashout by name in executable code');
+  assert.ok(!/reload/i.test(codeOnly), 'ticket_parser.js must never reference "reload" by name in executable code');
+  assert.ok(!codeOnly.includes('MYBETS_SELECTORS.cashoutHolder'), 'cashoutHolder must never be defined as a queryable selector');
 });

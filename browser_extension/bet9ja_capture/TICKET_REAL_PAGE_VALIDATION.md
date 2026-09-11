@@ -176,3 +176,72 @@ market/selection/odds elements, and whether legs carry the same
 guess a fix from the failure alone — this is exactly the same "no more
 guessing without evidence" line the fixture-capture parser held after its
 own two wrong date-heading guesses.
+
+## Round 2 — 2026-09-11
+
+**Tester-supplied facts** (from live authenticated DevTools inspection of
+`https://sports.bet9ja.com/myBets/`, 5 open tickets visible):
+
+| Element | Selector | Notes |
+|---|---|---|
+| Ticket container | `.mybets .accordion-item` | 5 confirmed on the visible page |
+| Ticket header/toggle | `.accordion-toggle` | click target; expanding adds `.accordion-item--open` |
+| Placement time | `.mybets-date` | raw text only, no confirmed UTC attribute |
+| Collapsed summary | `.mybets-holder` | contains `.mybets-holder__info-item` (stake/return, cell mapping unconfirmed) |
+| Ticket id | `.mybets-head__item` | only present after expansion |
+| System-bet table | `.mybets__systable` | exposes System Type / No. Bets / Unit Stake / Stake as one block; cell-level selectors unconfirmed |
+| Leg | `.mybets-item` | one per leg; a system ticket's 6 legs render as 3 `.mybets-row` groups of 2, but legs are still found directly via `.mybets-item` |
+| Leg selection | first `.mybets-item__row .mybets-bet` | |
+| Leg odds | `.mybets-odd` (within the same first row) | |
+| Leg market | second `.mybets-item__row` | whole-row text |
+| Leg fixture + time | third `.mybets-item__row` | whole-row text; no confirmed separator between team names and time, so no home/away split is attempted |
+| Leg competition | fourth `.mybets-item__row` | whole-row text |
+| Cashout area | `.mybets__cashout-holder` | named exclusion zone — never queried, never clicked |
+| Account info | rendered outside `.mybets` | confirms rooting capture at `.mybets` prevents account id/balance/nav leakage |
+
+**Result: implemented as a new MYBETS profile in `ticket_parser.js`,
+tried before the placeholder profile.** `captureFromDocument` is now
+async: for each `.accordion-item`, it clicks `.accordion-toggle` if not
+already open, waits for `.accordion-item--open` to appear, parses the
+ticket and its legs, then clicks the toggle again to restore whatever
+state the ticket was in before capture touched it. Ticket boundaries are
+enforced exactly as confirmed — every ticket's expanded detail stays
+inside its own `.accordion-item`, so the existing page-wide-scan defense
+(scoped `querySelectorAll` per ticket) applies unchanged.
+
+**What Round 2 does NOT yet confirm** (see `README.md`'s "The MYBETS
+profile" section for the full list, each with its own
+`capture_status_reasons` entry on every capture using this profile):
+- No live/Virtual/Zoom status marker — this profile cannot yet enforce
+  that scope boundary; every found ticket is inferred OPEN from page
+  context alone.
+- `.mybets-holder__info-item` / `.mybets__systable` cell-level label↔value
+  mapping — stake/return fields stay typed `null`, raw text preserved for
+  audit.
+- Ticket-type detection beyond "has a system table" — single/double/
+  treble/accumulator have no confirmed distinguishing markup yet.
+- **Pagination.** The account showed 20 pagination items in addition to
+  the 5 visible tickets, but whether all 20 are genuine page links (vs.
+  prev/next/ellipsis/disabled controls) is unconfirmed — this parser will
+  not click through unconfirmed pagination markup. This release captures
+  only the currently visible page.
+
+### Recommendation for Round 3
+
+Two independent, separable pieces of evidence would unblock the two
+remaining gaps that matter most:
+
+1. **Pagination markup** — a DevTools inspection of the 20-item pagination
+   control: its container selector, an individual page-link element's
+   selector, how the CURRENT page is marked (a class, `aria-current`,
+   etc.), and how prev/next/ellipsis/disabled controls are marked/
+   distinguished from a real numbered page link. Without this, automated
+   multi-page capture stays out of scope rather than risk clicking an
+   unintended control.
+2. **One real "Capture open bets" click against the now-confirmed MYBETS
+   selectors**, uploading the resulting JSON. Expect `tickets_parsed: 5`
+   (or however many tickets are open at capture time) if the confirmed
+   selectors hold up outside the DevTools inspection session that produced
+   them — record whatever the result actually is here as Round 3,
+   including any surprise (e.g. a ticket type or leg shape not covered by
+   this round's inspection).

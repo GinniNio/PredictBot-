@@ -7,13 +7,14 @@ A Manifest V3 browser extension (Chrome/Edge) with two independent buttons:
   visible on an already-open, already-authenticated Bet9ja tab into one
   normalized JSON file. This replaces copy-pasting a Bet9ja page into a
   chat host as the first step of `docs/LEDGER_DAILY_WORKFLOW.md`.
-- **Capture open bets** (new, see "Open bet ticket capture" below —
-  selectors are UNVERIFIED PLACEHOLDERS pending real-page validation,
-  exactly the state fixture capture itself started in): captures your own
-  open, pre-match bet tickets — ticket id, placement time, type, stakes,
-  each leg's fixture/selection/odds/source event id, potential return,
-  status — into a second normalized JSON file, so what you actually bet
-  can be recorded in the betting ledger without hand-transcription.
+- **Capture open bets** (see "Open bet ticket capture" below — real
+  selectors confirmed Round 2 for ticket boundaries/id/legs, with named
+  open gaps: live/Virtual/Zoom detection, stake/return cell mapping, and
+  automated pagination): expands, parses, and re-collapses each open
+  ticket accordion on the currently visible Open Bets page — ticket id,
+  placement time, each leg's selection/odds/market/fixture/source event
+  id — into a second normalized JSON file, so what you actually bet can
+  be recorded in the betting ledger without hand-transcription.
 
 This is deliberately the smallest useful slice — see "Boundaries" below for
 everything it does not do yet.
@@ -416,16 +417,83 @@ click handler injects `ids.js` + `ticket_parser.js` + `content.js`, calls
 extension's own `fixture_id` for the same Bet9ja event — see
 `legs[].fixture_id_resolution` below.
 
-**SELECTOR STATUS: 100% UNVERIFIED PLACEHOLDER.** Unlike fixture capture's
-BET9JA_DESKTOP profile (confirmed via 4 rounds of real-page validation), no
-real "Open Bets"/"My Bets" page sample has been inspected yet. Every
-selector in `ticket_parser.js`'s `TICKET_SELECTORS` is a structurally
-plausible first guess, not evidence-derived. Expect a real capture to
-report `tickets_parsed: 0` with `capture_status_reasons` including
-`TICKET_SELECTORS_UNVERIFIED_PLACEHOLDER` until the same evidence-driven
-selector-correction discipline that fixed fixture capture (see
-`REAL_PAGE_VALIDATION.md`) is repeated here — tracked in
+**SELECTOR STATUS: real profile confirmed (Round 2), with named gaps.**
+`ticket_parser.js` now tries a confirmed real profile (`MYBETS_SELECTORS`,
+root `.mybets`) first, falling back to the original 100%-unverified
+`TICKET_SELECTORS` placeholder only when `.mybets` isn't found. See
+"The MYBETS profile" below for exactly what Round 2's live authenticated
+inspection confirmed and what remains unconfirmed — tracked in
 `TICKET_REAL_PAGE_VALIDATION.md`.
+
+### The MYBETS profile — confirmed selectors, async expand/parse/collapse
+
+Confirmed via live inspection of the authenticated
+`https://sports.bet9ja.com/myBets/` page (Round 2, 2026-09-11): tickets
+render as `.mybets .accordion-item` elements, and each ticket's id and
+legs are only present in the DOM once expanded (an `.accordion-item--open`
+class is added; `.accordion-toggle` is the click target). This makes
+`captureFromDocument` **async** when this profile is active: for each
+ticket it clicks the toggle if not already open, waits for the confirmed
+open class, parses the ticket and its legs entirely within that ticket's
+own subtree, then clicks the toggle again to restore the ticket to
+whatever state it was in before capture touched it. One click, one file —
+you never manually expand a ticket yourself.
+
+**Safety:** the *only* element this profile ever calls `.click()` on is a
+`.accordion-toggle` inside a ticket under `.mybets` — never Cashout,
+never "Reload Selections", never any bet-placement control.
+`tests/ticket_parser.test.js`'s "safety" test greps this file's own
+compiled source for that guarantee, the same "read the real source"
+discipline `tests/structural.test.js` uses elsewhere in this project.
+
+Confirmed structure per ticket: `.mybets-date` (placement time, raw text
+only — no UTC-qualified timestamp exists in this markup, so
+`placed_at_utc` stays null, never guessed), `.mybets-head__item` (ticket
+id, only present after expansion), `.mybets-item` (one per leg, four
+`.mybets-item__row` children each: selection+odds, market, fixture+time,
+competition), `.mybets__systable` (present only on system tickets).
+Ticket boundaries are reliable — every ticket's expanded detail stays
+inside its own `.accordion-item` — so the same page-wide-scan defense
+described in "Fail-closed ticket boundaries" below applies here too. A
+system ticket's 6 legs render as 3 `.mybets-row` groups of 2
+`.mybets-item` legs each; individual legs are still found directly via
+`.mybets-item`, independent of that visual grouping.
+
+**Named, currently-open gaps** (every MYBETS-profile capture carries a
+matching `capture_status_reasons` entry for each, and can never report
+`CAPTURE_OK` — capped at `CAPTURE_PARTIAL` — until they close):
+
+- **No live/Virtual/Zoom marker identified yet.** This profile cannot
+  currently enforce the "no live, Zoom or Virtual tickets" boundary the
+  way the placeholder profile's (also unconfirmed) leg-status hint was
+  designed to — every ticket found is treated as an open pre-match bet by
+  page-context inference (`status_resolution:
+  'INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED'`),
+  never silently assumed without saying so.
+  (`LIVE_VIRTUAL_ZOOM_DETECTION_UNCONFIRMED_FOR_MYBETS_PROFILE`)
+- **Stake/return cell mapping unconfirmed.** `.mybets-holder__info-item`
+  and `.mybets__systable`'s exact label/value structure (which item is
+  stake vs. potential return; which cell is System Type vs. No. Bets vs.
+  Unit Stake vs. Stake) hasn't been confirmed, so `unit_stake`/
+  `total_stake`/`potential_return` all stay `null` for this profile — the
+  raw text is preserved for audit (`stake_return_raw_items`,
+  `system_table_raw`) rather than guessed into a typed field.
+  (`STAKE_RETURN_FIELD_MAPPING_UNCONFIRMED`)
+- **Ticket type detection is limited to system-table presence.** A
+  `.mybets__systable` element is real, confirmed evidence of a system
+  ticket (`ticket_type_normalized: 'SYSTEM'`); no confirmed markup
+  distinguishes single/double/treble/accumulator from each other yet, so
+  they all currently report `ticket_type_normalized: null`.
+  (`TICKET_TYPE_DETECTION_LIMITED_TO_SYSTEM_TABLE_PRESENCE`)
+- **Pagination is not automated.** Round 2 found 5 tickets on the visible
+  page plus 20 pagination items, but whether those 20 are genuine page
+  links (vs. prev/next/ellipsis/disabled controls) is itself unconfirmed —
+  automating clicks through unconfirmed pagination markup risks clicking
+  an unintended control, so this release captures only the page already
+  on screen (`coverage.pages_captured: 1`, `coverage.pagination_automated:
+  false`). See `TICKET_REAL_PAGE_VALIDATION.md` Round 2 for exactly what
+  evidence is needed to add this safely.
+  (`PAGINATION_NOT_YET_AUTOMATED_SINGLE_PAGE_ONLY`)
 
 ### `coverage`'s row-accounting invariant
 
@@ -490,12 +558,21 @@ honesty as fixture capture's `kickoff_resolution`), `ticket_type_raw` /
 **Named taxonomy gap:** `ledgers/betting_ledger.py`'s `TICKET_TYPES` is
 `(SINGLE, DOUBLE, TREBLE, SYSTEM)` — there is no entry for a straight
 4+-leg all-up "Accumulator"/"Fourfold" bet, a real Bet9ja UI category.
-`ticket_type_raw` always preserves the exact text seen;
-`ticket_type_normalized` is only ever set for an unambiguous SINGLE/
-DOUBLE/TREBLE/SYSTEM match, and `ticket_type_taxonomy_gap: true` flags
-every other non-empty raw type — surfaced for a future importer to decide,
-never silently mapped to the nearest guess. This does not exclude the
-ticket; it is still fully captured.
+`ticket_type_raw` always preserves the exact text seen (placeholder
+profile only — the MYBETS profile has no confirmed raw-type-text markup,
+see above); `ticket_type_normalized` is only ever set for an unambiguous
+SINGLE/DOUBLE/TREBLE/SYSTEM match, and `ticket_type_taxonomy_gap: true`
+flags every other non-empty raw type — surfaced for a future importer to
+decide, never silently mapped to the nearest guess. This does not exclude
+the ticket; it is still fully captured.
+
+MYBETS-profile tickets carry two additional profile-specific audit fields
+not present on placeholder-profile output: `bet9ja_ticket_id_raw` (the
+full `.mybets-head__item` text the id was extracted from) and
+`system_table_raw`/`stake_return_raw_items` (see the stake/return gap
+above). Both profiles emit the same core key set otherwise, so a
+downstream reader can treat `tickets[]` uniformly regardless of which
+profile produced a given record.
 
 ## Loading it unpacked for testing
 
@@ -540,30 +617,60 @@ generic sport-slug resolution from a non-Soccer competition URL
 `tests/privacy.test.js` and `tests/structural.test.js` cover the
 allowlist/permission-contract properties described above.
 
-`tests/ticket_parser.test.js` runs `ticket_parser.js` against synthetic
-(not real-page-derived — see "Open bet ticket capture" above) HTML
-covering: a single ticket, an accumulator/treble, a system ticket, an
-unrecognized ticket-type category (taxonomy-gap flagged, not guessed), a
-repeated fixture appearing in two separate tickets without cross-
-contamination, expanded/collapsed wrapper markup, the fail-closed
-ticket-boundary contract (a bad leg voids the whole ticket, never just
-that leg), a missing ticket id, live/Virtual/Zoom exclusion, settled/
-cashed-out exclusion, placement-time honesty, the `source_event_id`-less
-natural-key fixture-id fallback, the no-tickets-found failure case, an
-unrecognized ticket status, and the privacy allowlist on
-unresolved/excluded ticket records.
+`tests/ticket_parser.test.js` runs `ticket_parser.js` against two sets of
+synthetic HTML:
+
+- The original placeholder-profile tests (root `.open-bets`, not
+  real-page-derived): a single ticket, an accumulator/treble, a system
+  ticket, an unrecognized ticket-type category (taxonomy-gap flagged, not
+  guessed), a repeated fixture appearing in two separate tickets without
+  cross-contamination, expanded/collapsed wrapper markup, the fail-closed
+  ticket-boundary contract, a missing ticket id, live/Virtual/Zoom
+  exclusion, settled/cashed-out exclusion, placement-time honesty, the
+  `source_event_id`-less natural-key fixture-id fallback, the
+  no-tickets-found failure case, an unrecognized ticket status, and the
+  privacy allowlist on unresolved/excluded ticket records.
+- The MYBETS-profile tests (root `.mybets`, modeling the confirmed real
+  structure — see "The MYBETS profile" above): the async expand → parse →
+  collapse cycle for a collapsed ticket, an already-open ticket staying
+  open (never force-collapsed), a collapsed ticket being restored after
+  capture, five tickets each expanded/parsed/collapsed in strict sequence
+  without cross-contamination, a 6-leg system ticket's `.mybets__systable`
+  driving `ticket_type_normalized: 'SYSTEM'` while stake/return fields
+  stay `null` (unconfirmed cell mapping), the fail-closed contract for a
+  malformed leg row count and unparseable odds, a missing-ticket-id
+  refusal, an expand-timeout distinct from an empty ticket, the
+  `source_event_id`/`fixture_id` exposure and its natural-key fallback,
+  the coverage invariant, the permanent `CAPTURE_PARTIAL` cap while named
+  gaps remain open, the single-page-only coverage fields, and a privacy
+  test confirming account info rendered outside `.mybets` never leaks in.
+  A dedicated "safety" test greps the compiled `ticket_parser.js` source
+  itself to confirm `.click()` is only ever called on the confirmed
+  accordion toggle.
 
 ## Boundaries (Release 1 fixtures / this release's tickets)
 
-- No automatic bet placement, no cashout.
+- No automatic bet placement, no cashout, no "Reload Selections" — the
+  MYBETS profile's only `.click()` target anywhere in this file is the
+  confirmed `.accordion-toggle`, enforced by a dedicated source-grepping
+  test (see "Tests" above).
 - No settled-bet capture ("Capture settled bets" is a separate, later work
   item — see `docs/LEDGER_DAILY_WORKFLOW.md`).
 - No result lookup.
-- No background scraping — capture runs only on a user click.
+- No background scraping — capture runs only on a user click, and only
+  ever expands/collapses ticket accordions already visible on the current
+  Open Bets tab (you must start there; no navigation is performed).
+- No automated pagination yet — this release captures the single page
+  already on screen (`coverage.pages_captured: 1`). See "The MYBETS
+  profile" above and `TICKET_REAL_PAGE_VALIDATION.md` Round 2 for exactly
+  what pagination-control selector evidence is needed before this is safe
+  to automate.
 - No backend, database, Render, or Neon.
 - No all-sports parser in this release.
-- No live, Zoom, or Virtual ticket capture — a ticket containing even one
-  such leg is excluded entirely (see "Open bet ticket capture" above).
+- No live, Zoom, or Virtual ticket capture from the placeholder profile;
+  the MYBETS profile cannot yet detect these at all (named gap, see
+  above) and treats every found ticket as open pre-match until real
+  evidence of a live/Virtual/Zoom marker is found.
 - No model, ledger, admission, or staking changes — this extension only
   produces JSON files; nothing in `ledgers/`, `src/pcbf_calculator/`, or
   `research/` is touched by it or aware of it. `forecast_id` resolution
@@ -581,12 +688,14 @@ stability, honest kickoff/date handling, and privacy exclusion are all
 confirmed. Its remaining named gap is live/virtual/Zoom event marking,
 still unconfirmed for lack of a real sample of each state.
 
-Open bet ticket capture is the current next step per the project's build
-order (see `docs/LEDGER_DAILY_WORKFLOW.md`): its logic (fail-closed ticket
-boundaries, `source_event_id`/`fixture_id` exposure, the ticket-type
-taxonomy-gap flag, placement-time honesty) is implemented and unit-tested
-against synthetic markup, but its selectors are unverified placeholders —
-see `TICKET_REAL_PAGE_VALIDATION.md` for exactly what real-page evidence
-is needed next (one single, one accumulator, one system ticket; expanded
-and collapsed views; a repeated fixture across separate tickets) before
-this feature can be trusted the way fixture capture now is.
+Open bet ticket capture's core real-page selector question is now also
+answered for ticket boundaries, ids, and legs (the MYBETS profile,
+confirmed Round 2) — see "The MYBETS profile" above for exactly what's
+confirmed vs. still named as an open gap (live/Virtual/Zoom detection,
+stake/return cell mapping, ticket-type detection beyond system tickets,
+and automated pagination). The very next step is running one real
+"Capture open bets" click against the confirmed selectors and recording
+the result in `TICKET_REAL_PAGE_VALIDATION.md` Round 3 — following the
+same evidence-driven correction discipline used throughout this project —
+and, separately, supplying the pagination control's real selector
+evidence so multi-page capture can be added safely rather than guessed.
