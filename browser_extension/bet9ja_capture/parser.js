@@ -77,18 +77,32 @@
   // labels are instead embedded in element `id`s.
   const BET9JA_DESKTOP_SELECTORS = {
     // The confirmed board container -- fixture rows are its direct
-    // children, interspersed with dateHeading elements (see below). A
-    // page can have more than one of these (e.g. one per sport section);
-    // every one found is processed.
+    // children. A page can have more than one of these (round-2-confirmed
+    // real capture: 2 tables, one per date section -- see dateHeading
+    // below); every one found is processed.
     root: '.sports-table',
     row: '.table-f',
-    // Also a direct child of `root`, appearing before the run of rows it
-    // groups by date (NOT by competition -- no such wrapper is confirmed
-    // for this page). Text is recorded (date_heading_raw) but never
-    // parsed into a timestamp -- its exact format is unconfirmed, and
-    // guessing one would defeat the whole point of resolveKickoff()'s
-    // honesty guarantee.
+    // Round-2 real-capture correction: this is NOT nested inside `root`
+    // as a child interleaved with rows (an earlier assumption that a real
+    // capture proved wrong -- every fixture came back with
+    // date_heading_raw: null despite 2 confirmed date sections). It is
+    // the nearest preceding SIBLING of a `.sports-table`, applying to
+    // every row that table contains -- see findPrecedingDateHeading().
+    // The interleaved-child pattern is still checked too, as a harmless
+    // second signal, in case some page variant nests it that way instead.
+    // Never parsed into a timestamp -- its exact date-string format is
+    // unconfirmed, and guessing one would defeat the whole point of
+    // resolveKickoff()'s honesty guarantee.
     dateHeading: '.sports-head__date',
+    // Round-2 real-capture correction: 12 of 30 `.table-f` elements on the
+    // real page turned out to be structural/spacer/header rows with no
+    // matchup cell and empty time/markets -- not fixture candidates at
+    // all. Requiring this cell to exist (not just non-empty text) before
+    // a `.table-f` is even counted as a candidate row fixes that; a
+    // matchup cell that exists but is missing a home or away name is a
+    // separate, genuine case and still falls through to
+    // MISSING_PARTICIPANTS for audit.
+    matchup: '.sports-table__matchup',
     home: '.sports-table__home',
     away: '.sports-table__away',
     kickoff: '.sports-table__time',
@@ -130,28 +144,36 @@
   // handled instead.
   const BET9JA_DESKTOP_SPORT_CODE_MAP = { 1: 'SOCCER' };
 
-  // Round-2 confirmed (2026-09-11): four competition pages -- Eredivisie,
-  // Premier League, LaLiga, Ligue 1 -- all use the URL shape
-  // /competition/soccer/{country-slug}/{competition-slug}/{id}, and all
-  // shared the identical .sports-table/.table-f/.sports-head__date/odds-id
-  // structure. On these pages (unlike the Highlights page, which mixes
-  // competitions and cannot safely be attributed to one country/league),
-  // the URL is itself confirmed to reliably carry the sport, country, and
-  // competition -- so this parses those three from the URL rather than
-  // guessing them from any DOM text.
+  // Round-2 confirmed (2026-09-11): four Soccer competition pages --
+  // Eredivisie, Premier League, LaLiga, Ligue 1 -- all use the URL shape
+  // /competition/{sport-slug}/{country-slug}/{competition-slug}/{id}, and
+  // all shared the identical .sports-table/.table-f/.sports-head__date/
+  // odds-id structure. A Basketball competition page (round-2 follow-up:
+  // /competition/basketball/international/abaligapreseason/...) confirmed
+  // the same URL shape generalizes across sports. On these pages (unlike
+  // the Highlights page, which mixes competitions and cannot safely be
+  // attributed to one country/league), the URL is itself confirmed to
+  // reliably carry the sport, country, and competition -- so this parses
+  // those three from the URL rather than guessing them from any DOM text.
+  // The sport slug is matched generically (not hardcoded to "soccer") so
+  // an excluded sport still gets a real, useful sport label (e.g.
+  // "BASKETBALL") on its UNSUPPORTED_SPORT audit record instead of a bare
+  // "UNKNOWN" -- this pattern only decides WHAT the sport is, never
+  // whether it's supported (ONE_X_TWO_FAMILY_ALIASES / the SOCCER-only
+  // downstream logic still does that).
   //
-  // IMPORTANT scope limit: confirmed only for the four competitions
-  // tested above and only for soccer. Every other Bet9ja country/league
-  // page is [UNVERIFIED] -- this pattern is intentionally narrow (only
-  // matches literal "/competition/soccer/") so an unverified page shape
-  // (a different sport, a different URL layout) is left unmatched rather
-  // than guessed. The extracted country/competition values are the raw
-  // URL slugs verbatim (e.g. "netherlands", "premierleague") -- NOT
-  // prettified into a display name (there is no reliable, general way to
-  // turn "premierleague" back into "Premier League" from the slug alone),
-  // so treat `region`/`competition` from this path as stable identifiers,
-  // not confirmed display text.
-  const COMPETITION_URL_PATTERN = /\/competition\/(soccer)\/([a-z0-9-]+)\/([a-z0-9-]+)\//i;
+  // IMPORTANT scope limit: confirmed only for the five competitions
+  // tested above (four Soccer, one Basketball). Every other Bet9ja
+  // country/league page is [UNVERIFIED] -- this pattern is intentionally
+  // narrow (requires the literal "/competition/{sport}/{country}/
+  // {competition}/" shape) so a page with a genuinely different URL
+  // layout is left unmatched rather than guessed. The extracted country/
+  // competition values are the raw URL slugs verbatim (e.g.
+  // "netherlands", "premierleague") -- NOT prettified into a display name
+  // (there is no reliable, general way to turn "premierleague" back into
+  // "Premier League" from the slug alone), so treat `region`/`competition`
+  // from this path as stable identifiers, not confirmed display text.
+  const COMPETITION_URL_PATTERN = /\/competition\/([a-z0-9-]+)\/([a-z0-9-]+)\/([a-z0-9-]+)\//i;
 
   function parseBet9jaCompetitionUrl(sourceUrl) {
     const match = (sourceUrl || '').match(COMPETITION_URL_PATTERN);
@@ -363,6 +385,19 @@
    * markets still produces one unparsed record so it is never silently
    * lost).
    */
+  // Row-level classification returned by processRow -- exactly one per
+  // call, used by captureFromDocument to reconcile coverage.records_seen
+  // = records_parsed + records_unresolved + records_expected_unsupported
+  // (see coverage's own comment). A row that produces a fixture is PARSED
+  // even if it ALSO produces one or more expected-unsupported audit
+  // entries alongside it (e.g. a Soccer row's real 1X2 market plus its
+  // excluded "1X2 1UP"/"1X2 2UP" siblings) -- those extra unparsed_records
+  // entries are still recorded for audit, but the row itself already
+  // succeeded, so it must never also be counted as expected-unsupported.
+  const ROW_PARSED = 'PARSED';
+  const ROW_UNRESOLVED = 'UNRESOLVED';
+  const ROW_EXPECTED_UNSUPPORTED = 'EXPECTED_UNSUPPORTED';
+
   function processRow({
     fields,
     region,
@@ -407,7 +442,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_UNRESOLVED;
     }
 
     if (!statusRecognized) {
@@ -421,7 +456,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_UNRESOLVED;
     }
 
     if (sport !== 'SOCCER') {
@@ -435,7 +470,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_EXPECTED_UNSUPPORTED;
     }
 
     if (markets.length === 0) {
@@ -449,7 +484,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_UNRESOLVED;
     }
 
     if (status === 'LIVE') {
@@ -463,7 +498,7 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_EXPECTED_UNSUPPORTED;
     }
     if (status === 'VIRTUAL' || status === 'ZOOM') {
       unparsedRecords.push(
@@ -476,10 +511,15 @@
           raw: rawSnapshot,
         })
       );
-      return;
+      return ROW_EXPECTED_UNSUPPORTED;
     }
 
-    // status === 'PRE' from here on.
+    // status === 'PRE' from here on. A row can iterate several markets
+    // (e.g. Soccer's real 1X2 plus excluded "1X2 1UP"/"1X2 2UP" siblings)
+    // -- rowProducedFixture / rowHasGenuineUnresolved classify the ROW as
+    // a whole once the loop finishes, per the ROW_* doc comment above.
+    let rowProducedFixture = false;
+    let rowHasGenuineUnresolved = false;
     for (const market of markets) {
       const familyKey = (market.family || '').toLowerCase();
       if (!ONE_X_TWO_FAMILY_ALIASES.has(familyKey)) {
@@ -517,6 +557,7 @@
             raw: { ...rawSnapshot, market },
           })
         );
+        rowHasGenuineUnresolved = true;
         continue;
       }
 
@@ -532,6 +573,7 @@
             raw: { ...rawSnapshot, market, partial_outcomes: outcomesByLabel },
           })
         );
+        rowHasGenuineUnresolved = true;
         continue;
       }
 
@@ -598,7 +640,12 @@
         duplicate_status: duplicateStatus,
         parser_version: PARSER_VERSION,
       });
+      rowProducedFixture = true;
     }
+
+    if (rowProducedFixture) return ROW_PARSED;
+    if (rowHasGenuineUnresolved) return ROW_UNRESOLVED;
+    return ROW_EXPECTED_UNSUPPORTED;
   }
 
   /**
@@ -626,13 +673,13 @@
     function finalize({
       sectionsSeen,
       recordsSeen,
+      recordsUnresolved,
+      recordsExpectedUnsupported,
       collapsedSectionsDetected,
       lazyLoadingDetected,
       fallbackProfileActive,
       zeroRecordsReason = 'NO_RECORDS_FOUND',
     }) {
-      const recordsUnresolved = unparsedRecords.filter((r) => !r.expected_unsupported).length;
-
       let captureStatus;
       const statusReasons = [];
       if (recordsSeen === 0) {
@@ -683,6 +730,7 @@
             records_seen: recordsSeen,
             records_parsed: fixtures.length,
             records_unresolved: recordsUnresolved,
+            records_expected_unsupported: recordsExpectedUnsupported,
             collapsed_sections_detected: collapsedSectionsDetected,
             lazy_loading_detected: lazyLoadingDetected,
           },
@@ -698,12 +746,12 @@
     if (!rootEl) {
       // LEGACY root not found -- before reporting a true failure, try the
       // BET9JA_DESKTOP fallback profile (see SELECTOR CONTRACT comment).
-      // Confirmed root: `.sports-table`, whose direct children are either
-      // a `.sports-head__date` heading (grouping the rows that follow it
-      // by date) or a `.table-f` fixture row. A page can have more than
-      // one `.sports-table`; every one found is processed. The ancestor
-      // exclusion is applied at both levels as a redundant safety net
-      // (see EXCLUDED_ANCESTOR_SELECTOR's own comment).
+      // Confirmed root: `.sports-table`, whose direct children include
+      // `.table-f` fixture rows (gated on a real matchup cell -- see
+      // BET9JA_DESKTOP_SELECTORS.matchup's own comment). A page can have
+      // more than one `.sports-table`; every one found is processed. The
+      // ancestor exclusion is applied at both levels as a redundant
+      // safety net (see EXCLUDED_ANCESTOR_SELECTOR's own comment).
       const desktopTables = Array.from(doc.querySelectorAll(BET9JA_DESKTOP_SELECTORS.root)).filter(
         (table) => !table.closest(EXCLUDED_ANCESTOR_SELECTOR)
       );
@@ -712,6 +760,8 @@
         return finalize({
           sectionsSeen: 0,
           recordsSeen: 0,
+          recordsUnresolved: 0,
+          recordsExpectedUnsupported: 0,
           collapsedSectionsDetected: false,
           lazyLoadingDetected: false,
           fallbackProfileActive: false,
@@ -720,7 +770,7 @@
       }
 
       // Computed once per capture (it depends only on the page's own URL,
-      // confirmed reliable for the four competition-page shapes tested --
+      // confirmed reliable for the competition-page shapes tested --
       // see parseBet9jaCompetitionUrl's own comment) rather than per row.
       // null on any page that doesn't match (e.g. the Highlights page,
       // which mixes competitions and cannot be safely attributed to one).
@@ -728,11 +778,51 @@
       const fallbackRegion = urlCompetitionInfo ? urlCompetitionInfo.countrySlug : null;
       const fallbackCompetition = urlCompetitionInfo ? urlCompetitionInfo.competitionSlug : null;
 
+      // A `.sports-table`'s date heading is its nearest preceding SIBLING
+      // element matching dateHeading -- round-2 real-capture correction
+      // (an earlier assumption that it was nested as a child inside the
+      // table was proven wrong: a real capture with 2 confirmed date
+      // sections came back with date_heading_raw: null on every fixture).
+      // Stops at the previous `.sports-table` (or the start of the
+      // sibling list) so one table's heading is never attributed to
+      // another's.
+      function findPrecedingDateHeading(table) {
+        let sibling = table.previousElementSibling;
+        while (sibling) {
+          if (sibling.matches(BET9JA_DESKTOP_SELECTORS.dateHeading)) {
+            return text(sibling);
+          }
+          if (sibling.matches(BET9JA_DESKTOP_SELECTORS.root)) {
+            return null;
+          }
+          sibling = sibling.previousElementSibling;
+        }
+        return null;
+      }
+
+      // A row candidate must carry a real matchup cell -- see
+      // BET9JA_DESKTOP_SELECTORS.matchup's own comment (12 of 30 real
+      // `.table-f` elements on a real page turned out to be structural/
+      // spacer rows with no matchup cell at all).
+      function isCandidateRow(el) {
+        return (
+          el.matches(BET9JA_DESKTOP_SELECTORS.row) &&
+          el.querySelector(BET9JA_DESKTOP_SELECTORS.matchup) &&
+          !el.closest(EXCLUDED_ANCESTOR_SELECTOR)
+        );
+      }
+
       let sectionsSeen = 0;
       let recordsSeen = 0;
+      let recordsUnresolved = 0;
+      let recordsExpectedUnsupported = 0;
 
       desktopTables.forEach((table) => {
-        let currentDateHeading = null;
+        // Table-level date heading (the confirmed sibling pattern) seeds
+        // every row in this table; a `.sports-head__date` found as a
+        // direct CHILD (checked below, in case some page variant nests
+        // it that way instead) overrides it for the rows that follow.
+        let currentDateHeading = findPrecedingDateHeading(table);
         let currentSectionIndex = -1; // -1 == no row counted under the current heading yet
         let recordIndexInSection = 0;
 
@@ -742,7 +832,7 @@
             currentSectionIndex = -1; // the next row starts a fresh section under this heading
             return;
           }
-          if (!child.matches(BET9JA_DESKTOP_SELECTORS.row) || child.closest(EXCLUDED_ANCESTOR_SELECTOR)) {
+          if (!isCandidateRow(child)) {
             return;
           }
           if (currentSectionIndex === -1) {
@@ -751,7 +841,7 @@
             recordIndexInSection = 0;
           }
           recordsSeen += 1;
-          processRow({
+          const rowClassification = processRow({
             fields: extractBet9jaDesktopFields(child, currentDateHeading, urlCompetitionInfo),
             region: fallbackRegion,
             competition: fallbackCompetition,
@@ -764,6 +854,8 @@
             fixtures,
             unparsedRecords,
           });
+          if (rowClassification === ROW_UNRESOLVED) recordsUnresolved += 1;
+          if (rowClassification === ROW_EXPECTED_UNSUPPORTED) recordsExpectedUnsupported += 1;
           recordIndexInSection += 1;
         });
       });
@@ -771,6 +863,8 @@
       return finalize({
         sectionsSeen,
         recordsSeen,
+        recordsUnresolved,
+        recordsExpectedUnsupported,
         collapsedSectionsDetected: false,
         lazyLoadingDetected: doc.querySelector(SELECTORS.lazyPlaceholder) !== null,
         fallbackProfileActive: true,
@@ -779,6 +873,8 @@
 
     const groups = Array.from(rootEl.querySelectorAll(SELECTORS.competitionGroup));
     let recordsSeen = 0;
+    let recordsUnresolved = 0;
+    let recordsExpectedUnsupported = 0;
     let collapsedSectionsDetected = false;
     let lazyLoadingDetected = doc.querySelector(SELECTORS.lazyPlaceholder) !== null;
 
@@ -802,7 +898,7 @@
       const rows = Array.from(group.querySelectorAll(SELECTORS.fixtureRow));
       rows.forEach((row, recordIndex) => {
         recordsSeen += 1;
-        processRow({
+        const rowClassification = processRow({
           fields: extractLegacyFields(row),
           region,
           competition,
@@ -815,6 +911,8 @@
           fixtures,
           unparsedRecords,
         });
+        if (rowClassification === ROW_UNRESOLVED) recordsUnresolved += 1;
+        if (rowClassification === ROW_EXPECTED_UNSUPPORTED) recordsExpectedUnsupported += 1;
       });
     });
 
@@ -825,13 +923,15 @@
     return finalize({
       sectionsSeen: groups.length,
       recordsSeen,
+      recordsUnresolved,
+      recordsExpectedUnsupported,
       collapsedSectionsDetected,
       lazyLoadingDetected,
       fallbackProfileActive: false,
     });
   }
 
-  const api = { captureFromDocument, sanitizeSourceUrl, PARSER_VERSION, SELECTORS };
+  const api = { captureFromDocument, sanitizeSourceUrl, parseBet9jaCompetitionUrl, PARSER_VERSION, SELECTORS };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

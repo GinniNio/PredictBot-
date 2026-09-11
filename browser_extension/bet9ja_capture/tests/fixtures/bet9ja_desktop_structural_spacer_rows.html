@@ -1,0 +1,14 @@
+<!-- Confirmed real-page finding (round 2): 12 of 30 real `.table-f`
+     elements on a real capture had no matchup cell at all and empty
+     time/markets -- structural/spacer/header rows, not fixture
+     candidates. These two decoy rows model that: no
+     `.sports-table__matchup` element anywhere inside them. They must
+     never be counted as a record at all (not even MISSING_PARTICIPANTS)
+     -- contrast with bet9ja_desktop_mixed_pass_fail.html's row, which DOES
+     have a matchup cell but is missing its away name specifically, and
+     correctly still falls through to MISSING_PARTICIPANTS for audit. -->
+<div class="sports-table">
+  <div class="table-f"></div>
+  <div class="table-f"><div class="sports-table__td sports-table__spacer"></div></div>
+  <div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>16:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="home_highlights_sport-1_event-832455154"><div class="sports-table__home txt-cut">Ararat-Armenia</div><div class="sports-table__away txt-cut">FC Syunik</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-832455154_odds_market-1x2_sign-1">1.14</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-832455154_odds_market-1x2_sign-X">7.30</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-832455154_odds_market-1x2_sign-2">12.25</li></ul></div></div>
+</div>

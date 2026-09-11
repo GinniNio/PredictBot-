@@ -1,15 +1,20 @@
-<!-- Confirmed real-page structure: `.sports-head__date` heading elements
-     are direct siblings of `.table-f` rows under `.sports-table`, grouping
-     the rows that follow by date (not by competition/league -- no such
-     wrapper is confirmed for this page). The third row also carries a
-     second `.sports-table__odds-list` for the "1X2 1UP" market (confirmed
-     to exist on the real page, alongside ordinary 1X2) -- it must never be
-     merged into the real 1X2 market or silently dropped without an audit
-     trail. -->
+<!-- Confirmed real-page structure (round 2, corrected from a real capture):
+     `.sports-head__date` is the nearest preceding SIBLING of a
+     `.sports-table`, not a child nested inside one -- a real capture with
+     2 confirmed date sections came back with date_heading_raw: null on
+     every fixture under the earlier (wrong) nested-child assumption. Two
+     separate `.sports-table` elements here, each preceded by its own
+     `.sports-head__date`, model the real 2-section page. The third row
+     also carries a second `.sports-table__odds-list` for the "1X2 1UP"
+     market (confirmed to exist on the real page, alongside ordinary
+     1X2) -- it must never be merged into the real 1X2 market or silently
+     dropped without an audit trail. -->
+<div class="sports-head__date">Today</div>
 <div class="sports-table">
-  <div class="sports-head__date">Today</div>
   <div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>16:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="home_highlights_sport-1_event-832455154"><div class="sports-table__home txt-cut">Ararat-Armenia</div><div class="sports-table__away txt-cut">FC Syunik</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-832455154_odds_market-1x2_sign-1">1.14</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-832455154_odds_market-1x2_sign-X">7.30</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-832455154_odds_market-1x2_sign-2">12.25</li></ul></div></div>
   <div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>18:30</span></div><div class="sports-table__td sports-table__matchup pr10" id="home_highlights_sport-1_event-700000001"><div class="sports-table__home txt-cut">Team Alpha</div><div class="sports-table__away txt-cut">Team Beta</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-700000001_odds_market-1x2_sign-1">1.80</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-700000001_odds_market-1x2_sign-X">3.60</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-700000001_odds_market-1x2_sign-2">4.20</li></ul></div></div>
-  <div class="sports-head__date">Tomorrow</div>
+</div>
+<div class="sports-head__date">Tomorrow</div>
+<div class="sports-table">
   <div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>20:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="home_highlights_sport-1_event-700000002"><div class="sports-table__home txt-cut">Team Gamma</div><div class="sports-table__away txt-cut">Team Delta</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-700000002_odds_market-1x2_sign-1">1.50</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-700000002_odds_market-1x2_sign-X">4.00</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-700000002_odds_market-1x2_sign-2">6.00</li></ul><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-700000002_odds_market-1x2_1up_sign-1">1.30</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-700000002_odds_market-1x2_1up_sign-X">3.50</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-700000002_odds_market-1x2_1up_sign-2">5.50</li></ul></div></div>
 </div>

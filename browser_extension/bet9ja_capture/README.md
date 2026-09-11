@@ -65,6 +65,7 @@ everything it does not do yet.
     "records_seen": 1,
     "records_parsed": 1,
     "records_unresolved": 0,
+    "records_expected_unsupported": 0,
     "collapsed_sections_detected": false,
     "lazy_loading_detected": false
   },
@@ -138,9 +139,38 @@ test.
 | `NO_MARKETS_FOUND` | false | Row matched but has no market elements at all. |
 
 `expected_unsupported: true` reasons are "working as intended" (a future
-adapter's job, or deliberately out of scope) and do not count toward
+adapter's job, or deliberately out of scope) and count toward
+`coverage.records_expected_unsupported` instead of
 `coverage.records_unresolved`; `false` reasons are genuine parsing
-problems worth an operator's attention.
+problems worth an operator's attention and count toward
+`coverage.records_unresolved`.
+
+### `coverage`'s row-accounting invariant
+
+Every row `captureFromDocument` examines is classified into exactly one
+of three buckets — `records_parsed` (produced a fixture),
+`records_unresolved` (a genuine problem — some `false`-`expected_unsupported`
+reason above), or `records_expected_unsupported` (correctly identified but
+out of scope for this release — some `true`-`expected_unsupported` reason
+above) — so this always holds, for any page:
+
+```
+coverage.records_seen
+  = coverage.records_parsed
+  + coverage.records_unresolved
+  + coverage.records_expected_unsupported
+```
+
+This is a genuine per-**row** invariant, not a per-`unparsed_records`-**event**
+one: `unparsed_records` is an audit-event log, and one row can generate
+several events (a real Soccer row's true 1X2 market plus its excluded
+"1X2 1UP"/"1X2 2UP" siblings produces one fixture — the row counts once,
+toward `records_parsed` — alongside two separate `UNSUPPORTED_MARKET_FAMILY`
+audit entries that do NOT inflate `records_expected_unsupported`, since
+that row already succeeded). `tests/parser.test.js`'s
+`records_seen = records_parsed + records_unresolved + records_expected_unsupported, universally`
+test proves this holds across every real and synthetic fixture in this
+package, including one with exactly that 1X2-plus-1UP shape.
 
 ### `unparsed_records[].raw` field allowlist (privacy contract)
 
@@ -277,12 +307,16 @@ row mapping to exactly `1.14 / 7.30 / 12.25` on the correct participants.
   and the 1X2 odds list (`.sports-table__odds-item` with the outcome
   label embedded in each `<li>`'s own `id`, e.g. `..._market-1x2_sign-1`)
   all work against real markup.
-- **Date-heading grouping**: `.sports-head__date` elements are direct
-  siblings of `.table-f` rows under `.sports-table`, grouping the rows
-  that follow by date (confirmed: 2 date headings on this page). Recorded
-  per fixture as `date_heading_raw` for audit — deliberately never
-  combined with the bare kickoff time into a guessed `kickoff_utc`, since
-  its exact date-string format is still unconfirmed.
+- **Date-heading grouping**: `.sports-head__date` elements are the
+  nearest preceding SIBLING of a `.sports-table` (confirmed via a real
+  downloaded capture, round 3 — an earlier assumption that it was nested
+  as a child inside the table was wrong: that real capture had 2
+  confirmed date sections but every fixture came back with
+  `date_heading_raw: null`). Every row in a table inherits that table's
+  own preceding heading. Recorded per fixture as `date_heading_raw` for
+  audit — deliberately never combined with the bare kickoff time into a
+  guessed `kickoff_utc`, since its exact date-string format is still
+  unconfirmed.
 - **The "1X2 1UP" second market never contaminates ordinary 1X2.** The
   real page carries a second `.sports-table__odds-list` per row for a
   "1X2 1UP" market; its odds-item `id`s use a distinct family segment
@@ -307,6 +341,16 @@ row mapping to exactly `1.14 / 7.30 / 12.25` on the correct participants.
 - **Login vs. public parity**: identical fixture-row/element counts and
   an identical first fixture confirm no authenticated-only branch is
   needed for this page.
+- **Structural/spacer rows are excluded, not fabricated into fixtures.**
+  A real capture showed 12 of 30 `.table-f` elements have no matchup cell
+  at all (empty structural/header/spacer rows). A row candidate now
+  requires a real `.sports-table__matchup` element to exist before it is
+  even counted as a record — these 12 no longer appear as noisy
+  `MISSING_PARTICIPANTS` audit entries, or anywhere else.
+- **Sport is resolved generically from any `/competition/{sport}/...`
+  URL**, not hardcoded to Soccer — confirmed against a real Basketball
+  competition page. An excluded sport now identifies correctly (e.g.
+  `sport_hint: "BASKETBALL"`) instead of falling back to `"UNKNOWN"`.
 
 **What this does NOT yet confirm** (no sample seen; do not assume this
 profile handles these correctly until it has been):
@@ -377,12 +421,14 @@ competition/kickoff), and time-zone honesty (a missing, year-less, or
 timezone-less `data-kickoff-utc` all produce a typed unresolved state with
 `kickoff_raw` preserved, never a guessed UTC value), and the BET9JA_DESKTOP
 real-page fallback profile: a real sanitized row, a mixed pass/fail page,
-a nav/betslip-decoy exclusion page, date-heading grouping plus the real
-"1X2 1UP" second-market exclusion, and the competition-page id/URL shape
-(`prematch_event-{id}`, country/competition parsed from the URL) — see
-"Real-page validation status" above. `tests/privacy.test.js` and
-`tests/structural.test.js` cover the allowlist/permission-contract
-properties described above.
+a nav/betslip-decoy exclusion page, sibling-based date-heading grouping
+plus the real "1X2 1UP" second-market exclusion, structural/spacer-row
+exclusion (a matchup-less `.table-f`), the competition-page id/URL shape
+(`prematch_event-{id}`, country/competition parsed from the URL), and
+generic sport-slug resolution from a non-Soccer competition URL
+(Basketball) — see "Real-page validation status" above.
+`tests/privacy.test.js` and `tests/structural.test.js` cover the
+allowlist/permission-contract properties described above.
 
 ## Boundaries (Release 1)
 
