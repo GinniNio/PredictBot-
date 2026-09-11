@@ -81,10 +81,10 @@ is declared as one of two support levels:
 |---|---|
 | ChatGPT Project | `runtime_supported` |
 | Claude Cowork Project | `runtime_supported` |
-| Gemini Project | `orchestration_supported`, `runtime_unsupported` |
+| Gemini orchestration host | `orchestration_supported`, `runtime_unsupported` |
 
-Gemini Project can orchestrate the PCBF prompt/JSON flow but cannot execute
-the Python wheel itself (Gemini Projects have no Python execution or offline
+Gemini orchestration host can orchestrate the PCBF prompt/JSON flow but cannot execute
+the Python wheel itself (Gemini orchestration hosts have no Python execution or offline
 package installation available). No hosted API workaround is being built to
 make Gemini runtime-capable — see `docs/CALCULATOR_KICKOFF.md` for that
 decision and its rationale. This declaration must be revisited only when new

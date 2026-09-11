@@ -34,7 +34,7 @@ four files, executes the same commands, and consumes the same JSON result:
 
 - ChatGPT Project
 - Claude Cowork Project
-- Gemini Project
+- Gemini orchestration host
 
 Host-specific prompts belong in `kasiro-brain`, not this repository. If a host
 cannot install and execute the wheel, it records `HOST_RUNTIME_UNAVAILABLE` and

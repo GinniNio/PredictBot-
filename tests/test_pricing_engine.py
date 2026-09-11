@@ -1,6 +1,6 @@
 import unittest
 
-from pcbf_calculator.pricing.engine import PricingFailure, analyze_market
+from pcbf_calculator.pricing.engine import PricingFailure, _market_quality, analyze_market
 
 
 class PricingEngineTests(unittest.TestCase):
@@ -147,6 +147,29 @@ class PricingEngineTests(unittest.TestCase):
         first = analyze_market(prices)
         second = analyze_market(prices)
         self.assertEqual(first, second)
+
+    def test_arbitrage_shaped_market_is_flagged_anomalous_negative_margin(self):
+        # Implied probabilities summing to less than 1.0 -- a bettor backing
+        # every outcome at these prices locks in a guaranteed profit
+        # regardless of outcome. Real markets do occasionally show this
+        # shape (a pricing error, or a stale/racing quote a moment before
+        # correction) and it must be flagged loudly, never silently priced
+        # as if it were an ordinary market.
+        result = analyze_market({"home": 2.5, "away": 2.5})
+        self.assertLess(result["bookmaker_margin"], 0.0)
+        self.assertEqual(result["market_quality"]["evidence_quality"], "ANOMALOUS_NEGATIVE_MARGIN")
+
+    def test_margin_tier_boundaries_are_exact(self):
+        # _market_quality's own tier boundaries: margin < 0 ->
+        # ANOMALOUS_NEGATIVE_MARGIN, margin > 0.5 -> LOW_EVIDENCE_HIGH_MARGIN,
+        # otherwise NORMAL. Exercised directly against the exact boundary
+        # values (0.0 and 0.5) rather than through analyze_market's own
+        # price -> margin arithmetic, which cannot reliably hit an exact
+        # float boundary from real prices.
+        self.assertEqual(_market_quality(0.0, 3)["evidence_quality"], "NORMAL")
+        self.assertEqual(_market_quality(0.5, 3)["evidence_quality"], "NORMAL")  # 0.5 itself is NOT high-margin
+        self.assertEqual(_market_quality(0.5 + 1e-9, 3)["evidence_quality"], "LOW_EVIDENCE_HIGH_MARGIN")
+        self.assertEqual(_market_quality(-1e-9, 3)["evidence_quality"], "ANOMALOUS_NEGATIVE_MARGIN")
 
     def test_stake_scales_ev_linearly(self):
         prices = {"home": 2.5, "away": 1.6}

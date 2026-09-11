@@ -1,6 +1,40 @@
 # Soccer 1X2 Forecasting Adapter — Design Specification
 
-**Status: design only.** This document specifies the first admitted
+**Status update (research baseline closed, adapter still design-only):**
+`research/soccer_1x2_elo_baseline/` now holds a real, frozen research
+benchmark for this sport — a pre-match Elo + multinomial logistic
+regression model, validated against real, live-downloaded football-data.co.uk
+content (see `.github/workflows/football-data-feasibility.yml` and its
+pinned `expected_hashes.json`). Confirmed real-data properties:
+
+- **Deterministic**: `run_twice_determinism_check` proves byte-identical
+  model artifacts across independent training runs.
+- **Frozen**: the four model-development inputs (training/calibration/
+  locked-test/holdout) are individually hashed and pinned; a live run
+  whose real data no longer matches those hashes fails loudly, never
+  silently.
+- **Real-data validated**: confirmed by SHA-256 match against
+  `data_pipeline/retrieval_log.json`'s own record of a genuine
+  football-data.co.uk download (`evidence_class: LIVE_SOURCE_VALIDATED`),
+  never inferred from row counts or fixture content alone.
+- **Beats the naive league-frequency baseline** on both held-out splits
+  (locked-test and out-of-time holdout).
+- **Trails de-vigged opening bookmaker odds** on both of the same splits —
+  the market remains the stronger predictor.
+- **Unregistered**: `soccer_1x2` has no model-admission-registry row, no
+  adapter dispatch-table wiring, and no promotion-threshold change.
+- **Classification capped at `RESEARCH-MODEL`** regardless of these
+  numbers — this status is evidentiary only and authorizes nothing.
+
+This is a standalone research benchmark, structurally separate from the
+adapter this document specifies (`SportAdapter` subclass /
+`SoccerOneXTwoAdapter`) — it proves a floor future models must clear, not
+an implementation of the admitted-adapter design below. The adapter
+itself remains **design only** — the rest of this document, unchanged:
+
+---
+
+This document specifies the first admitted
 forecasting adapter (`SportAdapter` subclass, per
 `docs/MULTI_SPORT_ARCHITECTURE.md` layer 2) for pre-match Soccer 1X2. It is
 the reference pattern later adapters (tennis, basketball, etc.) will reuse —
