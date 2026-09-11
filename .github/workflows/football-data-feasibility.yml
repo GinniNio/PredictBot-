@@ -168,22 +168,27 @@ jobs:
           )
           print("")
           print(
-              "Four labels below are EXPLICITLY DISTINCT and never conflated: "
+              "Five labels below are EXPLICITLY DISTINCT and never conflated: "
               "`source_rows` (every row read), `usable_rows` (passed every "
               "validation check), `rejected_unique_rows` (`source_rows - "
-              "usable_rows`, one per row), and `validation_issue_occurrences` "
+              "usable_rows`, one per row), `validation_issue_occurrences` "
               "(sum of every typed rejection reason's occurrence count — can "
-              "exceed `rejected_unique_rows` when a row trips multiple reasons)."
+              "exceed `rejected_unique_rows` when a row trips multiple reasons), "
+              "and `pending_settlement_rows_included` (split_prospective_paper_scoring "
+              "only: not-yet-played fixtures included with a null result, per the "
+              "contract's result_nullable_until_settlement field — "
+              "`len(records) == usable_rows + pending_settlement_rows_included`)."
           )
           print("")
-          print("| Split | Season codes | Source rows | Usable | Rejected (unique) | Issue occurrences | Closing-line-benchmark label required |")
-          print("|---|---|---:|---:|---:|---:|---|")
+          print("| Split | Season codes | Source rows | Usable | Rejected (unique) | Issue occurrences | Pending settlement | Closing-line-benchmark label required |")
+          print("|---|---|---:|---:|---:|---:|---:|---|")
           for split_id, split in report["splits"].items():
               totals = split["totals"]
               print(
                   f"| {split_id} | {', '.join(split['season_codes']) or '(none)'} | "
                   f"{totals['source_rows']} | {totals['usable_rows']} | "
                   f"{totals['rejected_unique_rows']} | {totals['validation_issue_occurrences']} | "
+                  f"{totals['pending_settlement_rows_included']} | "
                   f"{split['closing_line_benchmark_model_label'] or 'no'} |"
               )
           print("")
