@@ -1,0 +1,629 @@
+{
+  "generated_at_utc": "2026-09-11T03:12:38+00:00",
+  "contract_version": "1.0.0",
+  "contract_status": "DRAFT_FOR_OPERATOR_REVIEW",
+  "splits": {
+    "split_model_dev_and_completed_eval": {
+      "use": "Model development and completed-season evaluation",
+      "season_codes": [
+        "1920",
+        "2021",
+        "2122",
+        "2223",
+        "2324",
+        "2425"
+      ],
+      "include_excluded_seasons": false,
+      "totals": {
+        "source_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
+        "rejected_unique_rows": 0,
+        "validation_issue_occurrences": 0
+      },
+      "files": [
+        {
+          "league_code": "E0",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2425",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2425",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2425",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2425",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2425",
+          "missing": true
+        }
+      ],
+      "rejected_row_sample": [],
+      "dataset_file": "data_pipeline/dataset/split_model_dev_and_completed_eval.json",
+      "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "closing_line_benchmark_model_required": false,
+      "closing_line_benchmark_model_label": null
+    },
+    "split_closing_line_benchmark": {
+      "use": "Closing-line benchmark",
+      "season_codes": [
+        "1920",
+        "2021",
+        "2122",
+        "2223",
+        "2324",
+        "2425"
+      ],
+      "include_excluded_seasons": false,
+      "totals": {
+        "source_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
+        "rejected_unique_rows": 0,
+        "validation_issue_occurrences": 0
+      },
+      "files": [
+        {
+          "league_code": "E0",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "2425",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2425",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2425",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2425",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2425",
+          "missing": true
+        }
+      ],
+      "rejected_row_sample": [],
+      "dataset_file": "data_pipeline/dataset/split_closing_line_benchmark.json",
+      "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "closing_line_benchmark_model_required": true,
+      "closing_line_benchmark_model_label": "CLOSING_LINE_BENCHMARK_MODEL"
+    },
+    "split_prospective_paper_scoring": {
+      "use": "Current-season prospective/PAPER scoring",
+      "season_codes": [
+        "2526"
+      ],
+      "include_excluded_seasons": false,
+      "totals": {
+        "source_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
+        "rejected_unique_rows": 0,
+        "validation_issue_occurrences": 0
+      },
+      "files": [
+        {
+          "league_code": "E0",
+          "season_code": "2526",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2526",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2526",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2526",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2526",
+          "missing": true
+        }
+      ],
+      "rejected_row_sample": [],
+      "dataset_file": "data_pipeline/dataset/split_prospective_paper_scoring.json",
+      "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "closing_line_benchmark_model_required": false,
+      "closing_line_benchmark_model_label": null
+    },
+    "split_earlier_research_backtesting": {
+      "use": "Earlier research/backtesting",
+      "season_codes": [
+        "1213",
+        "1314",
+        "1516",
+        "1617",
+        "1718",
+        "1819"
+      ],
+      "include_excluded_seasons": false,
+      "totals": {
+        "source_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
+        "rejected_unique_rows": 0,
+        "validation_issue_occurrences": 0
+      },
+      "files": [
+        {
+          "league_code": "E0",
+          "season_code": "1213",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "1314",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "1516",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "1617",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "1718",
+          "missing": true
+        },
+        {
+          "league_code": "E0",
+          "season_code": "1819",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "1213",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "1314",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "1516",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "1617",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "1718",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "1819",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "1213",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "1314",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "1516",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "1617",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "1718",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "1819",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "1213",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "1314",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "1516",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "1617",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "1718",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "1819",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "1213",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "1314",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "1516",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "1617",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "1718",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "1819",
+          "missing": true
+        }
+      ],
+      "rejected_row_sample": [],
+      "dataset_file": "data_pipeline/dataset/split_earlier_research_backtesting.json",
+      "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "closing_line_benchmark_model_required": true,
+      "closing_line_benchmark_model_label": "CLOSING_LINE_BENCHMARK_MODEL"
+    }
+  },
+  "dataset_snapshot_sha256": "8a460f1223fb8fa7b089ef7f305fbb028522b7a1428624d6617c75430e3371e4",
+  "season_1415_diagnostic": {
+    "status": "UNRESOLVED_PENDING_HUMAN_REVIEW",
+    "statement": "This diagnostic reports column-header differences only. It does NOT confirm a root cause for the season-1415 usable-fixture-rate collapse observed across all 5 leagues in the live GitHub Actions run at commit 6093d0a. A human must read this evidence (and, when 'no_drift' is true for every league, conclude the anomaly is at the row/value level, not the schema level) before season 1415 is cleared for default inclusion.",
+    "per_league": {
+      "E0": {
+        "1314_vs_1415": {
+          "available": false
+        },
+        "1415_vs_1516": {
+          "available": false
+        }
+      },
+      "D1": {
+        "1314_vs_1415": {
+          "available": false
+        },
+        "1415_vs_1516": {
+          "available": false
+        }
+      },
+      "SP1": {
+        "1314_vs_1415": {
+          "available": false
+        },
+        "1415_vs_1516": {
+          "available": false
+        }
+      },
+      "I1": {
+        "1314_vs_1415": {
+          "available": false
+        },
+        "1415_vs_1516": {
+          "available": false
+        }
+      },
+      "F1": {
+        "1314_vs_1415": {
+          "available": false
+        },
+        "1415_vs_1516": {
+          "available": false
+        }
+      }
+    }
+  },
+  "note": "This report describes whatever raw files were actually present under data_pipeline/raw at build time \u2014 real downloads happen separately via `python -m data_pipeline.download`. A missing (league, season) file is reported per-file as `missing: true`, never fabricated. Dataset row content itself is written only to data_pipeline/dataset/ (gitignored) \u2014 never committed; this report's numbers, hashes, the season-1415 diagnostic, and the sanitized rejected-row sample are the committed evidence."
+}

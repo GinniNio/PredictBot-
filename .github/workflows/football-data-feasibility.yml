@@ -73,6 +73,16 @@ jobs:
       - name: Run schema inspection + validation and generate feasibility reports
         run: python -m data_pipeline.report
 
+      - name: Build Soccer 1X2 dataset splits and generate dataset build report
+        # Reads whatever data_pipeline/download.py actually retrieved above
+        # (real downloads if any succeeded — never a fabricated dataset) and
+        # the versioned dataset contract
+        # (docs/adapters/data/soccer_1x2_dataset_contract.yaml). Produced
+        # dataset row content is written only to data_pipeline/dataset/
+        # (gitignored — see .gitignore's own comment on why) and never
+        # uploaded; only the small evidence report below is.
+        run: python -m data_pipeline.dataset_builder
+
       - name: Write evidence summary to job summary
         run: |
           # Note the `| tee -a "$GITHUB_STEP_SUMMARY"` below (not `>>`): a
@@ -137,19 +147,114 @@ jobs:
               print(line)
           PY
 
+      - name: Write dataset-build evidence to job summary
+        run: |
+          # Same `tee -a "$GITHUB_STEP_SUMMARY"` pattern as the step above —
+          # this evidence must be visible in both the job log and the
+          # step summary without downloading the uploaded artifact.
+          python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("data_pipeline/reports/dataset_build_report.json").read_text(encoding="utf-8"))
+
+          print("")
+          print("## Soccer 1X2 dataset build evidence")
+          print("")
+          print(
+              f"Contract version `{report['contract_version']}` "
+              f"(status: `{report['contract_status']}`). "
+              f"Combined dataset snapshot hash: `{report['dataset_snapshot_sha256']}`."
+          )
+          print("")
+          print(
+              "Labels below are EXPLICITLY DISTINCT and never conflated. The first "
+              "three always reconcile exactly: `source_rows == usable_settled_rows + "
+              "pending_settlement_rows_included + rejected_unique_rows`. "
+              "`usable_settled_rows` and `rejected_unique_rows` are THIS SPLIT'S OWN "
+              "eligibility decision (never the generic, split-unaware validate_file "
+              "check — a row missing a field this split never required is still "
+              "usable here). `pending_settlement_rows_included` is nonzero only for "
+              "split_prospective_paper_scoring (not-yet-played fixtures admitted with "
+              "a null result, per the contract's result_nullable_until_settlement "
+              "field). `validation_issue_occurrences` is generic FILE-level "
+              "diagnostic evidence (sum of every typed rejection reason's occurrence "
+              "count), deliberately outside the three-way reconciliation."
+          )
+          print("")
+          print("| Split | Season codes | Source rows | Usable (settled) | Pending settlement | Rejected (unique) | Issue occurrences | Closing-line-benchmark label required |")
+          print("|---|---|---:|---:|---:|---:|---:|---|")
+          for split_id, split in report["splits"].items():
+              totals = split["totals"]
+              print(
+                  f"| {split_id} | {', '.join(split['season_codes']) or '(none)'} | "
+                  f"{totals['source_rows']} | {totals['usable_settled_rows']} | "
+                  f"{totals['pending_settlement_rows_included']} | "
+                  f"{totals['rejected_unique_rows']} | {totals['validation_issue_occurrences']} | "
+                  f"{split['closing_line_benchmark_model_label'] or 'no'} |"
+              )
+          print("")
+
+          diag = report["season_1415_diagnostic"]
+          print(f"### Season 1415 diagnostic — {diag['status']}")
+          print("")
+          print(f"> {diag['statement']}")
+          print("")
+          print("| League | 1314 vs 1415 | 1415 vs 1516 |")
+          print("|---|---|---|")
+          for league_code, pair_results in diag["per_league"].items():
+              cells = []
+              for key in ("1314_vs_1415", "1415_vs_1516"):
+                  r = pair_results[key]
+                  if not r.get("available"):
+                      cells.append("(file not available)")
+                  elif r["no_drift"]:
+                      cells.append("no header drift")
+                  else:
+                      cells.append(f"only_in_first={r['columns_only_in_first']}, only_in_second={r['columns_only_in_second']}")
+              print(f"| {league_code} | {cells[0]} | {cells[1]} |")
+          print("")
+
+          print("### Sanitized rejected-row sample (capped, no odds values)")
+          print("")
+          any_sample = False
+          for split_id, split in report["splits"].items():
+              sample = split["rejected_row_sample"]
+              if not sample:
+                  continue
+              any_sample = True
+              print(f"- **{split_id}**:")
+              for row in sample:
+                  print(
+                      f"  - {row['league_code']}/{row['season_code']} row {row['row_index']}: "
+                      f"{row['home_team']} vs {row['away_team']} ({row['date_raw']}) — {row['issues']}"
+                  )
+          if not any_sample:
+              print("_No rejected rows sampled (no split had a rejected row, or no raw files were present)._")
+          print("")
+          print(f"> {report['note']}")
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: football-data-feasibility-evidence
           # Explicit file list only — never a directory glob. Raw downloaded
-          # CSVs (data_pipeline/raw/, gitignored) are deliberately excluded:
-          # only retrieval metadata (hashes/timestamps/URLs, no CSV content),
-          # the source-attempt/feasibility report, the fixture-validation
-          # report, and this run's metadata are uploaded.
+          # CSVs (data_pipeline/raw/, gitignored) are deliberately excluded,
+          # and so is anything under data_pipeline/dataset/ (also
+          # gitignored — see .gitignore's comment there): both reshape the
+          # same third-party Football-Data row content and are never ours
+          # to redistribute. Only retrieval metadata (hashes/timestamps/
+          # URLs, no CSV content), the source-attempt/feasibility report,
+          # the fixture-validation report, the dataset build report
+          # (counts/hashes/diagnostic/sanitized sample, no row content),
+          # and this run's metadata are uploaded.
           path: |
             data_pipeline/retrieval_log.json
             data_pipeline/reports/feasibility_report.json
             data_pipeline/reports/feasibility_report.md
             data_pipeline/reports/fixture_validation_report.json
             data_pipeline/reports/fixture_validation_report.md
+            data_pipeline/reports/dataset_build_report.json
+            data_pipeline/reports/dataset_build_report.md
             data_pipeline/reports/run_metadata.json
           if-no-files-found: error
