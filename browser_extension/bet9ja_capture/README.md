@@ -27,12 +27,13 @@ buttons:
   actually bet can be recorded in the betting ledger without
   hand-transcription.
 - **Capture settled bets** (see "Capture settled bets" below — real
-  selectors confirmed for the tab, ticket/leg structure, and the Won/Lost
-  vocabulary via live inspection; not yet run end-to-end against a real
-  191-page account): opens from My Bets → Settled Bets, walks every
-  numbered results page, expands each ticket, and downloads one file of
-  Bet9ja's own recorded settlement (ticket/leg outcomes, stake, payout) —
-  never a recalculated result, never a ledger update.
+  selectors confirmed and run end-to-end: a real 23-page, 115-ticket
+  capture reconciled exactly, with a bounded expansion retry and
+  Won/Lost/Cancelled leg-outcome recognition): opens from My Bets →
+  Settled Bets, walks every numbered results page within whatever date
+  range is currently selected, expands each ticket, and downloads one
+  file of Bet9ja's own recorded settlement (ticket/leg outcomes, stake,
+  payout) — never a recalculated result, never a ledger update.
 
 This is deliberately the smallest useful slice — see "Boundaries" below for
 everything it does not do yet.
@@ -812,22 +813,34 @@ any model — `profit_loss` is always `null` here; computing it from stake,
 payout, and cashout with decimal-safe arithmetic is the (future) ledger
 importer's job, not this capture's.
 
-**SELECTOR STATUS: real profile confirmed via live authenticated
-inspection (Round 1) — see `SETTLED_BETS_REAL_PAGE_VALIDATION.md`.** The
-Settled Bets tab (`.mybets__bets-item`, exact text "Settled Bets",
-selected state `.mybets__bets-item--current`), ticket/leg structure
-(largely the same `.mybets`/`.accordion-item` shape `ticket_parser.js`'s
-Open Bets profile already confirmed, with a new third leg row carrying
-`.mybets-score`/`.mybets-game`/`.mybets__info`), and pagination
-(`.mybets .pg-pagination__item`, 191 real numbered pages confirmed) are
-all real, confirmed selectors — not placeholders. Two things remain
-genuinely unconfirmed: no selector for a system ticket's
-won/lost/void **combination breakdown** has been identified yet
-(`system_settlement` stays `null`-valued until one is), and only the
-exact outcome words "Won"/"Lost" are recognized so far — `VOID`, `PUSH`,
-`HALF_WON`, `HALF_LOST`, `CASHED_OUT`, and `PARTIAL_RETURN` remain valid
-schema values this parser has not yet seen real markup for, and an
-unrecognized ticket-summary word still fails that whole ticket closed
+**SELECTOR STATUS: real profile confirmed and run end-to-end (Round 2) —
+see `SETTLED_BETS_REAL_PAGE_VALIDATION.md`.** The Settled Bets tab
+(`.mybets__bets-item`, exact text "Settled Bets", selected state
+`.mybets__bets-item--current`), ticket/leg structure (largely the same
+`.mybets`/`.accordion-item` shape `ticket_parser.js`'s Open Bets profile
+already confirmed, with a third leg row carrying `.mybets-score`/
+`.mybets-game`/`.mybets__info`), and pagination
+(`.mybets .pg-pagination__item`) are all real, confirmed selectors — not
+placeholders. A real 23-page, 115-ticket capture reconciled exactly
+(115 seen = 102 parsed + 13 unresolved; 583/583 legs). An earlier estimate
+of 191 pages was wrong (a raw count of every pagination element, not
+genuine numbered pages) — the real, page-by-page-validated total is
+whatever the current account and selected date range contain; see
+"Capture scope" below.
+
+Two things remain genuinely unconfirmed: no selector for a system
+ticket's won/lost/void **combination breakdown** has been identified yet
+(`system_settlement` stays `null`-valued until one is), and no confirmed
+selector exists yet for the page's own displayed **date-range** control
+(`date_range.from_raw`/`.to_raw` stay `null`). Leg outcome text
+recognizes "Won"/"Lost"/"Cancelled" (Round 2 real evidence: 4 of 583 real
+legs, across 4 tickets sharing the same underlying fixture, showed the
+exact text "Cancelled" and now normalize to `leg_status: 'VOID'`); `PUSH`,
+`HALF_WON`, `HALF_LOST`, `CASHED_OUT`, `PARTIAL_RETURN`, and ticket-level
+`VOID` remain valid schema values this parser has not yet seen real
+markup for — ticket-level VOID inference stays deliberately disabled
+until a real voided TICKET summary (not just a voided leg) is observed.
+An unrecognized ticket-summary word still fails that whole ticket closed
 (`MISSING_OR_UNRECOGNIZED_SETTLEMENT_STATUS`) rather than being guessed.
 This keeps `capture_status` permanently capped at `CAPTURE_PARTIAL` for
 this version, the same pattern `ticket_parser.js`'s MYBETS profile uses.
@@ -843,12 +856,41 @@ result (confirmed: the inspected system ticket had both) — this module
 never infers the ticket's own outcome from "did every leg win"; it reads
 only the ticket's own explicit summary text.
 
-### Long pagination (real accounts can span 190+ pages)
+### Expansion retry (Round 2)
+
+A real capture found 13 of 115 tickets timing out on their FIRST
+expansion attempt (`TICKET_EXPANSION_TIMEOUT`) despite every
+successfully-expanded ticket parsing all of its legs cleanly — an
+intermittent rendering-timing issue, not a settlement-parsing defect.
+`ensureTicketExpanded` now allows exactly ONE bounded retry: the ticket
+is returned to a collapsed state (or confirmed already collapsed), then
+re-expanded and re-checked for readiness — now requiring, alongside the
+open class and ticket id, at least one candidate (non-structural)
+`.mybets-item` too. A retry that still fails keeps
+`TICKET_EXPANSION_TIMEOUT` and attaches `readiness_diagnostics`
+(`open_class_seen`, `ticket_id_seen`, `leg_candidates_seen`) to the
+`unresolved_tickets` entry, so a future round has concrete evidence of
+exactly what state the ticket was left in.
+
+### Capture scope (date range)
+
+Bet9ja's Settled Bets view is scoped to whatever date range is currently
+selected on the page itself. This module is READ-ONLY with respect to
+that range — it never selects or changes dates; you pick the range on
+the page, then click **Capture settled bets** once, and it captures every
+page inside that range. Every envelope records `capture_scope:
+'USER_SELECTED_DATE_RANGE'` and `date_range` (`from_raw`, `to_raw`,
+`timezone`) honestly — both raw fields stay `null` until a selector for
+the page's own displayed range control is confirmed. `pages_available`
+means pages within whatever range was selected, never the account's
+complete history.
+
+### Long pagination (real accounts can span many pages)
 
 - `context.onProgress(info)` fires once per page — the popup polls a
   small in-page progress object (`window.__bet9jaSettledBetsProgress`)
-  once a second while the run is in flight and renders "Page N/191
-  (visited M) · Tickets parsed so far: K", since a live callback cannot
+  once a second while the run is in flight and renders "Page N/M
+  (visited K) · Tickets parsed so far: J", since a live callback cannot
   cross the `chrome.scripting.executeScript()` argument boundary.
 - A **Cancel** button sets `window.__bet9jaSettledBetsCancelRequested`,
   which `context.shouldCancel` polls between pages — a user-initiated
@@ -858,16 +900,17 @@ only the ticket's own explicit summary text.
   plain-language `resume_hint`) tells you where to pick back up if a run
   stops early — deduplication by `bet9ja_ticket_id` means re-running from
   page 1 is always safe too, just slower.
-- `MAX_PAGES_SAFETY_CAP` is 500 — well above the confirmed 191 pages, so
-  a larger real account is never truncated by an unrelated cap.
+- `MAX_PAGES_SAFETY_CAP` is 500 as a hard backstop, never relied on
+  normally.
 
 ### Output shape (`bet9ja-settled-bets.v1`)
 
-`capture_status`, `capture_status_reasons`, `coverage`
-(`pages_available`/`pages_visited`, `tickets_seen`/`tickets_parsed`/
-`tickets_unresolved`/`tickets_expected_excluded`,
+`capture_status`, `capture_status_reasons`, `capture_scope`, `date_range`,
+`coverage` (`pages_available`/`pages_visited`, `tickets_seen`/
+`tickets_parsed`/`tickets_unresolved`/`tickets_expected_excluded`,
 `duplicate_tickets_skipped`, `legs_seen`/`legs_parsed`), `page_results[]`,
-`tickets[]`, `unresolved_tickets[]`, `excluded_tickets[]`, and
+`tickets[]`, `unresolved_tickets[]` (each carrying `readiness_diagnostics`
+when the failure was an expansion timeout), `excluded_tickets[]`, and
 `resume_metadata`. Each ticket carries `bet9ja_ticket_id`,
 `ticket_type_raw`/`ticket_type_normalized`, `placed_at_raw`, monetary
 fields as decimal strings (`total_stake`, `actual_payout`,
@@ -878,7 +921,8 @@ breakdown selector is confirmed), `system_table_raw`, and `legs[]`. Each
 leg carries `fixture_id`, `selection`/`selection_raw`, `odds` (decimal
 string), `market_raw`, `fixture_and_time_raw`, `competition_raw`/
 `competition_resolution`, `result_raw`/`market_result_raw` (the displayed
-score), and `leg_status`/`leg_status_raw`/`settlement_resolution`.
+score), and `leg_status` (`WON`/`LOST`/`VOID`/`UNRESOLVED` so far)/
+`leg_status_raw`/`settlement_resolution`.
 
 ### Safety
 
@@ -1022,25 +1066,32 @@ discovered competition-menu link and that returning to the inventory page
 never clicks a guessed control.
 
 `tests/settled_bets_parser.test.js` runs `settled_bets_parser.js` against
-a synthetic jsdom harness modeling the Round 1 confirmed structure: a
-source URL not on `/myBets/` refused before touching the DOM, activating
-the Settled Bets tab by clicking the confirmed control, a missing tab
-control failing closed, a lost ticket producing no manufactured payout, a
-won ticket's payout parsed as a decimal string, a system ticket with both
-Won and Lost legs producing one ticket result (never inferred from "all
-legs won"), an unrecognized ticket-summary word failing the whole ticket
-closed, an unrecognized leg outcome resolving `UNRESOLVED` without
-voiding the ticket, a 3-row leg (competition omitted) being accepted, a
-structural 0-row leg being excluded at candidacy, a malformed leg row
-count voiding the ticket, a missing ticket id, an expansion timeout, two
-tickets on one page resolved independently, the row-accounting invariant,
-the permanent `CAPTURE_PARTIAL` cap, pagination walking every numbered
-page while never clicking First/Previous/Next/Last, the `onProgress`
-callback firing once per page, `shouldCancel` stopping the walk early
-with `resume_metadata` populated, and a full run reporting
-`can_resume: false`. A dedicated "safety" test greps the compiled source
-to confirm `.click()` is only ever called on the confirmed tab control,
-accordion toggle, or a verified numbered pagination item.
+a synthetic jsdom harness modeling the Round 1/Round 2 confirmed
+structure: a source URL not on `/myBets/` refused before touching the
+DOM, activating the Settled Bets tab by clicking the confirmed control, a
+missing tab control failing closed, a lost ticket producing no
+manufactured payout, a won ticket's payout parsed as a decimal string, a
+system ticket with both Won and Lost legs producing one ticket result
+(never inferred from "all legs won"), an unrecognized ticket-summary word
+failing the whole ticket closed, an unrecognized leg outcome resolving
+`UNRESOLVED` without voiding the ticket, a 3-row leg (competition
+omitted) being accepted, a structural 0-row leg being excluded at
+candidacy, a malformed leg row count voiding the ticket, a missing ticket
+id, two tickets on one page resolved independently, the row-accounting
+invariant, the permanent `CAPTURE_PARTIAL` cap, pagination walking every
+numbered page while never clicking First/Previous/Next/Last, the
+`onProgress` callback firing once per page, `shouldCancel` stopping the
+walk early with `resume_metadata` populated, a full run reporting
+`can_resume: false`, a leg with the exact text "Cancelled" normalizing to
+`VOID` (ticket-level VOID inference staying disabled), a ticket whose
+first expansion attempt times out but whose one retry succeeds being
+parsed (not left unresolved), a ticket whose expansion never succeeds
+even after that retry staying unresolved with the exact
+`readiness_diagnostics` shape, and `capture_scope`/`date_range` being
+present (and honestly `null`-valued) on every envelope including a failed
+one. A dedicated "safety" test greps the compiled source to confirm
+`.click()` is only ever called on the confirmed tab control, accordion
+toggle, or a verified numbered pagination item.
 
 ## Boundaries (Release 1 fixtures / this release's tickets and settled bets)
 
