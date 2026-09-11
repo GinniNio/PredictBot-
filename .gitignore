@@ -18,3 +18,10 @@ data_pipeline/raw/
 # Only the small evidence/report files it writes to data_pipeline/reports/
 # (row counts, hashes, the sanitized rejected-row sample) are committed.
 data_pipeline/dataset/
+
+# ledgers/: real forecast/betting ledger DATA (created by `python -m
+# ledgers.cli init`) never belongs in git -- it is personal betting/
+# financial history, not a repository artifact. The repository ships only
+# schemas, examples, and tooling (ledgers/*.py, ledgers/schemas/,
+# ledgers/examples/). The CLI's own default directory:
+ledger_data/

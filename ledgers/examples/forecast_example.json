@@ -1,0 +1,21 @@
+{
+  "fixture_id": "E0-2024-08-17-arsenal-vs-wolves",
+  "sport": "soccer",
+  "league": "E0",
+  "kickoff_utc": "2024-08-17T14:00:00+00:00",
+  "market_type": "1X2",
+  "offered_odds": {"H": 1.35, "D": 5.5, "A": 9.0},
+  "model_probabilities": {"H": 0.68, "D": 0.19, "A": 0.13},
+  "model_version": "soccer_1x2_elo_baseline@d251b3ae",
+  "artifact_hash": "sha256:7d083940eeeb81b11ca7580d35fc3dc7ecafdbdb9ebb9d1d352f39a81cd9b04d",
+  "input_hash": "sha256:example-input-hash",
+  "output_hash": "sha256:example-output-hash",
+  "classification": "RESEARCH-MODEL",
+  "batch_id": "2024-08-17-morning",
+  "capture_id": "cap_2024-08-17T09-00-00Z",
+  "source": "manual_bet9ja_capture",
+  "captured_at_utc": "2024-08-17T09:00:00+00:00",
+  "selection": null,
+  "stop_reason": null,
+  "operator_decision": null
+}

@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "betting_ledger.v1",
+  "title": "PredictBot betting ledger -- one JSON object per line (JSONL), append-only",
+  "description": "Every line is ONE TICKET EVENT for exactly one ticket_id. A ticket's current state is the merge of every event recorded for its ticket_id, in file order. Legs are nested inside the PLACED event's own payload -- never duplicated per leg as separate top-level records -- so total_stake is recorded exactly once per ticket regardless of leg or combination count.",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "required": ["schema_version", "event_type", "ticket_id", "recorded_at_utc", "payload"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.0.0"},
+    "event_type": {"type": "string", "enum": ["PLACED", "SETTLED", "VOIDED", "CASHED_OUT"]},
+    "ticket_id": {"type": "string", "pattern": "^tk_[0-9a-f]{16}$"},
+    "recorded_at_utc": {"type": "string", "format": "date-time"},
+    "payload": {"type": "object"}
+  },
+  "event_payloads": {
+    "PLACED": {
+      "required": [
+        "placed_at_utc", "ticket_type", "combination_count", "unit_stake",
+        "total_stake", "max_return", "currency", "legs"
+      ],
+      "properties": {
+        "placed_at_utc": {"type": "string", "format": "date-time"},
+        "ticket_type": {"type": "string", "enum": ["SINGLE", "DOUBLE", "TREBLE", "SYSTEM"]},
+        "system_sizes": {"type": ["array", "null"], "items": {"type": "integer"}},
+        "combination_count": {"type": "integer", "minimum": 1},
+        "unit_stake": {"type": "number", "exclusiveMinimum": 0},
+        "total_stake": {"type": "number", "exclusiveMinimum": 0},
+        "max_return": {"type": "number", "minimum": 0},
+        "currency": {"type": "string"},
+        "external_ticket_ref": {"type": ["string", "null"]},
+        "legs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["leg_index", "forecast_id", "fixture_id", "market_type", "selection", "placed_odds"],
+            "properties": {
+              "leg_index": {"type": "integer", "minimum": 0},
+              "forecast_id": {"type": "string"},
+              "fixture_id": {"type": "string"},
+              "market_type": {"type": "string"},
+              "selection": {"type": "string"},
+              "placed_odds": {"type": "number", "exclusiveMinimum": 1}
+            }
+          }
+        }
+      }
+    },
+    "SETTLED": {
+      "required": ["settled_at_utc", "leg_results", "actual_return", "profit_loss", "settlement_method"],
+      "properties": {
+        "settled_at_utc": {"type": "string", "format": "date-time"},
+        "leg_results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["leg_index", "outcome"],
+            "properties": {"leg_index": {"type": "integer"}, "outcome": {"type": "string", "enum": ["WON", "LOST", "VOID"]}}
+          }
+        },
+        "actual_return": {"type": "number", "minimum": 0},
+        "profit_loss": {"type": "number"},
+        "settlement_method": {"type": "string", "enum": ["COMPUTED", "MANUAL"]}
+      }
+    },
+    "VOIDED": {
+      "required": ["settled_at_utc", "actual_return", "profit_loss", "settlement_method"],
+      "properties": {
+        "settled_at_utc": {"type": "string", "format": "date-time"},
+        "reason": {"type": ["string", "null"]},
+        "actual_return": {"type": "number", "minimum": 0},
+        "profit_loss": {"type": "number"},
+        "settlement_method": {"type": "string", "enum": ["COMPUTED", "MANUAL"]}
+      }
+    },
+    "CASHED_OUT": {
+      "required": ["settled_at_utc", "actual_return", "profit_loss", "settlement_method"],
+      "properties": {
+        "settled_at_utc": {"type": "string", "format": "date-time"},
+        "actual_return": {"type": "number", "minimum": 0},
+        "profit_loss": {"type": "number"},
+        "settlement_method": {"type": "string", "enum": ["MANUAL"]}
+      }
+    }
+  }
+}
