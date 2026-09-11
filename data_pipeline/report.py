@@ -461,6 +461,35 @@ def build_aggregates(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"by_league": by_league, "by_season": by_season}
 
 
+def build_rejection_reason_totals(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Sum each typed rejection reason (RejectionReason.* keys, per
+    `build_compact_summary_row`'s `rejection_reason_counts`) across every
+    actually-downloaded league-season row — a single global total per
+    reason type, so a reviewer can see e.g. how many rows overall were
+    rejected for MISSING_OR_INVALID_ODDS vs DUPLICATE_FIXTURE without
+    reading every per-file breakdown individually."""
+
+    totals: dict[str, int] = {}
+    for row in rows:
+        for reason, count in row["rejection_reason_counts"].items():
+            totals[reason] = totals.get(reason, 0) + count
+    return totals
+
+
+def format_rejection_reason_totals_markdown(totals: dict[str, int]) -> list[str]:
+    """Render `build_rejection_reason_totals`'s output as a Markdown table."""
+
+    lines = ["#### Typed rejection totals (summed across every downloaded league-season)", ""]
+    if not totals:
+        lines.append("_No rejection reason fired in any downloaded file._")
+        return lines
+    lines.append("| Rejection reason | Total occurrences |")
+    lines.append("|---|---:|")
+    for reason in sorted(totals):
+        lines.append(f"| {reason} | {totals[reason]} |")
+    return lines
+
+
 def format_aggregates_markdown(aggregates: dict[str, Any]) -> list[str]:
     """Render `build_aggregates`'s output as two labeled Markdown tables —
     aggregate totals, clearly distinguished from the per-league-season
