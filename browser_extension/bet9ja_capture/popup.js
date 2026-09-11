@@ -192,3 +192,82 @@ ticketButton.addEventListener('click', async () => {
     ticketCaptureInFlight = false;
   }
 });
+
+// --- Capture all Soccer fixtures ---------------------------------------
+// Same click-gated, no-storage discipline as the buttons above -- see
+// soccer_walker.js's own header comment for scope and the current
+// selector-scoping gap (competitions_available: 0 is the expected,
+// honest result until real evidence supplies the menu-scoping selector).
+const soccerAllButton = document.getElementById('soccer-all-capture-button');
+const soccerAllStatusEl = document.getElementById('soccer-all-status');
+let soccerAllCaptureInFlight = false;
+
+function setSoccerAllStatus(cssClass, text) {
+  soccerAllStatusEl.className = cssClass;
+  soccerAllStatusEl.textContent = text;
+}
+
+async function runSoccerAllCapture() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) {
+    throw new Error('No active tab found.');
+  }
+
+  const capturedAtUtc = new Date().toISOString();
+
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ['ids.js', 'parser.js', 'soccer_walker.js', 'content.js'],
+  });
+
+  const injectionResults = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: (sourceUrl, pageTitle, capturedAtUtcArg) =>
+      window.__bet9jaSoccerAllCompetitionsCaptureRun(sourceUrl, pageTitle, capturedAtUtcArg),
+    args: [tab.url || '', tab.title || '', capturedAtUtc],
+  });
+
+  const result = injectionResults && injectionResults[0] && injectionResults[0].result;
+  if (!result || !result.envelope) {
+    throw new Error('Soccer capture produced no result (page may block script injection).');
+  }
+  return result;
+}
+
+soccerAllButton.addEventListener('click', async () => {
+  if (soccerAllCaptureInFlight) {
+    return;
+  }
+  soccerAllCaptureInFlight = true;
+  soccerAllButton.disabled = true;
+  setSoccerAllStatus('ok', 'Capturing all Soccer competitions...');
+  try {
+    const { envelope } = await runSoccerAllCapture();
+
+    const filename = `bet9ja-soccer-all-${timestampForFilename(envelope.captured_at_utc)}.json`;
+    await triggerDownload(filename, JSON.stringify(envelope, null, 2));
+
+    const summary =
+      `${envelope.capture_status}\n` +
+      `Competitions available: ${envelope.competitions_available}\n` +
+      `Competitions visited: ${envelope.competitions_visited}\n` +
+      `Competitions failed: ${envelope.competitions_failed}\n` +
+      `Fixtures parsed: ${envelope.fixtures_parsed}\n` +
+      `Duplicates skipped: ${envelope.duplicates_skipped}\n` +
+      `Reasons: ${envelope.capture_status_reasons.join(', ')}\n` +
+      `Saved: ${filename}`;
+
+    const cssClass =
+      envelope.capture_status === 'CAPTURE_OK'
+        ? 'ok'
+        : envelope.capture_status === 'CAPTURE_PARTIAL'
+          ? 'partial'
+          : 'failed';
+    setSoccerAllStatus(cssClass, summary);
+  } catch (err) {
+    setSoccerAllStatus('error', `Soccer capture failed to run: ${err && err.message ? err.message : String(err)}`);
+  } finally {
+    soccerAllButton.disabled = false;
+    soccerAllCaptureInFlight = false;
+  }
+});

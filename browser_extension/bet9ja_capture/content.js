@@ -35,4 +35,19 @@
       capturedAtUtc,
     });
   };
+
+  // Third, independent entry point for the "Capture all Soccer fixtures"
+  // button -- injected alongside parser.js + soccer_walker.js only. Walks
+  // every discovered Soccer competition-menu link, capturing each one's
+  // fixtures via parser.js's own captureFromDocument (never re-parsed
+  // here) and combining them into one deduplicated envelope. Returns a
+  // Promise for the same reason __bet9jaTicketCaptureRun does -- see its
+  // own comment above.
+  window.__bet9jaSoccerAllCompetitionsCaptureRun = function (sourceUrl, pageTitle, capturedAtUtc) {
+    return window.Bet9jaSoccerWalker.captureAllSoccerCompetitions(document, {
+      sourceUrl,
+      pageTitle,
+      capturedAtUtc,
+    });
+  };
 })();
