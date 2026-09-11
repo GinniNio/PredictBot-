@@ -11,12 +11,30 @@
  *     `unparsed_records` with a typed reason -- never silently dropped,
  *     never guessed at.
  *
- * SELECTOR CONTRACT -- this is a documented, best-effort assumption about
- * Bet9ja's markup, tuned against the sanitized fixtures in tests/fixtures/.
- * It has NOT yet been verified against a real Bet9ja page. Expect to edit
- * only the SELECTORS object below once real markup is available -- the
- * traversal/normalization logic underneath should not need to change for a
- * pure selector adjustment.
+ * SELECTOR CONTRACT -- two independent profiles, tried in order:
+ *
+ *   1. LEGACY (SELECTORS below) -- the original documented, best-effort
+ *      assumption about Bet9ja's markup, tuned against the sanitized
+ *      dev fixtures in tests/fixtures/. Kept in place for those fixtures
+ *      and as a fallback should a future page redesign match it.
+ *
+ *   2. BET9JA_DESKTOP (BET9JA_DESKTOP_SELECTORS below) -- verified against
+ *      one real, sanitized row from the live desktop sportsbook
+ *      (tests/fixtures/bet9ja_desktop_real_sample.html, captured
+ *      2026-09-11 from https://sports.bet9ja.com/sport/soccer/1). Used
+ *      ONLY when the legacy root selector matches nothing at all --
+ *      real Bet9ja rows (`.table-f`) carry no competition-group wrapper
+ *      in the one sample seen so far, so this profile processes every
+ *      matched row as one flat, ungrouped batch (region/competition
+ *      null) and reports it as CAPTURE_PARTIAL with a dedicated reason:
+ *      full-page coverage (multiple leagues, collapsed sections,
+ *      lazy-loaded pagination) has NOT been verified for this profile
+ *      the way the legacy root-scoped path is designed to. See README.md
+ *      "Real-page validation status" for exactly what has and hasn't
+ *      been confirmed, and tests/fixtures/bet9ja_desktop_real_sample.html's
+ *      own comment for the full provenance/limitations of this one
+ *      sample (single pre-match row; no live/virtual/Zoom sample seen
+ *      yet, so this profile does not attempt to distinguish them).
  */
 (function (root) {
   // In-browser: ids.js is loaded as an earlier <script> in the same
@@ -42,6 +60,45 @@
     showMore: '.show-more-button, [data-show-more]',
     lazyPlaceholder: '.lazy-loading-placeholder, [data-lazy-loading]',
   };
+
+  // Real Bet9ja desktop sportsbook markup, confirmed against exactly one
+  // sanitized pre-match row (see the profile-selection comment above and
+  // tests/fixtures/bet9ja_desktop_real_sample.html). Nothing in this shape
+  // carries the SELECTORS.* attributes above (no data-status, data-sport,
+  // data-kickoff-utc, data-market-family) -- identity and market/outcome
+  // labels are instead embedded in element `id`s.
+  const BET9JA_DESKTOP_SELECTORS = {
+    row: '.table-f',
+    home: '.sports-table__home',
+    away: '.sports-table__away',
+    kickoff: '.sports-table__time',
+    // Matches the matchup cell's own id, e.g.
+    // "home_highlights_sport-1_event-832455154" -- the only place this
+    // markup carries a stable per-fixture identifier.
+    identityElement: '[id*="_event-"]',
+    identityPattern: /sport-([a-z0-9]+)_event-([a-z0-9]+)/i,
+    // Matches each odds <li>'s own id, e.g.
+    // "..._event-832455154_odds_market-1x2_sign-1" -- family and outcome
+    // label are both embedded here; the element's text is the price.
+    oddsItem: '.sports-table__odds-item[id*="_market-"]',
+    oddsItemIdPattern: /_market-([a-z0-9]+)_sign-(.+)$/i,
+  };
+
+  // Confirmed from the one real sample: sport-1 == Soccer (the sample was
+  // captured from the https://sports.bet9ja.com/sport/soccer/1 URL). Other
+  // sport codes are unconfirmed and intentionally left unmapped (routed to
+  // UNSUPPORTED_SPORT rather than guessed).
+  const BET9JA_DESKTOP_SPORT_CODE_MAP = { 1: 'SOCCER' };
+
+  // Defensive exclusion for the BET9JA_DESKTOP fallback profile only: since
+  // it has no known root/list wrapper to scope its row search to (see
+  // above), it searches the whole document for `.table-f` -- this skips
+  // any match whose ancestor looks like site navigation or the betslip
+  // panel, so neither can ever be mistaken for a fixture row. The LEGACY
+  // profile never needs this: its rows are always scoped under a matched
+  // root element already.
+  const EXCLUDED_ANCESTOR_SELECTOR =
+    '[class*="betslip" i], [class*="bet-slip" i], [class*="sidebar" i], [class*="navigation" i], [class*="nav-" i], nav, header, footer';
 
   // Recognized aliases for the market family this release fully normalizes.
   const ONE_X_TWO_FAMILY_ALIASES = new Set(['1x2', 'match_result', 'fulltime_result', 'ft_1x2']);
@@ -96,6 +153,65 @@
       rawPrice: text(outcomeEl.querySelector(SELECTORS.outcomePrice)),
     }));
     return { family, line, outcomes };
+  }
+
+  /**
+   * LEGACY profile field extraction -- unchanged behavior from before the
+   * two-profile split, just moved into its own function so processRow can
+   * take an already-extracted, profile-agnostic `fields` object.
+   */
+  function extractLegacyFields(row) {
+    const kickoffEl = row.querySelector(SELECTORS.kickoff);
+    return {
+      homeRaw: text(row.querySelector(SELECTORS.home)),
+      awayRaw: text(row.querySelector(SELECTORS.away)),
+      kickoffText: text(kickoffEl),
+      kickoffUtcAttr: (kickoffEl && kickoffEl.getAttribute('data-kickoff-utc')) || row.getAttribute('data-kickoff-utc') || null,
+      sportHintRaw: row.getAttribute('data-sport') || '',
+      statusAttr: row.getAttribute('data-status'),
+      externalFixtureRef: row.getAttribute('data-fixture-id') || null,
+      markets: Array.from(row.querySelectorAll(SELECTORS.market)).map(parseMarketElement),
+    };
+  }
+
+  /**
+   * BET9JA_DESKTOP profile field extraction -- see the SELECTOR CONTRACT
+   * comment at the top of this file and BET9JA_DESKTOP_SELECTORS above.
+   * Identity, sport, and market/outcome-label all come from parsing
+   * element `id` attributes rather than from a data-* attribute, since
+   * the real markup carries none of the latter. Kickoff has no attached
+   * timestamp at all in the one sample seen -- resolveKickoff() will
+   * therefore always report it unresolved for this profile today, which
+   * is the honest outcome, not a bug to work around.
+   */
+  function extractBet9jaDesktopFields(row) {
+    const identityEl = row.querySelector(BET9JA_DESKTOP_SELECTORS.identityElement);
+    const identityMatch = identityEl && identityEl.id.match(BET9JA_DESKTOP_SELECTORS.identityPattern);
+    const sportCode = identityMatch ? identityMatch[1] : null;
+    const externalFixtureRef = identityMatch ? `bet9ja-event-${identityMatch[2]}` : null;
+
+    const marketsByFamily = new Map();
+    for (const li of Array.from(row.querySelectorAll(BET9JA_DESKTOP_SELECTORS.oddsItem))) {
+      const idMatch = li.id.match(BET9JA_DESKTOP_SELECTORS.oddsItemIdPattern);
+      if (!idMatch) continue;
+      const family = idMatch[1];
+      const rawLabel = idMatch[2];
+      if (!marketsByFamily.has(family)) {
+        marketsByFamily.set(family, { family, line: '', outcomes: [] });
+      }
+      marketsByFamily.get(family).outcomes.push({ rawLabel, rawPrice: text(li) });
+    }
+
+    return {
+      homeRaw: text(row.querySelector(BET9JA_DESKTOP_SELECTORS.home)),
+      awayRaw: text(row.querySelector(BET9JA_DESKTOP_SELECTORS.away)),
+      kickoffText: text(row.querySelector(BET9JA_DESKTOP_SELECTORS.kickoff)),
+      kickoffUtcAttr: null, // no UTC-qualified timestamp exists in this markup at all
+      sportHintRaw: (sportCode && BET9JA_DESKTOP_SPORT_CODE_MAP[sportCode]) || '',
+      statusAttr: 'PRE', // no live/virtual/Zoom sample seen yet -- see file-top comment
+      externalFixtureRef,
+      markets: Array.from(marketsByFamily.values()),
+    };
   }
 
   function resolveStatus(rawStatusAttr) {
@@ -166,7 +282,7 @@
    * lost).
    */
   function processRow({
-    row,
+    fields,
     region,
     competition,
     sectionIndex,
@@ -178,17 +294,9 @@
     fixtures,
     unparsedRecords,
   }) {
-    const homeRaw = text(row.querySelector(SELECTORS.home));
-    const awayRaw = text(row.querySelector(SELECTORS.away));
-    const kickoffEl = row.querySelector(SELECTORS.kickoff);
-    const kickoffText = text(kickoffEl);
-    const kickoffUtcAttr =
-      (kickoffEl && kickoffEl.getAttribute('data-kickoff-utc')) || row.getAttribute('data-kickoff-utc') || null;
-    const sportHintRaw = row.getAttribute('data-sport') || '';
-    const sport = sportHintRaw.trim().toUpperCase() || 'UNKNOWN';
-    const { status, recognized: statusRecognized } = resolveStatus(row.getAttribute('data-status'));
-    const externalFixtureRef = row.getAttribute('data-fixture-id') || null;
-    const markets = Array.from(row.querySelectorAll(SELECTORS.market)).map(parseMarketElement);
+    const { homeRaw, awayRaw, kickoffText, kickoffUtcAttr, sportHintRaw, statusAttr, externalFixtureRef, markets } = fields;
+    const sport = (sportHintRaw || '').trim().toUpperCase() || 'UNKNOWN';
+    const { status, recognized: statusRecognized } = resolveStatus(statusAttr);
 
     // Privacy allowlist: this is the ONLY set of fields ever attached to an
     // unparsed_records entry. It is fixture-scoped (home/away/kickoff/sport/
@@ -201,7 +309,7 @@
       away: awayRaw,
       kickoff_raw: kickoffText,
       sport_hint: sportHintRaw,
-      status_hint: row.getAttribute('data-status') || null,
+      status_hint: statusAttr || null,
       markets: markets.map((m) => ({ family: m.family, line: m.line, outcomes: m.outcomes })),
     };
 
@@ -226,7 +334,7 @@
           expectedUnsupported: false,
           sectionIndex,
           recordIndex,
-          detail: `data-status="${row.getAttribute('data-status') || ''}" is not one of PRE/LIVE/VIRTUAL/ZOOM.`,
+          detail: `status="${statusAttr || ''}" is not one of PRE/LIVE/VIRTUAL/ZOOM.`,
           raw: rawSnapshot,
         })
       );
@@ -425,27 +533,122 @@
       parser_version: PARSER_VERSION,
     };
 
-    const rootEl = doc.querySelector(SELECTORS.root);
-    if (!rootEl) {
+    function finalize({
+      sectionsSeen,
+      recordsSeen,
+      collapsedSectionsDetected,
+      lazyLoadingDetected,
+      fallbackProfileActive,
+      zeroRecordsReason = 'NO_RECORDS_FOUND',
+    }) {
+      const recordsUnresolved = unparsedRecords.filter((r) => !r.expected_unsupported).length;
+
+      let captureStatus;
+      const statusReasons = [];
+      if (recordsSeen === 0) {
+        captureStatus = 'CAPTURE_FAILED';
+        statusReasons.push(zeroRecordsReason);
+      } else {
+        captureStatus = 'CAPTURE_OK';
+        if (collapsedSectionsDetected) {
+          captureStatus = 'CAPTURE_PARTIAL';
+          statusReasons.push('COLLAPSED_SECTIONS_DETECTED');
+        }
+        if (lazyLoadingDetected) {
+          captureStatus = 'CAPTURE_PARTIAL';
+          statusReasons.push('LAZY_LOADING_DETECTED');
+        }
+        if (recordsUnresolved > 0) {
+          captureStatus = 'CAPTURE_PARTIAL';
+          statusReasons.push('UNRESOLVED_RECORDS_PRESENT');
+        }
+        if (fallbackProfileActive) {
+          // Honest, not punitive: the BET9JA_DESKTOP fallback has only ever
+          // been confirmed against one isolated row (see the SELECTOR
+          // CONTRACT comment at the top of this file) with no known
+          // competition-grouping, collapsed-section, or pagination markup
+          // to check against -- so full-page coverage is unverified for
+          // this profile even when every row it did find parsed cleanly.
+          captureStatus = 'CAPTURE_PARTIAL';
+          statusReasons.push('BET9JA_DESKTOP_FALLBACK_PROFILE_UNVERIFIED_COVERAGE');
+        }
+        if (fixtures.length === 0 && unparsedRecords.length === 0) {
+          // Structurally unreachable given recordsSeen > 0 (every row yields
+          // at least one fixture or unparsed_records entry) -- kept as an
+          // explicit guard so an empty successful download can never happen
+          // silently if that invariant is ever broken by a future edit.
+          captureStatus = 'CAPTURE_FAILED';
+          statusReasons.push('NO_USABLE_OUTPUT');
+        }
+      }
+
       return {
         envelope: {
           ...envelopeBase,
-          capture_status: 'CAPTURE_FAILED',
-          capture_status_reasons: ['SELECTOR_ROOT_NOT_FOUND'],
+          capture_status: captureStatus,
+          capture_status_reasons: statusReasons,
           coverage: {
             visible_page_only: true,
-            sections_seen: 0,
-            records_seen: 0,
-            records_parsed: 0,
-            records_unresolved: 0,
-            collapsed_sections_detected: false,
-            lazy_loading_detected: false,
+            sections_seen: sectionsSeen,
+            records_seen: recordsSeen,
+            records_parsed: fixtures.length,
+            records_unresolved: recordsUnresolved,
+            collapsed_sections_detected: collapsedSectionsDetected,
+            lazy_loading_detected: lazyLoadingDetected,
           },
-          fixtures: [],
-          unparsed_records: [],
+          fixtures,
+          unparsed_records: unparsedRecords,
         },
         updatedIndex,
       };
+    }
+
+    const rootEl = doc.querySelector(SELECTORS.root);
+
+    if (!rootEl) {
+      // LEGACY root not found -- before reporting a true failure, try the
+      // BET9JA_DESKTOP fallback profile (see SELECTOR CONTRACT comment).
+      // It has no known root/list wrapper, so it searches the whole
+      // document for its own row selector directly, excluding anything
+      // that looks like site navigation or the betslip panel.
+      const fallbackRows = Array.from(doc.querySelectorAll(BET9JA_DESKTOP_SELECTORS.row)).filter(
+        (row) => !row.closest(EXCLUDED_ANCESTOR_SELECTOR)
+      );
+
+      if (fallbackRows.length === 0) {
+        return finalize({
+          sectionsSeen: 0,
+          recordsSeen: 0,
+          collapsedSectionsDetected: false,
+          lazyLoadingDetected: false,
+          fallbackProfileActive: false,
+          zeroRecordsReason: 'SELECTOR_ROOT_NOT_FOUND',
+        });
+      }
+
+      fallbackRows.forEach((row, recordIndex) => {
+        processRow({
+          fields: extractBet9jaDesktopFields(row),
+          region: null,
+          competition: null,
+          sectionIndex: 0,
+          recordIndex,
+          capturedAtUtc,
+          seenFixtureIdsThisCapture,
+          previousIndex,
+          updatedIndex,
+          fixtures,
+          unparsedRecords,
+        });
+      });
+
+      return finalize({
+        sectionsSeen: 1,
+        recordsSeen: fallbackRows.length,
+        collapsedSectionsDetected: false,
+        lazyLoadingDetected: doc.querySelector(SELECTORS.lazyPlaceholder) !== null,
+        fallbackProfileActive: true,
+      });
     }
 
     const groups = Array.from(rootEl.querySelectorAll(SELECTORS.competitionGroup));
@@ -474,7 +677,7 @@
       rows.forEach((row, recordIndex) => {
         recordsSeen += 1;
         processRow({
-          row,
+          fields: extractLegacyFields(row),
           region,
           competition,
           sectionIndex,
@@ -493,56 +696,13 @@
       collapsedSectionsDetected = true;
     }
 
-    const recordsUnresolved = unparsedRecords.filter((r) => !r.expected_unsupported).length;
-
-    let captureStatus;
-    const statusReasons = [];
-    if (recordsSeen === 0) {
-      captureStatus = 'CAPTURE_FAILED';
-      statusReasons.push('NO_RECORDS_FOUND');
-    } else {
-      captureStatus = 'CAPTURE_OK';
-      if (collapsedSectionsDetected) {
-        captureStatus = 'CAPTURE_PARTIAL';
-        statusReasons.push('COLLAPSED_SECTIONS_DETECTED');
-      }
-      if (lazyLoadingDetected) {
-        captureStatus = 'CAPTURE_PARTIAL';
-        statusReasons.push('LAZY_LOADING_DETECTED');
-      }
-      if (recordsUnresolved > 0) {
-        captureStatus = 'CAPTURE_PARTIAL';
-        statusReasons.push('UNRESOLVED_RECORDS_PRESENT');
-      }
-      if (fixtures.length === 0 && unparsedRecords.length === 0) {
-        // Structurally unreachable given recordsSeen > 0 (every row yields
-        // at least one fixture or unparsed_records entry) -- kept as an
-        // explicit guard so an empty successful download can never happen
-        // silently if that invariant is ever broken by a future edit.
-        captureStatus = 'CAPTURE_FAILED';
-        statusReasons.push('NO_USABLE_OUTPUT');
-      }
-    }
-
-    return {
-      envelope: {
-        ...envelopeBase,
-        capture_status: captureStatus,
-        capture_status_reasons: statusReasons,
-        coverage: {
-          visible_page_only: true,
-          sections_seen: groups.length,
-          records_seen: recordsSeen,
-          records_parsed: fixtures.length,
-          records_unresolved: recordsUnresolved,
-          collapsed_sections_detected: collapsedSectionsDetected,
-          lazy_loading_detected: lazyLoadingDetected,
-        },
-        fixtures,
-        unparsed_records: unparsedRecords,
-      },
-      updatedIndex,
-    };
+    return finalize({
+      sectionsSeen: groups.length,
+      recordsSeen,
+      collapsedSectionsDetected,
+      lazyLoadingDetected,
+      fallbackProfileActive: false,
+    });
   }
 
   const api = { captureFromDocument, sanitizeSourceUrl, PARSER_VERSION, SELECTORS };

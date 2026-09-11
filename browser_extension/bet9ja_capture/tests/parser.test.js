@@ -360,3 +360,97 @@ test('an unresolved kickoff never blocks the rest of the fixture from being norm
     assert.notEqual(envelope.fixtures[0].offered_odds.H, null);
   }
 });
+
+// -- BET9JA_DESKTOP fallback profile (real-page selector validation) -------
+//
+// Confirmed against tests/fixtures/bet9ja_desktop_real_sample.html, a
+// sanitized row captured 2026-09-11 from a real, authenticated
+// https://sports.bet9ja.com/sport/soccer/1 page during the extension's
+// first real-page validation pass. The LEGACY profile (SELECTORS) never
+// matched that page at all (real capture: capture_status CAPTURE_FAILED /
+// SELECTOR_ROOT_NOT_FOUND, zero records) -- these tests are the regression
+// coverage for the fix.
+
+test('BET9JA_DESKTOP: the real Ararat-Armenia vs FC Syunik row maps to 1.14 / 7.30 / 12.25', () => {
+  const { envelope } = capture('bet9ja_desktop_real_sample.html');
+  assert.equal(envelope.fixtures.length, 1);
+  const fixture = envelope.fixtures[0];
+  assert.equal(fixture.sport, 'SOCCER');
+  assert.deepEqual(fixture.participants, { home: 'Ararat-Armenia', away: 'FC Syunik' });
+  assert.equal(fixture.market_family, '1X2');
+  assert.deepEqual(fixture.offered_odds, { H: 1.14, D: 7.3, A: 12.25 });
+  assert.deepEqual(
+    fixture.outcomes.map((o) => [o.label, o.price]),
+    [['H', 1.14], ['D', 7.3], ['A', 12.25]]
+  );
+});
+
+test('BET9JA_DESKTOP: fixture_id is derived from the real event id, not a guessed natural key', () => {
+  const { envelope } = capture('bet9ja_desktop_real_sample.html');
+  assert.match(envelope.fixtures[0].fixture_id, /^bxf_[0-9a-f]{16}$/);
+  // Same real event id captured twice (e.g. a page reload) must resolve to
+  // the same fixture_id -- proven directly against the identity source
+  // (the "_event-832455154" id), not indirectly through team-name hashing.
+  const again = capture('bet9ja_desktop_real_sample.html');
+  assert.equal(again.envelope.fixtures[0].fixture_id, envelope.fixtures[0].fixture_id);
+});
+
+test('BET9JA_DESKTOP: kickoff has no year/timezone in this markup -- honestly unresolved, never guessed', () => {
+  const { envelope } = capture('bet9ja_desktop_real_sample.html');
+  const fixture = envelope.fixtures[0];
+  assert.equal(fixture.kickoff_utc, null);
+  assert.equal(fixture.kickoff_resolution, 'UNRESOLVED_NO_EXPLICIT_TIMESTAMP');
+  assert.equal(fixture.kickoff_raw, '16:00');
+});
+
+test('BET9JA_DESKTOP: legacy root not found anywhere -- this profile is a true fallback, not a silent success', () => {
+  const { envelope } = capture('bet9ja_desktop_real_sample.html');
+  assert.ok(
+    envelope.capture_status_reasons.includes('BET9JA_DESKTOP_FALLBACK_PROFILE_UNVERIFIED_COVERAGE'),
+    'fallback activation must be visible in capture_status_reasons, not silent'
+  );
+});
+
+test('BET9JA_DESKTOP: mixed pass/fail rows on the same page report CAPTURE_PARTIAL, not OK or FAILED', () => {
+  const { envelope } = capture('bet9ja_desktop_mixed_pass_fail.html');
+  assert.equal(envelope.coverage.records_seen, 2);
+  assert.equal(envelope.fixtures.length, 1, 'the valid row still parses');
+  assert.equal(envelope.unparsed_records.length, 1, 'the row missing an away participant is retained, not dropped');
+  assert.equal(envelope.unparsed_records[0].reason, 'MISSING_PARTICIPANTS');
+  assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
+  assert.equal(envelope.coverage.records_seen, envelope.coverage.records_parsed + envelope.coverage.records_unresolved);
+});
+
+test('BET9JA_DESKTOP: legacy root still found is unaffected (empty_root.html keeps its own distinct failure reason)', () => {
+  const { envelope } = capture('empty_root.html');
+  assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
+  assert.ok(envelope.capture_status_reasons.includes('NO_RECORDS_FOUND'));
+  assert.ok(!envelope.capture_status_reasons.includes('SELECTOR_ROOT_NOT_FOUND'));
+});
+
+test('BET9JA_DESKTOP: navigation and betslip-panel decoys are never captured as fixtures', () => {
+  const { envelope } = capture('bet9ja_desktop_nav_and_betslip_decoys.html');
+  assert.equal(envelope.fixtures.length, 1, 'only the one real row outside nav/betslip is captured');
+  assert.equal(envelope.fixtures[0].participants.home, 'Ararat-Armenia');
+  const allText = JSON.stringify(envelope).toLowerCase();
+  assert.ok(!allText.includes('nav decoy'), 'nav-panel decoy text must never appear anywhere in the envelope');
+  assert.ok(!allText.includes('betslip decoy'), 'betslip-panel decoy text must never appear anywhere in the envelope');
+});
+
+test('BET9JA_DESKTOP: for every records_seen, records_parsed + records_unresolved accounts for all of them', () => {
+  // NOTE: this equality is NOT a universal invariant of the envelope --
+  // records_unresolved deliberately excludes "expected unsupported" rows
+  // (live/virtual/Zoom/unsupported-sport/unsupported-market; see README.md
+  // "unparsed_records[] typed reasons"), so a page containing one of those
+  // would legitimately show records_seen > records_parsed + records_unresolved.
+  // It holds for every fixture in this real-page validation set specifically
+  // because none of their rows are expected-unsupported.
+  for (const fixtureName of ['bet9ja_desktop_real_sample.html', 'bet9ja_desktop_mixed_pass_fail.html', 'bet9ja_desktop_nav_and_betslip_decoys.html']) {
+    const { envelope } = capture(fixtureName);
+    assert.equal(
+      envelope.coverage.records_seen,
+      envelope.coverage.records_parsed + envelope.coverage.records_unresolved,
+      `${fixtureName}: records_seen must equal records_parsed + records_unresolved`
+    );
+  }
+});
