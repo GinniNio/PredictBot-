@@ -53,3 +53,21 @@ jobs:
         with:
           name: pcbf-runtime-host-test-pack
           path: host-test-pack/*
+
+  bet9ja-capture-tests:
+    # Independent job: the browser_extension/bet9ja_capture/ extension is a
+    # separate JS ecosystem (its own package.json) and must never gate or
+    # be gated by the Python package's own test-and-build job above.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: browser_extension/bet9ja_capture
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dev dependencies (jsdom only -- the extension itself ships zero runtime dependencies)
+        run: npm ci
+      - name: Run parser test suite against sanitized HTML fixtures
+        run: npm test

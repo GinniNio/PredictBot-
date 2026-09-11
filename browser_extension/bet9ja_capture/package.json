@@ -1,0 +1,12 @@
+{
+  "name": "bet9ja-fixture-capture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Manifest V3 browser extension: capture visible pre-match Soccer 1X2 fixtures from an open, authenticated Bet9ja page into normalized JSON. Not published; load unpacked for testing (see README.md).",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.1"
+  }
+}

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bet9ja Fixture Capture</title>
+    <style>
+      body {
+        width: 340px;
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 12px;
+        color: #1a1a1a;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 8px;
+      }
+      button {
+        width: 100%;
+        padding: 10px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.6;
+      }
+      #status {
+        margin-top: 10px;
+        font-size: 12px;
+        white-space: pre-wrap;
+        border-radius: 4px;
+        padding: 8px;
+        display: none;
+      }
+      #status.ok {
+        display: block;
+        background: #e6f4ea;
+        color: #1e4620;
+      }
+      #status.partial {
+        display: block;
+        background: #fff4e5;
+        color: #663c00;
+      }
+      #status.failed {
+        display: block;
+        background: #fdecea;
+        color: #611a15;
+      }
+      #status.error {
+        display: block;
+        background: #fdecea;
+        color: #611a15;
+      }
+      p.note {
+        font-size: 11px;
+        color: #555;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>PredictBot &middot; Bet9ja Fixture Capture</h1>
+    <button id="capture-button" type="button">Capture fixtures</button>
+    <div id="status"></div>
+    <p class="note">
+      Reads only the fixture markets visible on the current tab. Never reads cookies, tokens,
+      balances, account details, or betslip contents. Makes no network requests.
+    </p>
+  </body>
+  <script src="popup.js"></script>
+</html>

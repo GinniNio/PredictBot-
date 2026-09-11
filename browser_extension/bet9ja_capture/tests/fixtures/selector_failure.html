@@ -1,0 +1,11 @@
+<!-- Simulates a Bet9ja page redesign that no longer matches this parser's
+     SELECTORS contract at all -- no recognizable root element, no
+     competition groups, no fixture rows. The parser must report
+     CAPTURE_FAILED / SELECTOR_ROOT_NOT_FOUND rather than silently
+     returning an empty "success". -->
+<div class="new-redesigned-layout">
+  <section class="event-card">
+    <h3>Arsenal vs Chelsea</h3>
+    <span>1.95 / 3.40 / 4.20</span>
+  </section>
+</div>
