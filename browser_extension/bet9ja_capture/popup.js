@@ -114,3 +114,81 @@ button.addEventListener('click', async () => {
     captureInFlight = false;
   }
 });
+
+// --- Open-bets ticket capture -----------------------------------------
+// Same click-gated, no-storage, no-persistent-history discipline as the
+// fixture capture above -- see ticket_parser.js's own header comment for
+// scope and the fail-closed ticket-boundary contract this button's output
+// depends on.
+const ticketButton = document.getElementById('ticket-capture-button');
+const ticketStatusEl = document.getElementById('ticket-status');
+let ticketCaptureInFlight = false;
+
+function setTicketStatus(cssClass, text) {
+  ticketStatusEl.className = cssClass;
+  ticketStatusEl.textContent = text;
+}
+
+async function runTicketCapture() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) {
+    throw new Error('No active tab found.');
+  }
+
+  const capturedAtUtc = new Date().toISOString();
+
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ['ids.js', 'ticket_parser.js', 'content.js'],
+  });
+
+  const injectionResults = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: (sourceUrl, pageTitle, capturedAtUtcArg) =>
+      window.__bet9jaTicketCaptureRun(sourceUrl, pageTitle, capturedAtUtcArg),
+    args: [tab.url || '', tab.title || '', capturedAtUtc],
+  });
+
+  const result = injectionResults && injectionResults[0] && injectionResults[0].result;
+  if (!result || !result.envelope) {
+    throw new Error('Ticket capture produced no result (page may block script injection).');
+  }
+  return result;
+}
+
+ticketButton.addEventListener('click', async () => {
+  if (ticketCaptureInFlight) {
+    return;
+  }
+  ticketCaptureInFlight = true;
+  ticketButton.disabled = true;
+  setTicketStatus('ok', 'Capturing open bets...');
+  try {
+    const { envelope } = await runTicketCapture();
+
+    const filename = `bet9ja-open-bets-${timestampForFilename(envelope.captured_at_utc)}.json`;
+    await triggerDownload(filename, JSON.stringify(envelope, null, 2));
+
+    const summary =
+      `${envelope.capture_status}\n` +
+      `Tickets seen: ${envelope.coverage.tickets_seen}\n` +
+      `Tickets parsed: ${envelope.coverage.tickets_parsed}\n` +
+      `Tickets unresolved: ${envelope.coverage.tickets_unresolved}\n` +
+      `Tickets excluded (out of scope): ${envelope.coverage.tickets_expected_excluded}\n` +
+      `Reasons: ${envelope.capture_status_reasons.join(', ')}\n` +
+      `Saved: ${filename}`;
+
+    const cssClass =
+      envelope.capture_status === 'CAPTURE_OK'
+        ? 'ok'
+        : envelope.capture_status === 'CAPTURE_PARTIAL'
+          ? 'partial'
+          : 'failed';
+    setTicketStatus(cssClass, summary);
+  } catch (err) {
+    setTicketStatus('error', `Ticket capture failed to run: ${err && err.message ? err.message : String(err)}`);
+  } finally {
+    ticketButton.disabled = false;
+    ticketCaptureInFlight = false;
+  }
+});

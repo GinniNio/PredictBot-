@@ -1,9 +1,19 @@
-# Bet9ja fixture capture — Release 1
+# Bet9ja fixture + open-ticket capture
 
-A Manifest V3 browser extension (Chrome/Edge) that captures the pre-match
-Soccer 1X2 fixtures visible on an already-open, already-authenticated Bet9ja
-tab into one normalized JSON file. This replaces copy-pasting a Bet9ja page
-into a chat host as the first step of `docs/LEDGER_DAILY_WORKFLOW.md`.
+A Manifest V3 browser extension (Chrome/Edge) with two independent buttons:
+
+- **Capture fixtures** (Release 1, real-page validated — see "Real-page
+  validation status" below): captures the pre-match Soccer 1X2 fixtures
+  visible on an already-open, already-authenticated Bet9ja tab into one
+  normalized JSON file. This replaces copy-pasting a Bet9ja page into a
+  chat host as the first step of `docs/LEDGER_DAILY_WORKFLOW.md`.
+- **Capture open bets** (new, see "Open bet ticket capture" below —
+  selectors are UNVERIFIED PLACEHOLDERS pending real-page validation,
+  exactly the state fixture capture itself started in): captures your own
+  open, pre-match bet tickets — ticket id, placement time, type, stakes,
+  each leg's fixture/selection/odds/source event id, potential return,
+  status — into a second normalized JSON file, so what you actually bet
+  can be recorded in the betting ledger without hand-transcription.
 
 This is deliberately the smallest useful slice — see "Boundaries" below for
 everything it does not do yet.
@@ -41,8 +51,12 @@ everything it does not do yet.
 - No persistent storage of any kind (`manifest.json` declares no
   `storage` permission) — nothing this extension captures is remembered
   between runs.
-- No automatic bet placement, no open-bet or settled-bet capture, no
-  result lookup.
+- No automatic bet placement, no cashout, no settled-bet capture ("Capture
+  settled bets" is a separate future work item), no result lookup.
+- The open-ticket capture button is read-only in exactly the same sense:
+  it never places, edits, or cashes out a bet. It also fails closed —
+  see "Open bet ticket capture" below — rather than guess which ticket a
+  leg belongs to.
 - No backend, database, or hosted service of any kind.
 - No all-sports parser — only Soccer 1X2 is normalized in this release.
 - Not published to the Chrome Web Store — load it unpacked (below).
@@ -391,6 +405,98 @@ Zoom markup, the date-heading format) the same way this one did — one
 narrow PR per gap, backed by one real, evidenced sample, never guessed
 ahead of evidence.
 
+## Open bet ticket capture
+
+A second, independent button and parser module (`ticket_parser.js`),
+wired the same way as fixture capture: `popup.js`'s **Capture open bets**
+click handler injects `ids.js` + `ticket_parser.js` + `content.js`, calls
+`window.__bet9jaTicketCaptureRun`, and downloads one
+`bet9ja-open-bets-{timestamp}.json` file. It shares `ids.js`'s deterministic
+`stableId` scheme so a leg's `fixture_id` matches the fixture-capture
+extension's own `fixture_id` for the same Bet9ja event — see
+`legs[].fixture_id_resolution` below.
+
+**SELECTOR STATUS: 100% UNVERIFIED PLACEHOLDER.** Unlike fixture capture's
+BET9JA_DESKTOP profile (confirmed via 4 rounds of real-page validation), no
+real "Open Bets"/"My Bets" page sample has been inspected yet. Every
+selector in `ticket_parser.js`'s `TICKET_SELECTORS` is a structurally
+plausible first guess, not evidence-derived. Expect a real capture to
+report `tickets_parsed: 0` with `capture_status_reasons` including
+`TICKET_SELECTORS_UNVERIFIED_PLACEHOLDER` until the same evidence-driven
+selector-correction discipline that fixed fixture capture (see
+`REAL_PAGE_VALIDATION.md`) is repeated here — tracked in
+`TICKET_REAL_PAGE_VALIDATION.md`.
+
+### `coverage`'s row-accounting invariant
+
+`tickets_seen = tickets_parsed + tickets_unresolved + tickets_expected_excluded`,
+every capture, no exceptions — mirroring `parser.js`'s own
+`records_seen = records_parsed + records_unresolved + records_expected_unsupported`.
+`tickets_expected_excluded` counts tickets excluded BY DESIGN (settled/
+cashed-out, or a live/Virtual/Zoom leg) — an out-of-scope ticket, not a
+malformed one — kept separate from `tickets_unresolved` (a genuine
+ambiguity this parser could not confidently resolve) so a page of only
+settled tickets is never mistaken for a broken capture.
+
+### Fail-closed ticket boundaries
+
+The single most important safety property of this parser: **a leg is only
+ever read from inside its own ticket's own DOM subtree** (scoped
+`querySelectorAll` calls under each ticket container element), never a
+flat, page-wide leg scan — so a leg can never be structurally attributed to
+the wrong ticket as long as ticket-container detection itself is
+unambiguous. On top of that:
+
+- A ticket missing its own id is never assigned a synthetic one — it is
+  routed to `unresolved_tickets` (`MISSING_TICKET_ID`).
+- If ANY leg inside a ticket fails to parse (missing participants,
+  unparseable odds, or is itself live/Virtual/Zoom), that decision applies
+  to the WHOLE ticket, never just the offending leg — a partial ticket
+  would silently corrupt the stake/return math a downstream importer
+  depends on `legs[]` being complete for. A live/Virtual/Zoom leg routes
+  the whole ticket to `excluded_tickets` (`TICKET_EXCLUDED_LIVE_OR_VIRTUAL_OR_ZOOM_LEG`,
+  per the "no live, Zoom or Virtual tickets" scope boundary); any other
+  per-leg failure routes it to `unresolved_tickets`
+  (`LEG_FAILED_TO_PARSE`).
+- A settled/won/lost/void/cashed-out ticket status is excluded as
+  out-of-scope (`excluded_tickets`, `TICKET_STATUS_OUT_OF_SCOPE`) — not
+  treated as an error, mirroring `parser.js`'s own
+  `records_expected_unsupported` precedent (an out-of-scope record is not
+  a failure, even when it's the only thing a capture produces).
+- An unrecognized ticket status (anything other than OPEN/PENDING or one
+  of the excluded statuses above) is never guessed at — it goes to
+  `unresolved_tickets` (`UNRECOGNIZED_TICKET_STATUS`).
+
+### Output shape (`bet9ja-ticket-capture.v1`)
+
+Deliberately **not** a direct `ledgers/betting_ledger.py`
+`build_placed_event()`-ready payload: that function requires a
+`forecast_id` per leg, and `forecast_id` is derived from
+`(fixture_id, market_type, model_version)` — `model_version` has no
+meaning at ticket-capture time in the browser. Instead, each leg exposes
+both `source_event_id` (the raw Bet9ja event id, when the identity element
+is found) and a computed `fixture_id` (same `bxf_...` scheme as fixture
+capture), so a future, separate one-command importer step can resolve
+`forecast_id` by matching `fixture_id` against the forecast ledger — see
+`docs/LEDGER_DAILY_WORKFLOW.md`'s planned "IMPORT OPEN BETS" step.
+
+Per ticket: `bet9ja_ticket_id`, `status`, `placed_at_raw` /
+`placed_at_utc` / `placed_at_resolution` (same never-guess-a-timestamp
+honesty as fixture capture's `kickoff_resolution`), `ticket_type_raw` /
+`ticket_type_normalized` / `ticket_type_taxonomy_gap`, `unit_stake`,
+`total_stake`, `potential_return` (each with a `_raw` sibling), and
+`legs[]`.
+
+**Named taxonomy gap:** `ledgers/betting_ledger.py`'s `TICKET_TYPES` is
+`(SINGLE, DOUBLE, TREBLE, SYSTEM)` — there is no entry for a straight
+4+-leg all-up "Accumulator"/"Fourfold" bet, a real Bet9ja UI category.
+`ticket_type_raw` always preserves the exact text seen;
+`ticket_type_normalized` is only ever set for an unambiguous SINGLE/
+DOUBLE/TREBLE/SYSTEM match, and `ticket_type_taxonomy_gap: true` flags
+every other non-empty raw type — surfaced for a future importer to decide,
+never silently mapped to the nearest guess. This does not exclude the
+ticket; it is still fully captured.
+
 ## Loading it unpacked for testing
 
 1. Chrome or Edge → `chrome://extensions` (or `edge://extensions`).
@@ -398,7 +504,9 @@ ahead of evidence.
 3. **Load unpacked** → select this `browser_extension/bet9ja_capture/`
    directory.
 4. Open a Bet9ja pre-match page, log in, click the extension icon, click
-   **Capture fixtures**.
+   **Capture fixtures**. Separately, open your "Open Bets"/"My Bets" page
+   and click **Capture open bets** to try the (unverified-selector) ticket
+   capture.
 
 Not published to the Chrome Web Store in this release.
 
@@ -432,31 +540,53 @@ generic sport-slug resolution from a non-Soccer competition URL
 `tests/privacy.test.js` and `tests/structural.test.js` cover the
 allowlist/permission-contract properties described above.
 
-## Boundaries (Release 1)
+`tests/ticket_parser.test.js` runs `ticket_parser.js` against synthetic
+(not real-page-derived — see "Open bet ticket capture" above) HTML
+covering: a single ticket, an accumulator/treble, a system ticket, an
+unrecognized ticket-type category (taxonomy-gap flagged, not guessed), a
+repeated fixture appearing in two separate tickets without cross-
+contamination, expanded/collapsed wrapper markup, the fail-closed
+ticket-boundary contract (a bad leg voids the whole ticket, never just
+that leg), a missing ticket id, live/Virtual/Zoom exclusion, settled/
+cashed-out exclusion, placement-time honesty, the `source_event_id`-less
+natural-key fixture-id fallback, the no-tickets-found failure case, an
+unrecognized ticket status, and the privacy allowlist on
+unresolved/excluded ticket records.
 
-- No automatic bet placement.
-- No open-bet or settled-bet capture.
+## Boundaries (Release 1 fixtures / this release's tickets)
+
+- No automatic bet placement, no cashout.
+- No settled-bet capture ("Capture settled bets" is a separate, later work
+  item — see `docs/LEDGER_DAILY_WORKFLOW.md`).
 - No result lookup.
 - No background scraping — capture runs only on a user click.
 - No backend, database, Render, or Neon.
 - No all-sports parser in this release.
+- No live, Zoom, or Virtual ticket capture — a ticket containing even one
+  such leg is excluded entirely (see "Open bet ticket capture" above).
 - No model, ledger, admission, or staking changes — this extension only
-  produces a JSON file; nothing in `ledgers/`, `src/pcbf_calculator/`, or
-  `research/` is touched by it or aware of it.
+  produces JSON files; nothing in `ledgers/`, `src/pcbf_calculator/`, or
+  `research/` is touched by it or aware of it. `forecast_id` resolution
+  (matching a captured ticket's legs against the forecast ledger) is a
+  separate, future importer step, not this extension's job.
 - No Chrome Web Store deployment.
 
 ## Next step
 
-The core real-page selector question (does this extension work against
-actual Bet9ja markup at all?) is answered: yes, via the BET9JA_DESKTOP
-profile, confirmed against both the Highlights page and four competition
-pages, public and authenticated. The remaining gap under "What this does
-NOT yet confirm" above — live/virtual/Zoom event marking — is the clear
-candidate for its own narrow, evidence-backed follow-up PR once a real
-sample of each state is captured. Per `REAL_PAGE_VALIDATION.md`'s
-Recommendation, one more real downloaded JSON capture against the live,
-authenticated page with this build should happen before treating
-real-page validation as fully closed. Once that's done, the next PR adds
-ticket capture using the existing `betting_ledger` schema
-(`ledgers/schemas/betting_ledger.v1.schema.json`) — see
-`docs/LEDGER_DAILY_WORKFLOW.md`.
+Fixture capture's core real-page selector question (does this extension
+work against actual Bet9ja markup at all?) is answered: yes, via the
+BET9JA_DESKTOP profile, confirmed across 4 rounds of real-page validation
+(see `REAL_PAGE_VALIDATION.md`) — real-page validated fixture identity
+stability, honest kickoff/date handling, and privacy exclusion are all
+confirmed. Its remaining named gap is live/virtual/Zoom event marking,
+still unconfirmed for lack of a real sample of each state.
+
+Open bet ticket capture is the current next step per the project's build
+order (see `docs/LEDGER_DAILY_WORKFLOW.md`): its logic (fail-closed ticket
+boundaries, `source_event_id`/`fixture_id` exposure, the ticket-type
+taxonomy-gap flag, placement-time honesty) is implemented and unit-tested
+against synthetic markup, but its selectors are unverified placeholders —
+see `TICKET_REAL_PAGE_VALIDATION.md` for exactly what real-page evidence
+is needed next (one single, one accumulator, one system ticket; expanded
+and collapsed views; a repeated fixture across separate tickets) before
+this feature can be trusted the way fixture capture now is.
