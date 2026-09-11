@@ -1,6 +1,6 @@
 {
-  "generated_at_utc": "2026-09-11T05:22:26+00:00",
-  "contract_version": "2.0.0",
+  "generated_at_utc": "2026-09-11T06:26:50+00:00",
+  "contract_version": "2.1.0",
   "contract_status": "DRAFT_FOR_OPERATOR_REVIEW",
   "splits": {
     "split_training": {
@@ -274,7 +274,7 @@
       "closing_line_benchmark_model_label": null
     },
     "split_genuine_prospective_scoring": {
-      "use": "Current-season genuine prospective/PAPER scoring",
+      "use": "Current-season rolling settlement-observation feed \u2014 NOT genuine pre-match prospective/PAPER scoring (see correction_v2_1_0)",
       "season_codes": [
         "2627"
       ],

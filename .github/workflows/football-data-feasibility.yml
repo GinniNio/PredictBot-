@@ -288,6 +288,146 @@ jobs:
           print(f"> {report['note']}")
           PY
 
+      - name: Run Soccer 1X2 Elo baseline training + evaluation
+        # IMPLEMENTATION STATUS: this step's numbers are the FIRST real ones
+        # this baseline (research/soccer_1x2_elo_baseline/) has ever produced
+        # from actual downloaded Football-Data content — every number this
+        # PR's own test suite can produce is fixture-derived proof the CODE
+        # behaves correctly, never a performance claim (see train.py's module
+        # docstring). Runs against whatever data_pipeline/download.py actually
+        # retrieved above (real files if any succeeded — this step must
+        # complete cleanly and report an honest "no data available" state,
+        # exactly like dataset_builder.py already does for
+        # SOURCE_UNAVAILABLE/empty splits, if raw_dir is empty). Trains ONLY
+        # on split_training, calibrates ONLY on split_calibration_validation,
+        # and never touches split_locked_test/split_out_of_time_retrospective_holdout/
+        # split_genuine_prospective_scoring for any fitting decision — see
+        # train.py's own docstring for the full leakage-boundary contract.
+        # soccer_1x2 stays completely UNREGISTERED regardless of what these
+        # real numbers turn out to be: no admission-registry row, no
+        # promotion-threshold change, no adapter wiring happens in this step
+        # or anywhere in this PR.
+        run: python -m research.soccer_1x2_elo_baseline.evaluate
+
+      - name: Write Soccer 1X2 Elo baseline evidence to job summary
+        # if: always() — the previous step exits non-zero (fails the job)
+        # on a frozen-hash MISMATCH, per the operator's own requirement
+        # that a mismatch fail the run rather than silently pass. Without
+        # always(), a failed previous step would skip this one and the
+        # mismatch detail would never reach the job summary/log — always()
+        # ensures the evidence (including the mismatch itself) still
+        # prints even though the job as a whole still reports failure.
+        if: always()
+        run: |
+          # Same `tee -a "$GITHUB_STEP_SUMMARY"` pattern as the two steps
+          # above — this evidence must be visible in both the job log and
+          # the step summary without downloading the uploaded artifact.
+          python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("research/soccer_1x2_elo_baseline/reports/evaluation_report.json").read_text(encoding="utf-8"))
+
+          print("")
+          print("## Soccer 1X2 Elo baseline — training + evaluation evidence")
+          print("")
+          print(f"> {report['implementation_status']}")
+          print("")
+          print(
+              "soccer_1x2 stays completely UNREGISTERED regardless of the numbers "
+              "below — no model-admission-registry row, no promotion-threshold "
+              "change, no adapter dispatch-table wiring happens in this workflow or "
+              "anywhere in this PR, no matter how good or bad these real numbers "
+              "turn out to be."
+          )
+          print("")
+
+          print("### Frozen model-development inputs (fit/calibrate/final-eval/one-time confirmation)")
+          print("")
+          print(
+              "These four splits' hashes are pinned as the FROZEN model-development "
+              "inputs for this baseline. `split_genuine_prospective_scoring` (2627) is "
+              "a ROLLING, APPEND-ONLY OBSERVATION STREAM and is NEVER folded into these "
+              "— see its own section below."
+          )
+          print("")
+          print("| Split | SHA-256 |")
+          print("|---|---|")
+          for split_id, split_hash in report["frozen_hashes"]["split_hashes"].items():
+              print(f"| {split_id} | `{split_hash}` |")
+          print(f"| **frozen_dataset_hash** (combined, 4 splits only) | `{report['frozen_hashes']['combined_hash']}` |")
+          print(f"| code_hash | `{report['code_hash']}` |")
+          print(f"| artifact_hash | `{report['artifact_hash']}` |")
+          print(f"| combined_hash | `{report['combined_hash']}` |")
+          print(f"| temperature | `{report['temperature']}` |")
+          print("")
+          print(
+              "**First-ever live run note:** no prior committed frozen-hash baseline "
+              "exists yet for this baseline, so the hashes above are printed here as "
+              "the NEW baseline-establishing values (nothing to compare against yet). "
+              "A future PR/run can commit these values so a later run's own drift "
+              "(the four frozen splits changing after they were supposed to be locked) "
+              "gets flagged loudly instead of silently accepted."
+          )
+          print("")
+
+          stream = report["prospective_stream_observation"]
+          print("### Prospective stream — split_genuine_prospective_scoring (ROLLING, APPEND-ONLY OBSERVATION — never a test)")
+          print("")
+          print(f"- content_hash: `{stream['content_hash']}`")
+          print(f"- run_timestamp_utc: `{stream['run_timestamp_utc']}`")
+          print(f"- row_count: {stream['row_count']}")
+          print("")
+
+          def print_metrics_table(title, metrics):
+              print(f"**{title}** — rows={metrics['row_count']}")
+              if metrics['row_count']:
+                  print(
+                      f"- Brier: {metrics['brier_score']:.4f}, log loss: {metrics['log_loss']:.4f}, "
+                      f"calibration error: {metrics['calibration_error']:.4f}, "
+                      f"accuracy (secondary diagnostic): {metrics['accuracy_secondary_diagnostic']:.4f}"
+                  )
+                  print("  - By league:")
+                  for league_code, league_metrics in metrics["by_league"].items():
+                      if league_metrics["row_count"]:
+                          print(
+                              f"    - {league_code}: rows={league_metrics['row_count']}, "
+                              f"Brier={league_metrics['brier_score']:.4f}, log_loss={league_metrics['log_loss']:.4f}, "
+                              f"calibration_error={league_metrics['calibration_error']:.4f}"
+                          )
+                  print("  - By outcome:")
+                  for outcome, outcome_metrics in metrics["by_outcome"].items():
+                      print(
+                          f"    - {outcome}: brier_contribution_mean={outcome_metrics['brier_contribution_mean']:.4f}, "
+                          f"log_loss_when_actual={outcome_metrics['log_loss_when_actual']}, "
+                          f"calibration_error={outcome_metrics['calibration_error']:.4f}"
+                      )
+              print("")
+
+          print("### split_locked_test and split_out_of_time_retrospective_holdout (reported SEPARATELY, never blended)")
+          print("")
+          for split_id, split_report in report["test_splits"].items():
+              print(f"#### {split_id}")
+              print("")
+              print_metrics_table("Model", split_report["model_metrics"])
+              print_metrics_table("Naive league-frequency baseline (fit on split_training only)", split_report["naive_league_frequency_baseline_metrics"])
+              devig = split_report["devigged_opening_odds_metrics"]
+              print_metrics_table("De-vigged opening bookmaker odds", devig)
+              print(f"- De-vigged opening odds: excluded {devig['excluded_row_count']} row(s) with no complete opening price set")
+              print("")
+
+          rolling = report["rolling_settlement_observation"]
+          print("### Rolling settlement observation — split_genuine_prospective_scoring (NOT a test, NOT prospective evaluation)")
+          print("")
+          print(f"> {rolling['label']}")
+          print("")
+          print_metrics_table("Model", rolling["model_metrics"])
+          print_metrics_table("Naive league-frequency baseline (fit on split_training only)", rolling["naive_league_frequency_baseline_metrics"])
+          devig = rolling["devigged_opening_odds_metrics"]
+          print_metrics_table("De-vigged opening bookmaker odds", devig)
+          print(f"- De-vigged opening odds: excluded {devig['excluded_row_count']} row(s) with no complete opening price set")
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: football-data-feasibility-evidence
@@ -310,4 +450,7 @@ jobs:
             data_pipeline/reports/dataset_build_report.json
             data_pipeline/reports/dataset_build_report.md
             data_pipeline/reports/run_metadata.json
+            research/soccer_1x2_elo_baseline/reports/model_artifact.json
+            research/soccer_1x2_elo_baseline/reports/evaluation_report.json
+            research/soccer_1x2_elo_baseline/reports/evaluation_report.md
           if-no-files-found: error

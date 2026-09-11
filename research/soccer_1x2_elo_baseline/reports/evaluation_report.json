@@ -1,0 +1,171 @@
+{
+  "artifact_hash": "133bed9556a56fb25029557e96f118d103e0847d00c840ea386bdc1df2c36968",
+  "code_hash": "3264a0b18c0ea59e8ec52bd11bf65399418ae9bbcac46e419093f57f8066de8d",
+  "combined_hash": "58d4b43235099435ba22d0994b26e0877078b9409446eb9155985e8b3a8b42ca",
+  "frozen_hashes": {
+    "combined_hash": "8b27f4588429ed96b40c35ffd469bd9ea507d60ab658aa775d1fe921ef8050a5",
+    "split_hashes": {
+      "split_calibration_validation": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "split_locked_test": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "split_out_of_time_retrospective_holdout": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "split_training": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    }
+  },
+  "hash_provenance": {
+    "combined_check": {
+      "computed": "8b27f4588429ed96b40c35ffd469bd9ea507d60ab658aa775d1fe921ef8050a5",
+      "expected": "UNFROZEN_PENDING_LIVE_RUN",
+      "split_id": "frozen_dataset_hash",
+      "status": "CANDIDATE"
+    },
+    "has_mismatch": false,
+    "split_checks": [
+      {
+        "computed": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "expected": "UNFROZEN_PENDING_LIVE_RUN",
+        "split_id": "split_training",
+        "status": "CANDIDATE"
+      },
+      {
+        "computed": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "expected": "UNFROZEN_PENDING_LIVE_RUN",
+        "split_id": "split_calibration_validation",
+        "status": "CANDIDATE"
+      },
+      {
+        "computed": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "expected": "UNFROZEN_PENDING_LIVE_RUN",
+        "split_id": "split_locked_test",
+        "status": "CANDIDATE"
+      },
+      {
+        "computed": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "expected": "UNFROZEN_PENDING_LIVE_RUN",
+        "split_id": "split_out_of_time_retrospective_holdout",
+        "status": "CANDIDATE"
+      }
+    ]
+  },
+  "implementation_status": "IMPLEMENTATION-ONLY: built and tested exclusively against synthetic fixtures in tests/fixtures/football_data/. Every metric below proves the code behaves correctly; NONE of it is a real-data performance claim. Real numbers are PENDING THE POST-MERGE LIVE GITHUB ACTIONS WORKFLOW RUN.",
+  "prospective_stream_observation": {
+    "content_hash": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "row_count": 0,
+    "run_timestamp_utc": "2026-09-11T07:07:23+00:00"
+  },
+  "rolling_settlement_observation": {
+    "devigged_opening_odds_metrics": {
+      "accuracy_secondary_diagnostic": null,
+      "brier_score": null,
+      "by_league": {},
+      "by_outcome": {},
+      "calibration_error": null,
+      "excluded_row_count": 0,
+      "included_row_count": 0,
+      "log_loss": null,
+      "reliability_table": [],
+      "row_count": 0
+    },
+    "label": "ROLLING SETTLEMENT OBSERVATION ONLY \u2014 Football-Data's 2627 file is a post-hoc settled-results feed, never a pre-match fixture feed (see dataset contract correction_v2_1_0). These numbers describe already-played 2026-27 matches this pipeline has settlement data for; they are NOT a test and NOT genuine prospective/PAPER evaluation.",
+    "model_metrics": {
+      "accuracy_secondary_diagnostic": null,
+      "brier_score": null,
+      "by_league": {},
+      "by_outcome": {},
+      "calibration_error": null,
+      "log_loss": null,
+      "reliability_table": [],
+      "row_count": 0
+    },
+    "naive_league_frequency_baseline_metrics": {
+      "accuracy_secondary_diagnostic": null,
+      "brier_score": null,
+      "by_league": {},
+      "by_outcome": {},
+      "calibration_error": null,
+      "log_loss": null,
+      "reliability_table": [],
+      "row_count": 0
+    },
+    "row_count": 0
+  },
+  "split_statuses": {
+    "split_calibration_validation": "SOURCE_UNAVAILABLE",
+    "split_genuine_prospective_scoring": "SOURCE_UNAVAILABLE",
+    "split_locked_test": "SOURCE_UNAVAILABLE",
+    "split_out_of_time_retrospective_holdout": "SOURCE_UNAVAILABLE",
+    "split_training": "SOURCE_UNAVAILABLE"
+  },
+  "temperature": 1.0,
+  "test_splits": {
+    "split_locked_test": {
+      "devigged_opening_odds_metrics": {
+        "accuracy_secondary_diagnostic": null,
+        "brier_score": null,
+        "by_league": {},
+        "by_outcome": {},
+        "calibration_error": null,
+        "excluded_row_count": 0,
+        "included_row_count": 0,
+        "log_loss": null,
+        "reliability_table": [],
+        "row_count": 0
+      },
+      "model_metrics": {
+        "accuracy_secondary_diagnostic": null,
+        "brier_score": null,
+        "by_league": {},
+        "by_outcome": {},
+        "calibration_error": null,
+        "log_loss": null,
+        "reliability_table": [],
+        "row_count": 0
+      },
+      "naive_league_frequency_baseline_metrics": {
+        "accuracy_secondary_diagnostic": null,
+        "brier_score": null,
+        "by_league": {},
+        "by_outcome": {},
+        "calibration_error": null,
+        "log_loss": null,
+        "reliability_table": [],
+        "row_count": 0
+      },
+      "row_count": 0
+    },
+    "split_out_of_time_retrospective_holdout": {
+      "devigged_opening_odds_metrics": {
+        "accuracy_secondary_diagnostic": null,
+        "brier_score": null,
+        "by_league": {},
+        "by_outcome": {},
+        "calibration_error": null,
+        "excluded_row_count": 0,
+        "included_row_count": 0,
+        "log_loss": null,
+        "reliability_table": [],
+        "row_count": 0
+      },
+      "model_metrics": {
+        "accuracy_secondary_diagnostic": null,
+        "brier_score": null,
+        "by_league": {},
+        "by_outcome": {},
+        "calibration_error": null,
+        "log_loss": null,
+        "reliability_table": [],
+        "row_count": 0
+      },
+      "naive_league_frequency_baseline_metrics": {
+        "accuracy_secondary_diagnostic": null,
+        "brier_score": null,
+        "by_league": {},
+        "by_outcome": {},
+        "calibration_error": null,
+        "log_loss": null,
+        "reliability_table": [],
+        "row_count": 0
+      },
+      "row_count": 0
+    }
+  }
+}

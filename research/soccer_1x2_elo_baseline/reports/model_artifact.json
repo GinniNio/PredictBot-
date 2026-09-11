@@ -1,0 +1,83 @@
+{
+  "biases": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "class_order": [
+    "H",
+    "D",
+    "A"
+  ],
+  "feature_names": [
+    "home_elo_pre",
+    "away_elo_pre",
+    "elo_diff",
+    "home_advantage",
+    "league_D1",
+    "league_SP1",
+    "league_I1",
+    "league_F1",
+    "season_stage"
+  ],
+  "final_loss": 0.0,
+  "iterations": 0,
+  "l2_strength": 0.001,
+  "league_dummy_codes": [
+    "D1",
+    "SP1",
+    "I1",
+    "F1"
+  ],
+  "learning_rate": 0.1,
+  "standardization": {
+    "means": {
+      "away_elo_pre": 0.0,
+      "elo_diff": 0.0,
+      "home_elo_pre": 0.0,
+      "season_stage": 0.0
+    },
+    "stds": {
+      "away_elo_pre": 1.0,
+      "elo_diff": 1.0,
+      "home_elo_pre": 1.0,
+      "season_stage": 1.0
+    }
+  },
+  "training_row_count": 0,
+  "weights": [
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  ]
+}

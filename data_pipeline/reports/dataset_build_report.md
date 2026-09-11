@@ -1,6 +1,6 @@
 # Soccer 1X2 dataset build report
 
-Contract version `2.0.0` (status: `DRAFT_FOR_OPERATOR_REVIEW`). Combined dataset snapshot hash: `2c950a1a26d69ae20aea4a6b53cdba2edd7e449b1fff3110e1545e554ec57bb7`.
+Contract version `2.1.0` (status: `DRAFT_FOR_OPERATOR_REVIEW`). Combined dataset snapshot hash: `2c950a1a26d69ae20aea4a6b53cdba2edd7e449b1fff3110e1545e554ec57bb7`.
 
 Row-count labels below are EXPLICITLY DISTINCT and never conflated, and the first three always reconcile exactly: `source_rows == usable_settled_rows + pending_settlement_rows_included + rejected_unique_rows`. `source_rows` is every row read; `usable_settled_rows` and `rejected_unique_rows` are THIS SPLIT'S OWN eligibility decision (never the generic, split-unaware validate_file check — see dataset_builder.py's module docstring); `pending_settlement_rows_included` is nonzero only for split_genuine_prospective_scoring (not-yet-played fixtures admitted with a null result); `validation_issue_occurrences` is generic FILE-level diagnostic evidence, deliberately outside the three-way reconciliation.
 

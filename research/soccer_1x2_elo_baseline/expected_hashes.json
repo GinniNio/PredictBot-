@@ -1,0 +1,17 @@
+{
+  "schema_note": "Every hash value here is either the literal string UNFROZEN_PENDING_LIVE_RUN (no real Football-Data hash has been pinned yet) or a real SHA-256 hash PINNED BY A HUMAN, in a small, separate, reviewed evidence PR, after reading a real live-workflow run's output. This file is NEVER auto-updated by any workflow, training, or evaluation code -- hash_provenance.check_frozen_hashes() only ever READS it. A mismatch between a pinned value and a freshly computed one is reported as a failure (see check_frozen_hashes' has_mismatch), never silently corrected or overwritten. Pinning a real value must also fill in that split's own provenance_by_split entry (run_id, commit_sha, workflow_run_url, retrieved_at_utc) so every pinned hash's origin stays traceable.",
+  "split_hashes": {
+    "split_training": "UNFROZEN_PENDING_LIVE_RUN",
+    "split_calibration_validation": "UNFROZEN_PENDING_LIVE_RUN",
+    "split_locked_test": "UNFROZEN_PENDING_LIVE_RUN",
+    "split_out_of_time_retrospective_holdout": "UNFROZEN_PENDING_LIVE_RUN"
+  },
+  "frozen_dataset_hash": "UNFROZEN_PENDING_LIVE_RUN",
+  "provenance_by_split": {
+    "split_training": null,
+    "split_calibration_validation": null,
+    "split_locked_test": null,
+    "split_out_of_time_retrospective_holdout": null,
+    "frozen_dataset_hash": null
+  }
+}
