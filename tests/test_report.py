@@ -29,11 +29,13 @@ from data_pipeline.report import (
     build_fixture_only_report,
     build_live_entry,
     build_report,
+    build_rejection_reason_totals,
     build_source_attempts,
     classify_live_download,
     format_aggregates_markdown,
     format_compact_summary_line,
     format_compact_summary_markdown,
+    format_rejection_reason_totals_markdown,
     summarize_source_attempts,
 )
 
@@ -440,6 +442,35 @@ class BuildAggregatesTests(unittest.TestCase):
         self.assertEqual(aggregates, {"by_league": {}, "by_season": {}})
         lines = format_aggregates_markdown(aggregates)
         self.assertTrue(lines)  # still renders headers, just no data rows
+
+
+class RejectionReasonTotalsTests(unittest.TestCase):
+    def test_totals_sum_across_rows_by_reason_type(self):
+        rows = [
+            {"rejection_reason_counts": {"MISSING_OR_INVALID_ODDS": 2, "DUPLICATE_FIXTURE": 1}},
+            {"rejection_reason_counts": {"MISSING_OR_INVALID_ODDS": 3}},
+            {"rejection_reason_counts": {}},
+        ]
+        totals = build_rejection_reason_totals(rows)
+        self.assertEqual(totals, {"MISSING_OR_INVALID_ODDS": 5, "DUPLICATE_FIXTURE": 1})
+
+    def test_no_rejections_at_all_produces_empty_totals(self):
+        rows = [{"rejection_reason_counts": {}}, {"rejection_reason_counts": {}}]
+        self.assertEqual(build_rejection_reason_totals(rows), {})
+
+    def test_format_renders_table_sorted_by_reason_name(self):
+        totals = {"MISSING_OR_INVALID_ODDS": 5, "DUPLICATE_FIXTURE": 1}
+        lines = format_rejection_reason_totals_markdown(totals)
+        text = "\n".join(lines)
+        self.assertIn("Typed rejection totals", text)
+        self.assertIn("DUPLICATE_FIXTURE", text)
+        self.assertIn("MISSING_OR_INVALID_ODDS", text)
+        # DUPLICATE_FIXTURE sorts before MISSING_OR_INVALID_ODDS.
+        self.assertLess(text.index("DUPLICATE_FIXTURE"), text.index("MISSING_OR_INVALID_ODDS"))
+
+    def test_format_handles_no_rejections(self):
+        lines = format_rejection_reason_totals_markdown({})
+        self.assertTrue(any("No rejection reason fired" in line for line in lines))
 
 
 if __name__ == "__main__":

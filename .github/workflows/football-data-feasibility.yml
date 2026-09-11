@@ -75,13 +75,24 @@ jobs:
 
       - name: Write evidence summary to job summary
         run: |
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          # Note the `| tee -a "$GITHUB_STEP_SUMMARY"` below (not `>>`): a
+          # step summary is only visible in the GitHub web UI and has no
+          # API/log-download exposure, so a reviewer or automated check
+          # reading this job's raw log would otherwise never see this
+          # evidence at all. Teeing to stdout puts the exact same content
+          # in the job log too.
+          python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           import json
           import sys
           from pathlib import Path
 
           sys.path.insert(0, ".")
-          from data_pipeline.report import format_aggregates_markdown, format_compact_summary_markdown
+          from data_pipeline.report import (
+              build_rejection_reason_totals,
+              format_aggregates_markdown,
+              format_compact_summary_markdown,
+              format_rejection_reason_totals_markdown,
+          )
 
           report = json.loads(Path("data_pipeline/reports/feasibility_report.json").read_text(encoding="utf-8"))
           attempts_summary = report.get("source_attempts_summary", {})
@@ -120,6 +131,9 @@ jobs:
           print("### Aggregate totals")
           print("")
           for line in format_aggregates_markdown(report.get("aggregates", {"by_league": {}, "by_season": {}})):
+              print(line)
+          print("")
+          for line in format_rejection_reason_totals_markdown(build_rejection_reason_totals(compact_summary)):
               print(line)
           PY
 
