@@ -44,12 +44,18 @@ A hand-crafted test fixture can only ever prove the PARSER's behavior
 missing odds, etc.) — it can never prove SOURCE COMPATIBILITY or DATASET
 USABILITY for a real league/season. `FIXTURE_ONLY_VALIDATED` rows must
 never be read as "this league-season is usable" — see
-`data_pipeline/FEASIBILITY_DECISION.md`. As of this pipeline's most recent
-run, zero real downloads succeeded (see FEASIBILITY_DECISION.md), so no
-report row has ever actually been assigned `SOURCE_NOT_USABLE` yet — the
-label is defined and validated here so a future run against real
-downloaded-but-bad data has somewhere correct to land, per its own
-merits, rather than being forced into one of the other two labels.
+`data_pipeline/FEASIBILITY_DECISION.md`.
+
+This module also builds a COMPACT per-league-season summary
+(`build_compact_summary`/`format_compact_summary_line`/
+`format_compact_summary_markdown`) and league/season aggregates
+(`build_aggregates`/`format_aggregates_markdown`) for every league-season
+that was actually downloaded — this is the PRIMARY reviewable evidence for
+a live run: it is printed directly to stdout (the job log) and rendered
+into `$GITHUB_STEP_SUMMARY` by the workflow, so a reviewer never has to
+download the uploaded JSON artifact to see what this run actually found.
+The full JSON/Markdown reports remain the secondary, detailed evidence
+record for whoever can download the artifact.
 
 Stdlib only (json). No new runtime dependency.
 """
@@ -65,7 +71,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from data_pipeline.download import DEFAULT_MANIFEST_PATH, load_manifest, season_codes
+from data_pipeline.download import DEFAULT_MANIFEST_PATH, ERROR_NOT_FOUND, load_manifest, season_codes
 from data_pipeline.schema_inspection import column_drift, inspect_file, result_to_dict as schema_to_dict
 from data_pipeline.validation import result_to_dict as validation_to_dict
 from data_pipeline.validation import validate_file
@@ -101,15 +107,22 @@ SOURCE_NOT_USABLE = "SOURCE_NOT_USABLE"
 # (see `SOURCE_NOT_LISTED`).
 VALID_SOURCE_LABELS = (LIVE_SOURCE_VALIDATED, FIXTURE_ONLY_VALIDATED, SOURCE_NOT_USABLE)
 
-# A source-attempt-table-only label (see `build_source_attempts` below): a
-# season that exists in principle (the football calendar has moved past
-# it) but for which this manifest lists no confirmed, live-verified source
-# URL yet (`data_pipeline/sources/football_data_sources.yaml`'s
-# `unconfirmed_seasons`). Never assigned to a per-file entry built by
-# `build_entry`/`build_live_entry` — those always describe a file that was
-# actually exercised (real download or fixture); `SOURCE_NOT_LISTED` rows
-# were never attempted at all, by design, so they never appear in
-# `VALID_SOURCE_LABELS`.
+# A source-attempt-table-only label (see `build_source_attempts` below):
+# this season WAS actually attempted (its manifest URL was requested, same
+# as every other season — including a season this manifest lists under
+# `unconfirmed_seasons`, e.g. 2024-25/2025-26 — see
+# data_pipeline/sources/football_data_sources.yaml), and the source
+# genuinely confirmed, by responding, that no file exists there (an HTTP
+# 404 — `data_pipeline.download.ERROR_NOT_FOUND`). This is the "we tried,
+# and confirmed there is no file there" case — distinct from a season that
+# failed for some other reason (`FIXTURE_ONLY_VALIDATED` — a connection
+# error, a non-404 HTTP error, a circuit-breaker skip, or simply not yet
+# attempted in whatever retrieval log is being read) and distinct from a
+# real download that succeeded (`LIVE_SOURCE_VALIDATED`/`SOURCE_NOT_USABLE`).
+# Never assigned to a per-file entry built by `build_entry`/`build_live_entry`
+# — those always describe a file that was actually parsed (real download or
+# fixture); a `SOURCE_NOT_LISTED` row never has a file to parse, so it never
+# appears in `VALID_SOURCE_LABELS`.
 SOURCE_NOT_LISTED = "SOURCE_NOT_LISTED"
 
 # The closed set of `source_label` values that may appear in the
@@ -127,10 +140,12 @@ TEST_FIXTURE_IDENTITY = "TEST_FIXTURE"
 # Download-status values a source-attempt-table row may carry. The first
 # five mirror `data_pipeline.download`'s typed `error_type`s (plus a
 # success indicator); `NOT_ATTEMPTED_HOST_BLOCKED` mirrors the circuit
-# breaker's skip reason; `SOURCE_NOT_LISTED` mirrors the label above (this
-# season was never attempted because no URL is listed for it at all, which
-# is a different reason than "attempted and blocked").
+# breaker's skip reason; `ERROR_NOT_FOUND` ("HTTP_NOT_FOUND") mirrors a
+# confirmed-absent 404 (paired with `source_label: SOURCE_NOT_LISTED`);
+# `NOT_YET_ATTEMPTED` means this retrieval log simply has no record for
+# this (league, season) yet.
 DOWNLOAD_STATUS_SUCCESS = "SUCCESS"
+DOWNLOAD_STATUS_NOT_YET_ATTEMPTED = "NOT_YET_ATTEMPTED"
 VALID_VALIDATION_STATUSES = ("NOT_RUN", "PASSED", "FAILED")
 
 
@@ -208,6 +223,7 @@ def _assemble_entry(
         "odds_availability": validation_result.odds_availability,
         "core_columns_absent": schema_result.core_columns_absent,
         "header": schema_result.header,
+        "encoding_used": schema_result.encoding_used,
     }
 
 
@@ -306,6 +322,173 @@ def build_report(entries: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _column_stat(canonical_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+    """Missing-value stats for one canonical core column of one entry,
+    correctly distinguishing "the column doesn't exist in this file at
+    all" (100% missing, `column_present: False`) from "the column exists
+    but some rows left it blank" (`missingness_by_column`'s own rate,
+    `column_present: True`) — `validation.py`'s `missingness_by_column`
+    reports 0.0 for a column that is simply absent (it never counted any
+    row against it), which would otherwise misleadingly read as "always
+    present"."""
+
+    total_rows = entry["total_rows"]
+    if canonical_id in entry["core_columns_absent"]:
+        return {"column_present": False, "missing_count": total_rows, "missing_rate": 1.0 if total_rows else 0.0}
+    rate = entry["missingness_by_column"].get(canonical_id, 0.0)
+    return {
+        "column_present": True,
+        "missing_count": round(rate * total_rows),
+        "missing_rate": rate,
+    }
+
+
+def build_compact_summary_row(entry: dict[str, Any]) -> dict[str, Any]:
+    """Build one compact, per-league-season summary row (this task's
+    primary reviewable evidence — see the module docstring) from one
+    already-built per-file entry (`build_live_entry`'s output). Only ever
+    meaningful for an entry describing a file that was ACTUALLY downloaded
+    (`LIVE_SOURCE_VALIDATED` or `SOURCE_NOT_USABLE`) — a
+    `FIXTURE_ONLY_VALIDATED`/`SOURCE_NOT_LISTED` row never has real file
+    content to summarize this way."""
+
+    opening = [o for o in entry["odds_availability"] if o["variant"] == "opening_or_only"]
+    closing = [o for o in entry["odds_availability"] if o["variant"] == "closing"]
+
+    return {
+        "league_code": entry["league_code"],
+        "league_name": entry["league_name"],
+        "season": entry["season"],
+        "source_label": entry["source_label"],
+        "encoding_used": entry.get("encoding_used"),
+        "rows": entry["total_rows"],
+        "usable_fixtures": entry["usable_fixtures"],
+        "rejected_fixtures": entry["rejected_fixtures"],
+        "missing_kickoff_time": _column_stat("kickoff_time", entry),
+        "opening_odds_present": bool(opening),
+        "opening_odds_bookmakers": sorted({o["bookmaker_name"] for o in opening}),
+        "closing_odds_present": bool(closing),
+        "closing_odds_bookmakers": sorted({o["bookmaker_name"] for o in closing}),
+        "bookmaker_coverage": sorted({o["bookmaker_prefix"] for o in entry["odds_availability"]}),
+        # Universally True today for every odds column this pipeline finds
+        # (schema_inspection.py's `capture_timestamp_known` is hard-coded
+        # False for every finding — Football-Data carries no captured_at
+        # column) — stated explicitly per row rather than only in a module
+        # docstring, per this task's item 4.
+        "price_capture_timestamps_unknown": True,
+        "rejection_reason_counts": {k: v for k, v in entry["rejection_reason_counts"].items() if v},
+    }
+
+
+def build_compact_summary(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build the compact per-league-season summary table for every entry
+    that was actually downloaded (see `build_compact_summary_row`)."""
+    return [build_compact_summary_row(e) for e in entries]
+
+
+def format_compact_summary_line(row: dict[str, Any]) -> str:
+    """One compact, single-line-per-row rendering of a compact summary
+    row — for the raw stdout job log, where a full Markdown table is
+    harder to scan."""
+
+    opening = "Y(" + ",".join(row["opening_odds_bookmakers"]) + ")" if row["opening_odds_present"] else "N"
+    closing = "Y(" + ",".join(row["closing_odds_bookmakers"]) + ")" if row["closing_odds_present"] else "N"
+    kickoff = row["missing_kickoff_time"]
+    rejections = ",".join(f"{k}={v}" for k, v in row["rejection_reason_counts"].items()) or "none"
+    return (
+        f"{row['league_code']}/{row['season']} [{row['source_label']}] "
+        f"encoding={row['encoding_used']} rows={row['rows']} usable={row['usable_fixtures']} "
+        f"rejected={row['rejected_fixtures']} rejections={rejections} "
+        f"kickoff_missing={kickoff['missing_count']}/{row['rows']} "
+        f"opening_odds={opening} closing_odds={closing} "
+        f"bookmakers={','.join(row['bookmaker_coverage']) or 'none'} "
+        f"price_capture_timestamps_unknown={row['price_capture_timestamps_unknown']}"
+    )
+
+
+def format_compact_summary_markdown(rows: list[dict[str, Any]]) -> list[str]:
+    """Render the compact per-league-season summary table as Markdown, for
+    `$GITHUB_STEP_SUMMARY` — this task's primary reviewable evidence, since
+    it never depends on downloading the uploaded artifact."""
+
+    lines = [
+        "| League | Season | Label | Encoding | Rows | Usable | Rejected | Kickoff missing | "
+        "Opening odds | Closing odds | Bookmaker coverage | Price ts unknown | Rejection reasons |",
+        "|---|---|---|---|---:|---:|---:|---|---|---|---|---|---|",
+    ]
+    if not rows:
+        lines.append("| _no league-season file was actually downloaded in this run_ | | | | | | | | | | | | |")
+        return lines
+    for row in rows:
+        opening = "Yes (" + ", ".join(row["opening_odds_bookmakers"]) + ")" if row["opening_odds_present"] else "No"
+        closing = "Yes (" + ", ".join(row["closing_odds_bookmakers"]) + ")" if row["closing_odds_present"] else "No"
+        kickoff = row["missing_kickoff_time"]
+        rejections = ", ".join(f"{k}={v}" for k, v in row["rejection_reason_counts"].items()) or "none"
+        lines.append(
+            f"| {row['league_name']} ({row['league_code']}) | {row['season']} | {row['source_label']} | "
+            f"{row['encoding_used']} | {row['rows']} | {row['usable_fixtures']} | {row['rejected_fixtures']} | "
+            f"{kickoff['missing_count']} ({kickoff['missing_rate']:.1%}) | {opening} | {closing} | "
+            f"{', '.join(row['bookmaker_coverage']) or 'none'} | {row['price_capture_timestamps_unknown']} | "
+            f"{rejections} |"
+        )
+    return lines
+
+
+def build_aggregates(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate the compact per-league-season summary rows two ways (this
+    task's item 5): total usable/rejected fixtures per LEAGUE (summed
+    across that league's seasons), and total usable/rejected fixtures per
+    SEASON (summed across all 5 leagues)."""
+
+    by_league: dict[str, dict[str, Any]] = {}
+    by_season: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        league = by_league.setdefault(
+            row["league_code"],
+            {"league_name": row["league_name"], "usable_fixtures": 0, "rejected_fixtures": 0, "rows": 0},
+        )
+        league["usable_fixtures"] += row["usable_fixtures"]
+        league["rejected_fixtures"] += row["rejected_fixtures"]
+        league["rows"] += row["rows"]
+
+        season = by_season.setdefault(
+            row["season"], {"usable_fixtures": 0, "rejected_fixtures": 0, "rows": 0}
+        )
+        season["usable_fixtures"] += row["usable_fixtures"]
+        season["rejected_fixtures"] += row["rejected_fixtures"]
+        season["rows"] += row["rows"]
+
+    return {"by_league": by_league, "by_season": by_season}
+
+
+def format_aggregates_markdown(aggregates: dict[str, Any]) -> list[str]:
+    """Render `build_aggregates`'s output as two labeled Markdown tables —
+    aggregate totals, clearly distinguished from the per-league-season
+    detail table above them (this task's item 5)."""
+
+    by_league = aggregates.get("by_league", {})
+    by_season = aggregates.get("by_season", {})
+
+    lines = ["#### Aggregate totals by league (summed across that league's downloaded seasons)", ""]
+    lines.append("| League | Usable fixtures | Rejected fixtures | Total rows |")
+    lines.append("|---|---:|---:|---:|")
+    for league_code in sorted(by_league):
+        agg = by_league[league_code]
+        lines.append(
+            f"| {agg['league_name']} ({league_code}) | {agg['usable_fixtures']} | "
+            f"{agg['rejected_fixtures']} | {agg['rows']} |"
+        )
+    lines.append("")
+    lines.append("#### Aggregate totals by season (summed across all 5 leagues)")
+    lines.append("")
+    lines.append("| Season | Usable fixtures | Rejected fixtures | Total rows |")
+    lines.append("|---|---:|---:|---:|")
+    for season in sorted(by_season):
+        agg = by_season[season]
+        lines.append(f"| {season} | {agg['usable_fixtures']} | {agg['rejected_fixtures']} | {agg['rows']} |")
+    return lines
+
+
 def _entries_markdown_lines(report: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     lines.append(
@@ -394,8 +577,8 @@ def write_feasibility_report(report: dict[str, Any], json_path: Path, markdown_p
     lines.append(
         f"{attempts_summary.get('total_rows', len(attempts))} (league, season) rows: "
         f"one row per pair this manifest names — every real download attempt this run made "
-        f"(succeeded, failed, or skipped by the circuit breaker), plus any season explicitly "
-        f"gapped as `SOURCE_NOT_LISTED` (defect 4). Never fabricated: `total_rows`/"
+        f"(succeeded, failed, or skipped by the circuit breaker), plus any season confirmed "
+        f"genuinely absent (404) as `SOURCE_NOT_LISTED`. Never fabricated: `total_rows`/"
         "`usable_fixtures` are `null` for every row where no real file was validated."
     )
     lines.append("")
@@ -409,6 +592,20 @@ def write_feasibility_report(report: dict[str, Any], json_path: Path, markdown_p
             f"| {row['league_code']} | {row['season']} | {row['source_label']} | {row['download_status']} | "
             f"{row['validation_status']} | {row['total_rows']} | {row['usable_fixtures']} |"
         )
+    lines.append("")
+
+    lines.append("## Compact per-league-season summary (primary reviewable evidence)")
+    lines.append("")
+    lines.append(
+        "Every row below describes a league-season file that was ACTUALLY downloaded in this "
+        "run (`LIVE_SOURCE_VALIDATED` or `SOURCE_NOT_USABLE`) — this is the same table the "
+        "workflow writes to `$GITHUB_STEP_SUMMARY` and prints to the job log, so it never "
+        "requires downloading the uploaded artifact to review."
+    )
+    lines.append("")
+    lines.extend(format_compact_summary_markdown(report.get("compact_summary", [])))
+    lines.append("")
+    lines.extend(format_aggregates_markdown(report.get("aggregates", {})))
     lines.append("")
 
     if report.get("entries"):
@@ -494,14 +691,18 @@ def build_source_attempts(
     actually attempted (or, since the circuit breaker, deliberately did NOT
     attempt) in this run.
 
-    This is the fix for the core defect: unlike the old report, which only
-    ever showed the 6 hand-crafted fixtures, this covers every real
-    (league, season) attempt the manifest describes, INCLUDING the seasons
-    in the confirmed [first_season, latest_completed_season] range (which
-    this run's download attempt actually tried, successfully or not) and
-    the `unconfirmed_seasons` gap seasons (defect 4), which are never
-    attempted at all and are always reported `SOURCE_NOT_LISTED` rather
-    than silently omitted.
+    This covers every real (league, season) attempt the manifest
+    describes, INCLUDING both the confirmed [first_season,
+    latest_completed_season] range AND the `unconfirmed_seasons` seasons
+    (e.g. 2024-25/2025-26) — `download.py`'s `run()` attempts both ranges
+    through the identical download/retry/circuit-breaker logic (see its
+    module docstring), so this function joins against the retrieval log the
+    same way for every season the manifest names, with no special-casing by
+    range. The only season-specific outcome is `SOURCE_NOT_LISTED`, which
+    this function assigns only when the retrieval log actually recorded an
+    attempt for that (league, season) that came back a confirmed HTTP 404
+    (`data_pipeline.download.ERROR_NOT_FOUND`) — i.e. the source genuinely
+    has no file there, never "this pipeline didn't try."
 
     `total_rows`/`usable_fixtures` are populated from real validation
     evidence ONLY when a real file was actually downloaded for that row —
@@ -516,7 +717,10 @@ def build_source_attempts(
         league_code = manifest_row["league_code"]
         league_name = manifest_row["league_name"]
 
-        for code in season_codes(str(manifest_row["first_season"]), str(manifest_row["latest_completed_season"])):
+        confirmed_codes = season_codes(str(manifest_row["first_season"]), str(manifest_row["latest_completed_season"]))
+        unconfirmed_codes = [str(c) for c in (manifest_row.get("unconfirmed_seasons") or [])]
+
+        for code in confirmed_codes + unconfirmed_codes:
             key = (league_code, code)
             if key in downloads_by_key:
                 download = downloads_by_key[key]
@@ -565,46 +769,54 @@ def build_source_attempts(
                     )
             elif key in failed_by_key:
                 failure = failed_by_key[key]
-                rows.append(
-                    {
-                        "league_code": league_code,
-                        "season": code,
-                        "source_label": FIXTURE_ONLY_VALIDATED,
-                        "download_status": failure["error_type"],
-                        "validation_status": "NOT_RUN",
-                        "total_rows": None,
-                        "usable_fixtures": None,
-                    }
-                )
+                if failure["error_type"] == ERROR_NOT_FOUND:
+                    # A real attempt was made against this exact URL and
+                    # the source answered with a confirmed 404 — "we
+                    # tried, and confirmed there is no file there," never
+                    # "we didn't try." See SOURCE_NOT_LISTED's docstring.
+                    rows.append(
+                        {
+                            "league_code": league_code,
+                            "season": code,
+                            "source_label": SOURCE_NOT_LISTED,
+                            "download_status": failure["error_type"],
+                            "validation_status": "NOT_RUN",
+                            "total_rows": None,
+                            "usable_fixtures": None,
+                        }
+                    )
+                else:
+                    rows.append(
+                        {
+                            "league_code": league_code,
+                            "season": code,
+                            "source_label": FIXTURE_ONLY_VALIDATED,
+                            "download_status": failure["error_type"],
+                            "validation_status": "NOT_RUN",
+                            "total_rows": None,
+                            "usable_fixtures": None,
+                        }
+                    )
             else:
-                # In the manifest's confirmed range but absent from the
-                # retrieval log entirely (e.g. the log predates this
-                # league/season, or download.py has not been re-run since
-                # the manifest changed) — never fabricate an outcome.
+                # Absent from the retrieval log entirely (e.g. the log
+                # predates this league/season, or download.py has not been
+                # re-run since the manifest changed) — never fabricate an
+                # outcome. Applies identically whether this season is in
+                # the confirmed range or `unconfirmed_seasons`: this
+                # function never assumes an unconfirmed season was skipped
+                # just because it is unconfirmed — it only knows that from
+                # the retrieval log's own record (or lack of one).
                 rows.append(
                     {
                         "league_code": league_code,
                         "season": code,
                         "source_label": FIXTURE_ONLY_VALIDATED,
-                        "download_status": "NOT_YET_ATTEMPTED",
+                        "download_status": DOWNLOAD_STATUS_NOT_YET_ATTEMPTED,
                         "validation_status": "NOT_RUN",
                         "total_rows": None,
                         "usable_fixtures": None,
                     }
                 )
-
-        for gap_season in manifest_row.get("unconfirmed_seasons", []) or []:
-            rows.append(
-                {
-                    "league_code": league_code,
-                    "season": str(gap_season),
-                    "source_label": SOURCE_NOT_LISTED,
-                    "download_status": SOURCE_NOT_LISTED,
-                    "validation_status": "NOT_RUN",
-                    "total_rows": None,
-                    "usable_fixtures": None,
-                }
-            )
 
     for row in rows:
         if row["source_label"] not in VALID_SOURCE_ATTEMPT_LABELS:
@@ -653,8 +865,8 @@ def main() -> None:
         # The source-attempt table (defect 1) is built regardless of
         # whether any download succeeded — it is the honest record of
         # every (league, season) pair this manifest names, including
-        # every attempt that failed/was skipped, and every explicitly
-        # gapped SOURCE_NOT_LISTED season (defect 4).
+        # every attempt that failed/was skipped, and every confirmed-absent
+        # (404) SOURCE_NOT_LISTED season.
         source_attempts = build_source_attempts(manifest_rows, retrieval_log)
     else:
         retrieval_log = {}
@@ -662,6 +874,18 @@ def main() -> None:
     report = build_report(live_entries)
     report["source_attempts"] = source_attempts
     report["source_attempts_summary"] = summarize_source_attempts(source_attempts)
+
+    # Compact per-league-season summary + league/season aggregates (this
+    # task's items 4/5) — the PRIMARY reviewable evidence, printed directly
+    # to stdout (the job log) below and also stored here in
+    # feasibility_report.json so the workflow's "Write evidence summary to
+    # job summary" step can render the same data into
+    # $GITHUB_STEP_SUMMARY without needing to download the artifact or
+    # recompute anything.
+    compact_summary = build_compact_summary(live_entries)
+    aggregates = build_aggregates(compact_summary)
+    report["compact_summary"] = compact_summary
+    report["aggregates"] = aggregates
 
     if live_entries:
         live_count = sum(1 for e in live_entries if e["source_label"] == LIVE_SOURCE_VALIDATED)
@@ -698,6 +922,29 @@ def main() -> None:
     write_feasibility_report(report, json_path, markdown_path)
     print(note)
     print(f"Wrote {json_path} and {markdown_path}")
+
+    # Primary reviewable evidence, printed directly to the job log (this
+    # task's item 4) — never dependent on downloading the uploaded
+    # artifact zip.
+    print("")
+    print(f"Compact per-league-season summary ({len(compact_summary)} row(s) actually downloaded):")
+    for row in compact_summary:
+        print("  " + format_compact_summary_line(row))
+    if not compact_summary:
+        print("  (none — no league-season file was actually downloaded in this run)")
+
+    print("")
+    print("Aggregate totals by league:")
+    for league_code in sorted(aggregates["by_league"]):
+        agg = aggregates["by_league"][league_code]
+        print(
+            f"  {agg['league_name']} ({league_code}): usable={agg['usable_fixtures']} "
+            f"rejected={agg['rejected_fixtures']} rows={agg['rows']}"
+        )
+    print("Aggregate totals by season (across all 5 leagues):")
+    for season in sorted(aggregates["by_season"]):
+        agg = aggregates["by_season"][season]
+        print(f"  {season}: usable={agg['usable_fixtures']} rejected={agg['rejected_fixtures']} rows={agg['rows']}")
 
     fixture_report = build_fixture_only_report()
     fixture_report["note"] = (

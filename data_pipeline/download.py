@@ -28,11 +28,14 @@ retrieval log (`data_pipeline/retrieval_log.json`), which stores metadata
 (hash/timestamp/URL/status/length) and never the file content itself, is
 safe to commit.
 
-Typed, distinct failure reporting per file — a timeout, an HTTP error, and
-a connection error are reported as different `error_type` values, never
+Typed, distinct failure reporting per file — a timeout, a generic HTTP
+error, a 404-specifically (`HTTP_NOT_FOUND` — the source genuinely has no
+file at this URL, distinct from every other HTTP-level rejection), and a
+connection error are reported as different `error_type` values, never
 collapsed into one generic "download failed" string, so a feasibility
-report reader can tell "the site rejected this specific season" from "the
-network path to the site was blocked entirely."
+report reader can tell "the site confirmed this specific season doesn't
+exist" from "the site rejected this specific season for some other
+reason" from "the network path to the site was blocked entirely."
 """
 
 from __future__ import annotations
@@ -68,6 +71,16 @@ BACKOFF_SECONDS = (1, 2, 4)  # sleep before attempt 2, attempt 3 (len == MAX_ATT
 # Distinct, typed failure reasons — never one generic "download failed".
 ERROR_TIMEOUT = "TIMEOUT"
 ERROR_HTTP = "HTTP_ERROR"
+# A real HTTP response was received AND it was specifically a 404 Not
+# Found — kept distinct from the generic ERROR_HTTP (e.g. a 500, 403, or
+# any other HTTP-level rejection). A 404 on this source's predictable
+# `mmz4281/<season>/<league>.csv` URL scheme is the one HTTP outcome that
+# means "the source has confirmed, by actually answering the request,
+# that no file exists at this URL" — never conflated with a generic HTTP
+# error, a timeout, or a connection-level failure (see report.py's
+# SOURCE_NOT_LISTED, which this maps to for a season that was actually
+# attempted and came back genuinely absent).
+ERROR_NOT_FOUND = "HTTP_NOT_FOUND"
 ERROR_CONNECTION = "CONNECTION_ERROR"
 ERROR_UNKNOWN = "UNKNOWN_ERROR"
 # Not a download failure at all — this file was never even attempted
@@ -181,8 +194,11 @@ def download_one(
         except urllib.error.HTTPError as exc:
             # A real HTTP response was received (e.g. a 404 error page) —
             # record its status/final-url/content-length even though the
-            # request itself is a failure.
-            last_error_type = ERROR_HTTP
+            # request itself is a failure. A 404 specifically is typed
+            # distinctly (ERROR_NOT_FOUND) from every other HTTP-level
+            # rejection (ERROR_HTTP) — see ERROR_NOT_FOUND's docstring
+            # above.
+            last_error_type = ERROR_NOT_FOUND if exc.code == 404 else ERROR_HTTP
             last_error_detail = f"HTTP {exc.code}: {exc.reason}"
             last_http_status = exc.code
             last_final_url = exc.geturl() if hasattr(exc, "geturl") else url
@@ -273,7 +289,22 @@ def run(
     circuit_breaker_events: list[dict[str, Any]] = []
 
     for row in manifest_rows:
-        for code in season_codes(str(row["first_season"]), str(row["latest_completed_season"])):
+        # Attempt every season the manifest names for this league — the
+        # confirmed [first_season, latest_completed_season] range AND the
+        # `unconfirmed_seasons` gap seasons (e.g. 2024-25/2025-26) — through
+        # the exact same download/retry/circuit-breaker logic below. The
+        # manifest's own url_pattern is the same for both; the only
+        # difference between a confirmed and an unconfirmed season is that
+        # this manifest has not yet had a live-download-capable environment
+        # confirm the unconfirmed one resolves to a real file. A season
+        # this run cannot actually reach the file for (e.g. a genuine 404)
+        # is reported with its own typed outcome (see ERROR_NOT_FOUND /
+        # report.py's SOURCE_NOT_LISTED) rather than being silently skipped
+        # up front — see data_pipeline/sources/football_data_sources.yaml's
+        # module docstring.
+        confirmed_codes = season_codes(str(row["first_season"]), str(row["latest_completed_season"]))
+        unconfirmed_codes = [str(c) for c in (row.get("unconfirmed_seasons") or [])]
+        for code in confirmed_codes + unconfirmed_codes:
             url = row["url_pattern"].format(season_code=code)
             host = urllib.parse.urlparse(url).netloc
 

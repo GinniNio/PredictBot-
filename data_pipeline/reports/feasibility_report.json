@@ -290,8 +290,8 @@
     {
       "league_code": "E0",
       "season": "2425",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -299,8 +299,8 @@
     {
       "league_code": "E0",
       "season": "2526",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -587,8 +587,8 @@
     {
       "league_code": "D1",
       "season": "2425",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -596,8 +596,8 @@
     {
       "league_code": "D1",
       "season": "2526",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -884,8 +884,8 @@
     {
       "league_code": "SP1",
       "season": "2425",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -893,8 +893,8 @@
     {
       "league_code": "SP1",
       "season": "2526",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -1181,8 +1181,8 @@
     {
       "league_code": "I1",
       "season": "2425",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -1190,8 +1190,8 @@
     {
       "league_code": "I1",
       "season": "2526",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -1478,8 +1478,8 @@
     {
       "league_code": "F1",
       "season": "2425",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -1487,8 +1487,8 @@
     {
       "league_code": "F1",
       "season": "2526",
-      "source_label": "SOURCE_NOT_LISTED",
-      "download_status": "SOURCE_NOT_LISTED",
+      "source_label": "FIXTURE_ONLY_VALIDATED",
+      "download_status": "NOT_YET_ATTEMPTED",
       "validation_status": "NOT_RUN",
       "total_rows": null,
       "usable_fixtures": null
@@ -1499,14 +1499,19 @@
     "download_status_counts": {
       "CONNECTION_ERROR": 2,
       "NOT_ATTEMPTED_HOST_BLOCKED": 153,
-      "SOURCE_NOT_LISTED": 10
+      "NOT_YET_ATTEMPTED": 10
     },
     "source_label_counts": {
       "LIVE_SOURCE_VALIDATED": 0,
-      "FIXTURE_ONLY_VALIDATED": 155,
+      "FIXTURE_ONLY_VALIDATED": 165,
       "SOURCE_NOT_USABLE": 0,
-      "SOURCE_NOT_LISTED": 10
+      "SOURCE_NOT_LISTED": 0
     }
+  },
+  "compact_summary": [],
+  "aggregates": {
+    "by_league": {},
+    "by_season": {}
   },
   "note": "No real football-data.co.uk download succeeded in this environment (2 league-season file(s) actually attempted over the network, 153 more skipped by the circuit breaker once a host-level denial was confirmed \u2014 see data_pipeline/retrieval_log.json's failed_attempts[]/circuit_breaker). This report's source_attempts[] (165 rows) is the real, honest per-(league, season) record \u2014 it is NEVER populated from the hand-crafted test fixtures. Those fixtures prove only the pipeline's parsing/validation logic, never real dataset usability, and are reported separately in data_pipeline/reports/fixture_validation_report.json. See data_pipeline/FEASIBILITY_DECISION.md."
 }

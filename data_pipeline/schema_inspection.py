@@ -30,22 +30,34 @@ from typing import Any
 _CSV_ENCODING_ATTEMPTS = ("utf-8-sig", "cp1252")
 
 
-def read_csv_rows(csv_path: str | Path) -> list[list[str]]:
-    """Read every row (header included) from a Football-Data CSV file,
-    tolerating the encoding quirks described above. Returns the raw rows
-    exactly as `csv.reader` would, just with a resilient text decode."""
+def read_csv_rows_with_encoding(csv_path: str | Path) -> tuple[list[list[str]], str]:
+    """Same as `read_csv_rows`, but also reports which encoding actually
+    succeeded (`"utf-8-sig"` or `"cp1252"`) — used so a feasibility-report
+    row can state, per file, which encoding this pipeline actually had to
+    fall back to (see data_pipeline/report.py's compact per-league-season
+    summary). A separate, additive function rather than a change to
+    `read_csv_rows`'s return type, so every existing call site that only
+    wants the rows keeps working unchanged."""
     csv_path = Path(csv_path)
     last_error: UnicodeDecodeError | None = None
     for encoding in _CSV_ENCODING_ATTEMPTS:
         try:
             with csv_path.open("r", encoding=encoding, newline="") as handle:
-                return list(csv.reader(handle))
+                return list(csv.reader(handle)), encoding
         except UnicodeDecodeError as exc:
             last_error = exc
             continue
     # cp1252 can decode any byte, so this should be unreachable — but never
     # silently swallow a genuine failure if every attempt somehow fails.
     raise last_error  # type: ignore[misc]
+
+
+def read_csv_rows(csv_path: str | Path) -> list[list[str]]:
+    """Read every row (header included) from a Football-Data CSV file,
+    tolerating the encoding quirks described above. Returns the raw rows
+    exactly as `csv.reader` would, just with a resilient text decode."""
+    rows, _encoding = read_csv_rows_with_encoding(csv_path)
+    return rows
 
 # Canonical "core" columns Football-Data files are expected to carry, and
 # the exact header spellings this pipeline recognizes for each. Multiple
@@ -135,6 +147,11 @@ class SchemaInspectionResult:
     market_aggregate_columns_found: list[dict[str, Any]]
     unrecognized_columns: list[str]
     row_count: int
+    # Which encoding actually decoded this file — "utf-8-sig" (the common
+    # case) or "cp1252" (the fallback for older Football-Data files with a
+    # non-UTF-8 byte, e.g. an accented name). Defaults to None only for a
+    # SchemaInspectionResult built by something other than `inspect_file`.
+    encoding_used: str | None = None
 
 
 def _find_core_column(header: list[str], candidates: list[str]) -> str | None:
@@ -224,7 +241,8 @@ def inspect_header(header: list[str]) -> dict[str, Any]:
 
 def inspect_file(csv_path: str | Path) -> SchemaInspectionResult:
     csv_path = Path(csv_path)
-    rows = iter(read_csv_rows(csv_path))
+    all_rows, encoding_used = read_csv_rows_with_encoding(csv_path)
+    rows = iter(all_rows)
     header = next(rows, [])
     row_count = sum(1 for _ in rows)
 
@@ -238,6 +256,7 @@ def inspect_file(csv_path: str | Path) -> SchemaInspectionResult:
         market_aggregate_columns_found=shape["market_aggregate_columns_found"],
         unrecognized_columns=shape["unrecognized_columns"],
         row_count=row_count,
+        encoding_used=encoding_used,
     )
 
 
@@ -264,6 +283,7 @@ def result_to_dict(result: SchemaInspectionResult) -> dict[str, Any]:
         ],
         "market_aggregate_columns_found": result.market_aggregate_columns_found,
         "unrecognized_columns": result.unrecognized_columns,
+        "encoding_used": result.encoding_used,
     }
 
 

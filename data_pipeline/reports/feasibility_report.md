@@ -4,10 +4,10 @@ This report covers REAL football-data.co.uk download attempts only. It never con
 
 ## Source-attempt table
 
-165 (league, season) rows: one row per pair this manifest names — every real download attempt this run made (succeeded, failed, or skipped by the circuit breaker), plus any season explicitly gapped as `SOURCE_NOT_LISTED` (defect 4). Never fabricated: `total_rows`/`usable_fixtures` are `null` for every row where no real file was validated.
+165 (league, season) rows: one row per pair this manifest names — every real download attempt this run made (succeeded, failed, or skipped by the circuit breaker), plus any season confirmed genuinely absent (404) as `SOURCE_NOT_LISTED`. Never fabricated: `total_rows`/`usable_fixtures` are `null` for every row where no real file was validated.
 
-download_status counts: `{'CONNECTION_ERROR': 2, 'NOT_ATTEMPTED_HOST_BLOCKED': 153, 'SOURCE_NOT_LISTED': 10}`
-source_label counts: `{'LIVE_SOURCE_VALIDATED': 0, 'FIXTURE_ONLY_VALIDATED': 155, 'SOURCE_NOT_USABLE': 0, 'SOURCE_NOT_LISTED': 10}`
+download_status counts: `{'CONNECTION_ERROR': 2, 'NOT_ATTEMPTED_HOST_BLOCKED': 153, 'NOT_YET_ATTEMPTED': 10}`
+source_label counts: `{'LIVE_SOURCE_VALIDATED': 0, 'FIXTURE_ONLY_VALIDATED': 165, 'SOURCE_NOT_USABLE': 0, 'SOURCE_NOT_LISTED': 0}`
 
 | League | Season | source_label | download_status | validation_status | total_rows | usable_fixtures |
 |---|---|---|---|---|---:|---:|
@@ -42,8 +42,8 @@ source_label counts: `{'LIVE_SOURCE_VALIDATED': 0, 'FIXTURE_ONLY_VALIDATED': 155
 | E0 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | E0 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | E0 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
-| E0 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
-| E0 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| E0 | 2425 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
+| E0 | 2526 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
 | D1 | 9394 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | D1 | 9495 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | D1 | 9596 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
@@ -75,8 +75,8 @@ source_label counts: `{'LIVE_SOURCE_VALIDATED': 0, 'FIXTURE_ONLY_VALIDATED': 155
 | D1 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | D1 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | D1 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
-| D1 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
-| D1 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| D1 | 2425 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
+| D1 | 2526 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
 | SP1 | 9394 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | SP1 | 9495 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | SP1 | 9596 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
@@ -108,8 +108,8 @@ source_label counts: `{'LIVE_SOURCE_VALIDATED': 0, 'FIXTURE_ONLY_VALIDATED': 155
 | SP1 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | SP1 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | SP1 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
-| SP1 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
-| SP1 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| SP1 | 2425 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
+| SP1 | 2526 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
 | I1 | 9394 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | I1 | 9495 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | I1 | 9596 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
@@ -141,8 +141,8 @@ source_label counts: `{'LIVE_SOURCE_VALIDATED': 0, 'FIXTURE_ONLY_VALIDATED': 155
 | I1 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | I1 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | I1 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
-| I1 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
-| I1 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| I1 | 2425 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
+| I1 | 2526 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
 | F1 | 9394 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | F1 | 9495 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | F1 | 9596 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
@@ -174,7 +174,25 @@ source_label counts: `{'LIVE_SOURCE_VALIDATED': 0, 'FIXTURE_ONLY_VALIDATED': 155
 | F1 | 2122 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | F1 | 2223 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
 | F1 | 2324 | FIXTURE_ONLY_VALIDATED | NOT_ATTEMPTED_HOST_BLOCKED | NOT_RUN | None | None |
-| F1 | 2425 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
-| F1 | 2526 | SOURCE_NOT_LISTED | SOURCE_NOT_LISTED | NOT_RUN | None | None |
+| F1 | 2425 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
+| F1 | 2526 | FIXTURE_ONLY_VALIDATED | NOT_YET_ATTEMPTED | NOT_RUN | None | None |
+
+## Compact per-league-season summary (primary reviewable evidence)
+
+Every row below describes a league-season file that was ACTUALLY downloaded in this run (`LIVE_SOURCE_VALIDATED` or `SOURCE_NOT_USABLE`) — this is the same table the workflow writes to `$GITHUB_STEP_SUMMARY` and prints to the job log, so it never requires downloading the uploaded artifact to review.
+
+| League | Season | Label | Encoding | Rows | Usable | Rejected | Kickoff missing | Opening odds | Closing odds | Bookmaker coverage | Price ts unknown | Rejection reasons |
+|---|---|---|---|---:|---:|---:|---|---|---|---|---|---|
+| _no league-season file was actually downloaded in this run_ | | | | | | | | | | | | |
+
+#### Aggregate totals by league (summed across that league's downloaded seasons)
+
+| League | Usable fixtures | Rejected fixtures | Total rows |
+|---|---:|---:|---:|
+
+#### Aggregate totals by season (summed across all 5 leagues)
+
+| Season | Usable fixtures | Rejected fixtures | Total rows |
+|---|---:|---:|---:|
 
 No real download succeeded in this run, so there is no live per-file entries section below — see the source-attempt table above for the full attempt record.
