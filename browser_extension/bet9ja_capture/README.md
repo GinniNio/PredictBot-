@@ -1,20 +1,31 @@
 # Bet9ja fixture + open-ticket capture
 
-A Manifest V3 browser extension (Chrome/Edge) with two independent buttons:
+A Manifest V3 browser extension (Chrome/Edge) with three independent
+buttons:
 
 - **Capture fixtures** (Release 1, real-page validated — see "Real-page
   validation status" below): captures the pre-match Soccer 1X2 fixtures
   visible on an already-open, already-authenticated Bet9ja tab into one
   normalized JSON file. This replaces copy-pasting a Bet9ja page into a
   chat host as the first step of `docs/LEDGER_DAILY_WORKFLOW.md`.
+- **Capture all Soccer fixtures** (see "Capture all Soccer fixtures"
+  below — architecture and aggregation logic implemented and tested; the
+  competition-menu scoping selector is an unverified placeholder pending
+  real-page validation, so a real run currently discovers zero
+  competitions, honestly): walks every competition discoverable from the
+  Soccer navigation automatically, capturing each one's pre-match
+  ordinary-1X2 fixtures via the same engine as **Capture fixtures**, into
+  one deduplicated combined file — retiring manual per-competition
+  selection.
 - **Capture open bets** (see "Open bet ticket capture" below — real
-  selectors confirmed Rounds 2–3 for ticket boundaries/id/legs/pagination,
-  with named open gaps: live/Virtual/Zoom detection and stake/return cell
-  mapping): expands, parses, and re-collapses each open ticket accordion,
-  walking automatically through every numbered page — ticket id,
-  placement time, each leg's selection/odds/market/fixture/source event
-  id — into one combined normalized JSON file, so what you actually bet
-  can be recorded in the betting ledger without hand-transcription.
+  selectors confirmed through Round 6 for ticket boundaries/id/legs/
+  pagination/most stake fields; 80/80 real tickets parsed cleanly on the
+  most recent real capture): expands, parses, and re-collapses each open
+  ticket accordion, walking automatically through every numbered page —
+  ticket id, placement time, each leg's selection/odds/market/fixture/
+  source event id — into one combined normalized JSON file, so what you
+  actually bet can be recorded in the betting ledger without
+  hand-transcription.
 
 This is deliberately the smallest useful slice — see "Boundaries" below for
 everything it does not do yet.
@@ -678,6 +689,81 @@ above), and each leg's `competition_resolution` (`'PRESENT'` or
 core key set otherwise, so a downstream reader can treat `tickets[]`
 uniformly regardless of which profile produced a given record.
 
+## Capture all Soccer fixtures
+
+A third, independent button and module (`soccer_walker.js`) that retires
+manually selecting each competition. Live inspection of
+`https://sports.bet9ja.com/sport/soccer/1` confirmed: "Highlights" and
+"Upcoming" are separate client-side views (not both in the DOM at once);
+competition choices (Premier League, LaLiga, Serie A, Bundesliga, Ligue
+1, ...) are client-side menu controls using `href="javascript:;"`, whose
+fixtures load only after selection — so no single DOM scrape can collect
+everything, and this button automates the click-one-at-a-time traversal
+that used to be manual.
+
+**SELECTOR STATUS: architecture and aggregation logic implemented and
+tested; the menu-scoping selector is an unverified placeholder.**
+`.menu-list__link` (the confirmed class name for a competition menu item)
+is expected to also match other sports' pickers and unrelated site
+shortcuts sharing the same class, so `soccer_walker.js` requires a
+container selector that scopes discovery to ONLY the Soccer competition
+menu — this is currently `null` (see `SOCCER_MENU_SELECTORS
+.soccerMenuContainer` in `soccer_walker.js`), so every real run today
+reports `competitions_available: 0` and an honest `CAPTURE_FAILED` —
+tracked in `SOCCER_ALL_COMPETITIONS_VALIDATION.md`, the same "correctly
+failed, never guessed" starting point every other button in this
+extension began at.
+
+Two design choices avoid needing MORE unconfirmed selectors, not fewer:
+
+- **Content-change detection** waits for the confirmed
+  `.sports-table__matchup` elements' own identity (`id`, or text when
+  absent) to differ from what was on screen before the click — no new
+  "did the competition change" selector is needed, since
+  `.sports-table__matchup` is already real-page validated by
+  `parser.js`. A competition whose click doesn't change this within the
+  wait window is reported `FAILED` (`CONTENT_DID_NOT_CHANGE`) in its own
+  `competition_results[]` entry, never merged with the previous
+  competition's fixtures.
+- **Country/competition identity** is read from the page's OWN URL after
+  each click, reusing `parser.js`'s already-confirmed
+  `parseBet9jaCompetitionUrl` — a single-page app that updates the URL
+  via `pushState` resolves this for free; one that doesn't leaves
+  `source_country`/`source_competition` honestly `null`, never guessed
+  from the clicked link's own text or attributes.
+
+Every fixture is captured by the exact same `parser.js` engine
+**Capture fixtures** uses (never re-implemented here) — the same
+Soccer/pre-match/ordinary-1X2 scope, the same typed `unparsed_records`
+exclusions for 1UP/2UP, player markets, specials, live, Zoom, and virtual
+events, and the same `fixture_id` scheme, so a fixture legitimately
+reachable from more than one menu entry (e.g. both a Highlights listing
+and its own competition page) is deduplicated by `fixture_id`, not
+captured twice.
+
+### Output shape (`bet9ja-soccer-all-competitions-capture.v1`)
+
+`scope: 'SOCCER_ALL_DISCOVERED_COMPETITIONS'`,
+`competitions_available`/`competitions_visited`/`competitions_failed`,
+`fixtures_seen`/`fixtures_parsed`/`fixtures_unresolved`/
+`duplicates_skipped`, and `competition_results[]` — one entry per visited
+competition (`country`, `competition`, `capture_status` — `COMPLETE` or
+`FAILED`, `fixtures_seen`/`fixtures_parsed`/`fixtures_unresolved`,
+`failure_reason`). `fixtures[]` and `unparsed_records[]` carry every
+normalized `parser.js` fixture/exclusion field plus `source_country`/
+`source_competition`. Never `CAPTURE_OK` — capped at `CAPTURE_PARTIAL` —
+until the navigation flow itself has real-page validation, mirroring the
+same permanent-cap pattern `ticket_parser.js`'s MYBETS profile uses.
+
+### Safety
+
+The only element this module ever calls `.click()` on is a discovered
+competition-menu link (a real, confirmed candidate: `href="javascript:;"`
+and non-empty visible text) — never Cashout, never account controls,
+never anything outside the confirmed competition menu. A dedicated
+"safety" test greps the compiled source for this guarantee, the same
+discipline used for `ticket_parser.js`.
+
 ## Loading it unpacked for testing
 
 1. Chrome or Edge → `chrome://extensions` (or `edge://extensions`).
@@ -685,10 +771,12 @@ uniformly regardless of which profile produced a given record.
 3. **Load unpacked** → select this `browser_extension/bet9ja_capture/`
    directory.
 4. Open a Bet9ja pre-match page, log in, click the extension icon, click
-   **Capture fixtures**. Separately, open your "Open Bets"/"My Bets" page
-   and click **Capture open bets** — it will expand each ticket in turn
-   and walk every numbered pagination page automatically before
-   downloading one combined file.
+   **Capture fixtures**. Try **Capture all Soccer fixtures** on the
+   Soccer page — until the menu-scoping selector is confirmed, expect
+   `competitions_available: 0`. Separately, open your "Open Bets"/"My
+   Bets" page and click **Capture open bets** — it will expand each
+   ticket in turn and walk every numbered pagination page automatically
+   before downloading one combined file.
 
 Not published to the Chrome Web Store in this release.
 
@@ -772,6 +860,19 @@ synthetic HTML:
   A dedicated "safety" test greps the compiled `ticket_parser.js` source
   itself to confirm `.click()` is only ever called on the confirmed
   accordion toggle or a verified numbered pagination item.
+
+`tests/soccer_walker.test.js` runs `soccer_walker.js` against a synthetic
+multi-competition jsdom harness (tests configure a container selector to
+exercise the real logic ahead of that selector being confirmed): the
+production default reporting zero competitions honestly, walking every
+discovered competition and tagging fixtures with source country/
+competition read from the page's own URL, deduplicating a fixture that
+legitimately appears under two competitions, a competition whose content
+never changes being reported `FAILED` rather than merged with the
+previous one, unresolved fixtures still carrying source tagging, the
+permanent `CAPTURE_PARTIAL` cap, decorative/icon-only and non-`javascript:;`
+links being excluded from discovery, and a safety test confirming
+`.click()` is only ever called on a discovered competition-menu link.
 
 ## Boundaries (Release 1 fixtures / this release's tickets)
 

@@ -25,11 +25,13 @@
         cursor: default;
         opacity: 0.6;
       }
-      #ticket-capture-button {
+      #ticket-capture-button,
+      #soccer-all-capture-button {
         margin-top: 8px;
       }
       #status,
-      #ticket-status {
+      #ticket-status,
+      #soccer-all-status {
         margin-top: 10px;
         font-size: 12px;
         white-space: pre-wrap;
@@ -38,25 +40,29 @@
         display: none;
       }
       #status.ok,
-      #ticket-status.ok {
+      #ticket-status.ok,
+      #soccer-all-status.ok {
         display: block;
         background: #e6f4ea;
         color: #1e4620;
       }
       #status.partial,
-      #ticket-status.partial {
+      #ticket-status.partial,
+      #soccer-all-status.partial {
         display: block;
         background: #fff4e5;
         color: #663c00;
       }
       #status.failed,
-      #ticket-status.failed {
+      #ticket-status.failed,
+      #soccer-all-status.failed {
         display: block;
         background: #fdecea;
         color: #611a15;
       }
       #status.error,
-      #ticket-status.error {
+      #ticket-status.error,
+      #soccer-all-status.error {
         display: block;
         background: #fdecea;
         color: #611a15;
@@ -88,6 +94,14 @@
       Read-only. Open pre-match tickets only -- no bet placement, no cashout, no live/Zoom/Virtual
       tickets. Ticket-boundary selectors are unverified placeholders pending real-page validation;
       see TICKET_REAL_PAGE_VALIDATION.md.
+    </p>
+    <hr />
+    <button id="soccer-all-capture-button" type="button">Capture all Soccer fixtures</button>
+    <div id="soccer-all-status"></div>
+    <p class="note">
+      Walks every discoverable Soccer competition (pre-match, ordinary 1X2 only) into one combined
+      file. The competition-menu scoping selector is an unverified placeholder pending real-page
+      validation; see SOCCER_ALL_COMPETITIONS_VALIDATION.md.
     </p>
   </body>
   <script src="popup.js"></script>
