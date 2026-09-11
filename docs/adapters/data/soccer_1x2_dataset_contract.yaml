@@ -54,10 +54,11 @@ categories:
   # reader (data_pipeline/manifest_yaml.py) accepts exactly one top-level
   # key, `categories` — see its own docstring/grammar section.
   - id: contract_meta
-    version: "1.0.0"
+    version: "2.0.0"
     status: DRAFT_FOR_OPERATOR_REVIEW
     scope: "Soccer 1X2 Football-Data dataset — season-range admission and price/timestamp field contract only. Grants no model CASH/PAPER classification (see admission_rule_* rows below) and defines no numeric backtest/promotion threshold (see soccer_1x2_promotion_thresholds.yaml, a separate, unedited file, for those)."
     evidence: "Real manual-trigger GitHub Actions run at commit 6093d0a: all 165 (league, season) files downloaded successfully (0 SOURCE_NOT_LISTED, 0 SOURCE_NOT_USABLE) across E0/D1/SP1/I1/F1, seasons 1993-94 through 2025-26."
+    correction_v2_0_0: "A second real live run (commit a198162, this environment's clock reading 2026-09-11) found season 2526 (2025-26) to now be FULLY SETTLED (0 pending-settlement rows across all 1752 attempted fixtures) — calling it 'prospective' was factually wrong once the clock advanced past that season's end. This version (a) renames the old split_prospective_paper_scoring (season 2526) to split_out_of_time_retrospective_holdout and drops its result-nullable exception, since a settled season should never carry a null result; (b) adds split_genuine_prospective_scoring (season 2627, the actual current/in-progress season) as the ONE split that legitimately declares result_nullable_until_settlement, with an explicit SOURCE_UNAVAILABLE status contract for when 2627's file does not exist yet; and (c) splits the old split_model_dev_and_completed_eval block into three immutable, separately-hashed rows (split_training/split_calibration_validation/split_locked_test) per the operator's chronological training/calibration/locked-test design. split_closing_line_benchmark, split_earlier_research_backtesting, and split_excluded_by_default are unaffected by this version bump."
 
   # ======================================================================
   # DATASET RANGES — one row per defined split. `season_codes` is the
@@ -69,14 +70,32 @@ categories:
   # silently-flippable global or CLI flag defaulting to "on").
   # ======================================================================
 
-  - id: split_model_dev_and_completed_eval
+  - id: split_training
     kind: "dataset_split"
-    use: "Model development and completed-season evaluation"
-    season_codes: "1920,2021,2122,2223,2324,2425"
+    use: "Training"
+    season_codes: "1920,2021,2122,2223"
     required_fields: "date,kickoff_time,home_team,away_team,result,opening_1x2_prices_complete"
     closing_line_benchmark_model_required: false
-    evidence: "Kickoff time (Time column) is 0% missing from season 1920 (2019-20) onward for all 5 leagues, confirmed 0% missing through 2526 in the live run at commit 6093d0a; every one of these seasons is a COMPLETED season (2526, the only season after 2425, is NOT completed and must never appear here — see split_prospective_paper_scoring)."
-    exclusion_note: "2526 (2025-26) is deliberately NOT included in this range even though its Time/opening-odds coverage matches: it is the currently active season, so `result` is incomplete/nullable for its later fixtures at any point before the season ends. Including an active season in a 'completed-season evaluation' split would silently mix settled and unsettled rows."
+    evidence: "Kickoff time (Time column) is 0% missing from season 1920 (2019-20) onward for all 5 leagues, confirmed 0% missing through 2526 in the live run at commit 6093d0a; 1920-2223 (2019-20 through 2022-23) is the TRAINING portion of the operator's chronological training/calibration/locked-test design — see split_calibration_validation (2324) and split_locked_test (2425), the two immediately-following seasons kept as separate, immutable, separately-hashed splits precisely so neither can ever silently leak into training."
+    exclusion_note: "2324 and 2425 are deliberately NOT included here — they are split_calibration_validation's and split_locked_test's own, exclusive seasons respectively (see both rows' own exclusion_note). 2526 (2025-26) is not a completed-at-build-time season boundary this split concerns itself with at all — see split_out_of_time_retrospective_holdout for that season's own row."
+
+  - id: split_calibration_validation
+    kind: "dataset_split"
+    use: "Calibration / validation"
+    season_codes: "2324"
+    required_fields: "date,kickoff_time,home_team,away_team,result,opening_1x2_prices_complete"
+    closing_line_benchmark_model_required: false
+    evidence: "Season 2324 (2023-24) is the single season immediately following split_training's range (1920-2223), reserved exclusively for calibration/validation per the operator's chronological design — never trained on, so a calibration metric computed against it is never contaminated by having also been a training row."
+    exclusion_note: "2324 appears ONLY in this split (and, unioned with split_training's and split_locked_test's ranges, in split_closing_line_benchmark, which spans the same 1920-2425 union for closing-line comparison purposes — see that row). It must never be added to split_training's season_codes."
+
+  - id: split_locked_test
+    kind: "dataset_split"
+    use: "Locked test"
+    season_codes: "2425"
+    required_fields: "date,kickoff_time,home_team,away_team,result,opening_1x2_prices_complete"
+    closing_line_benchmark_model_required: false
+    evidence: "Season 2425 (2024-25) is the single season immediately following split_calibration_validation's range (2324), reserved exclusively as a LOCKED test set per the operator's chronological design — the most recent fully-completed season this contract admits into split_training/split_calibration_validation/split_locked_test, held out from both training and calibration to give one clean, never-touched-until-final-evaluation held-out set."
+    exclusion_note: "2425 appears ONLY in this split. It must never be added to split_training's or split_calibration_validation's season_codes — this is enforced structurally by dataset_builder.py never unioning this split's season list into either of those, and is covered by a dedicated regression test in tests/test_dataset_builder.py."
 
   - id: split_closing_line_benchmark
     kind: "dataset_split"
@@ -84,17 +103,27 @@ categories:
     season_codes: "1920,2021,2122,2223,2324,2425"
     required_fields: "date,home_team,away_team,closing_1x2_prices_complete_pinnacle"
     closing_line_benchmark_model_required: true
-    evidence: "Closing odds (Pinnacle, PS* columns) are present continuously from season 1213 (2012-13) through 2526 (2025-26); this split is deliberately restricted to the SAME season range as split_model_dev_and_completed_eval (1920-2425) rather than the full 1213-2425 closing-odds-available range, so every closing-line-benchmark row also has a matching completed-eval row for the same fixture to compare against — a closing benchmark without a corresponding completed-eval counterpart in the same season range is not directly comparable."
-    exclusion_note: "2526 is excluded from this split for the identical reason as split_model_dev_and_completed_eval: it is not yet a completed season, and a 'benchmark' computed against an active season's closing lines would be comparing against results that do not exist yet for the season's later fixtures."
+    evidence: "Closing odds (Pinnacle, PS* columns) are present continuously from season 1213 (2012-13) through 2526 (2025-26); this split is deliberately restricted to the SAME season range as the UNION of split_training + split_calibration_validation + split_locked_test (1920-2425) rather than the full 1213-2425 closing-odds-available range, so every closing-line-benchmark row also has a matching training/calibration/locked-test-range row for the same fixture to compare against — a closing benchmark without a corresponding same-range counterpart is not directly comparable."
+    exclusion_note: "2526 is excluded from this split for the identical reason it is excluded from split_training/split_calibration_validation/split_locked_test: at build time it was still an active season, so a 'benchmark' computed against an active season's closing lines would be comparing against results that do not exist yet for the season's later fixtures. (Season 2526 has since fully settled — see split_out_of_time_retrospective_holdout — but this split's season range is deliberately left unchanged rather than retroactively widened, per this contract's version-bump discipline: a season boundary change here would require its own reviewed contract version, not a silent widening alongside an unrelated correction.)"
 
-  - id: split_prospective_paper_scoring
+  - id: split_out_of_time_retrospective_holdout
     kind: "dataset_split"
-    use: "Current-season prospective/PAPER scoring"
+    use: "Out-of-time retrospective holdout — unseen-season evidence, never described as prospective"
     season_codes: "2526"
+    required_fields: "date,kickoff_time,home_team,away_team,result,opening_1x2_prices_complete"
+    closing_line_benchmark_model_required: false
+    evidence: "Season 2526 (2025-26) was still in progress as of the live run at commit 6093d0a but is CONFIRMED FULLY SETTLED as of the live run at commit a198162 (0 pending-settlement rows across all 1752 attempted fixtures) — it is no longer a currently-active season and must never again be labeled 'prospective'. Its input fields (date/kickoff/teams/opening odds/result) match split_training's shape exactly; the only reason it is not folded into split_training/split_calibration_validation/split_locked_test is that it was held out (never trained/calibrated/locked-tested on) specifically to serve as clean, out-of-time, unseen-season evidence."
+    exclusion_note: "This split's required_fields carries plain `result`, NOT `result_nullable_until_settlement` — this data is settled now, so a genuinely null result should never appear here; if the real 2526 file ever has a row with a blank result when this split is built, that row is correctly EXCLUDED from this split (never rescued), since this split no longer declares nullable results. 2526 must never appear in split_training, split_calibration_validation, split_locked_test, or split_closing_line_benchmark (see each row's own exclusion_note) — enforced structurally by dataset_builder.py never unioning this split's season list into any of those, and covered by dedicated regression tests in tests/test_dataset_builder.py. This split must never be confused with, or substituted for, split_genuine_prospective_scoring (season 2627) — see that row's own exclusion_note."
+
+  - id: split_genuine_prospective_scoring
+    kind: "dataset_split"
+    use: "Current-season genuine prospective/PAPER scoring"
+    season_codes: "2627"
     required_fields: "date,kickoff_time,home_team,away_team,opening_1x2_prices_complete,result_nullable_until_settlement"
     closing_line_benchmark_model_required: false
-    evidence: "Season 2526 (2025-26) is the only season this pipeline has confirmed downloadable that is still in progress as of the live run at commit 6093d0a; its input fields (date/kickoff/teams/opening odds) match split_model_dev_and_completed_eval's shape exactly, but `result` must be treated as nullable per-fixture until that fixture actually settles."
-    exclusion_note: "2526 appears ONLY in this split. It must never appear in split_model_dev_and_completed_eval or split_closing_line_benchmark (see both rows' own exclusion_note) — this is enforced structurally by dataset_builder.py never unioning this split's season list into either of those, and is covered by a dedicated regression test in tests/test_dataset_builder.py."
+    source_availability_note: "As of this contract version, football-data.co.uk may not yet publish a 2627 (2026-27) file at all — this season only recently started. This is the ONLY split in this contract that legitimately declares result_nullable_until_settlement; every other split now requires a settled, non-null result. dataset_builder.py's build_split() must report this split's status as SOURCE_UNAVAILABLE (never a bare zero-rows-unexplained result, and NEVER silently substituted with 2526's now-settled data — see split_out_of_time_retrospective_holdout's own exclusion_note) whenever every (league, season) file this split's season list resolves to is missing under raw_dir. data_pipeline/sources/football_data_sources.yaml lists '2627' in unconfirmed_seasons for all 5 leagues so download.py actually attempts it on the next live run."
+    evidence: "2627 (2026-27) is the actual current/in-progress season as of this contract version's correction (2526 having fully settled — see split_out_of_time_retrospective_holdout). Its input fields (date/kickoff/teams/opening odds) match split_training's shape exactly, but `result` must be treated as nullable per-fixture until that fixture actually settles, exactly as 2526 was (incorrectly, per this version's correction) described before it settled."
+    exclusion_note: "2627 appears ONLY in this split. It must never appear in any other split, and this split must never read or fall back to any other season's file (in particular, never 2526's, even when 2526's raw file is also present under raw_dir) — this is enforced structurally by dataset_builder.py resolving this split's season list to exactly ['2627'] from the contract, never unioning or substituting another season, and is covered by a dedicated regression test in tests/test_dataset_builder.py."
 
   - id: split_earlier_research_backtesting
     kind: "dataset_split"

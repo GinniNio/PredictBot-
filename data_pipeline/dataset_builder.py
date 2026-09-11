@@ -48,7 +48,7 @@ pending_settlement_rows_included + rejected_unique_rows`:
 - `pending_settlement_rows_included` — rows admitted with `result: None`
                                   because this split's contract declares
                                   `result_nullable_until_settlement`
-                                  (`split_prospective_paper_scoring`
+                                  (`split_genuine_prospective_scoring`
                                   only; always `0` for every other
                                   split — see
                                   `ProspectiveNullableResultTests` and
@@ -265,7 +265,7 @@ def _row_eligible_for_split(
     time_col: str | None,
     odds_findings,
     requirements: dict[str, bool],
-) -> tuple[bool, bool]:
+) -> tuple[bool, bool, str | None]:
     """Decide whether one row belongs in a split's dataset, per that
     split's OWN requirements (`resolve_split_row_requirements`) — never
     the one-size-fits-all `FileValidationResult.row_results[i].usable`
@@ -276,13 +276,23 @@ def _row_eligible_for_split(
     closing line it doesn't even need, must not be excluded just because
     Football-Data's generic per-row check flags an irrelevant column).
 
-    Returns `(eligible, result_pending_settlement)`. A row failing any
-    `_ALWAYS_FATAL_REASONS` check is never eligible for ANY split,
-    regardless of requirements — those are integrity problems, not
-    field-availability ones."""
+    Returns `(eligible, result_pending_settlement, split_rejection_reason)`.
+    `split_rejection_reason` is `None` when `eligible` is True; otherwise a
+    short typed string identifying WHY, one of:
+    `f"ALWAYS_FATAL:{reason}"` (the underlying `RejectionReason` value that
+    tripped, e.g. `"ALWAYS_FATAL:MISSING_TEAM_IDENTITY"`), `"MISSING_RESULT"`,
+    `"MISSING_KICKOFF_TIME"`, `"OPENING_PRICES_INCOMPLETE"`, or
+    `"CLOSING_PRICES_INCOMPLETE"` — this answers precisely, per split, WHY a
+    row was rejected (see `sample_split_specific_rejected_rows`), never just
+    THAT it was rejected.
 
-    if any(issue.reason in _ALWAYS_FATAL_REASONS for issue in row_issues):
-        return False, False
+    A row failing any `_ALWAYS_FATAL_REASONS` check is never eligible for
+    ANY split, regardless of requirements — those are integrity problems,
+    not field-availability ones."""
+
+    always_fatal_issue = next((issue for issue in row_issues if issue.reason in _ALWAYS_FATAL_REASONS), None)
+    if always_fatal_issue is not None:
+        return False, False, f"ALWAYS_FATAL:{always_fatal_issue.reason}"
 
     result_raw = (row.get(ftr_col) or "").strip() if ftr_col else ""
     result_blank = not result_raw
@@ -295,21 +305,21 @@ def _row_eligible_for_split(
     # is reserved for the split that explicitly declared
     # result_nullable_until_settlement).
     if result_blank and requirements["require_result"] and not requirements["allow_null_result"]:
-        return False, False
+        return False, False, "MISSING_RESULT"
 
     if requirements["require_kickoff_time"]:
         time_raw = (row.get(time_col) or "").strip() if time_col else ""
         if not time_raw:
-            return False, False
+            return False, False, "MISSING_KICKOFF_TIME"
 
     if requirements["require_opening_complete"] and not _opening_prices_complete(row, odds_findings):
-        return False, False
+        return False, False, "OPENING_PRICES_INCOMPLETE"
 
     if requirements["require_closing_complete"] and not _closing_prices_complete(row, odds_findings):
-        return False, False
+        return False, False, "CLOSING_PRICES_INCOMPLETE"
 
     result_pending_settlement = requirements["allow_null_result"] and result_blank
-    return True, result_pending_settlement
+    return True, result_pending_settlement, None
 
 
 def load_contract_rows(contract_path: Path = CONTRACT_PATH) -> dict[str, dict[str, Any]]:
@@ -352,10 +362,11 @@ def is_excluded_by_default(season_code: str, contract_rows: dict[str, dict[str, 
 # absent before season 1213 (2012-13), present continuously from 1213
 # through 2526" (live run at commit 6093d0a). This is a general
 # DATA-AVAILABILITY boundary, distinct from `split_closing_line_benchmark`'s
-# own, deliberately NARROWER season range (1920-2425 only, matched to
-# `split_model_dev_and_completed_eval`'s own range so every closing-line
-# row has a same-range completed-eval counterpart to compare against — see
-# that split's own `exclusion_note` in the contract). Both
+# own, deliberately NARROWER season range (1920-2425 only, matched to the
+# UNION of `split_training` + `split_calibration_validation` +
+# `split_locked_test`'s own ranges so every closing-line row has a
+# same-range counterpart to compare against — see that split's own
+# `exclusion_note` in the contract). Both
 # `split_closing_line_benchmark` (1920-2425) and
 # `split_earlier_research_backtesting` (1213-1819, minus 1415) sit inside
 # this wider availability boundary; season 1112 (pre-1213) sits outside it
@@ -372,9 +383,12 @@ def is_within_closing_odds_available_range(season_code: str) -> bool:
 
 
 DATASET_SPLIT_IDS = (
-    "split_model_dev_and_completed_eval",
+    "split_training",
+    "split_calibration_validation",
+    "split_locked_test",
+    "split_out_of_time_retrospective_holdout",
+    "split_genuine_prospective_scoring",
     "split_closing_line_benchmark",
-    "split_prospective_paper_scoring",
     "split_earlier_research_backtesting",
 )
 
@@ -481,7 +495,8 @@ def build_file_records(
     include_kickoff_time: bool,
     source_retrieved_at: str | None = None,
     requirements: dict[str, bool] | None = None,
-) -> tuple[list[dict[str, Any]], int]:
+    split_specific_sample_cap: int = 20,
+) -> tuple[list[dict[str, Any]], int, list[dict[str, Any]]]:
     """Build normalized per-match records for one file, using SPLIT-
     SPECIFIC row requirements (`requirements`, from
     `resolve_split_row_requirements`) rather than
@@ -505,11 +520,22 @@ def build_file_records(
     a stray `Time` column in an older-season file can never leak a
     kickoff time this split's contract says is unavailable).
 
-    Returns `(records, pending_settlement_count)` — the second value is
+    Returns `(records, pending_settlement_count, split_specific_rejected_sample)`.
+    `pending_settlement_count` is
     `sum(r["result_pending_settlement"] for r in records)`, returned
     directly rather than requiring the caller to re-derive it, so
     `source_rows == len(records) + <rows this function excluded>` and
-    `pending_settlement_count` stay trivially reconcilable from one call."""
+    `pending_settlement_count` stay trivially reconcilable from one call.
+    `split_specific_rejected_sample` is a small, SANITIZED sample (capped
+    at `split_specific_sample_cap`, default 20) of rows THIS split's own
+    requirements excluded — `row_index`, `home_team`, `away_team`,
+    `date_raw`, and `split_rejection_reason` only, no odds values — this
+    answers precisely WHY a row was excluded from THIS split specifically
+    (e.g. `OPENING_PRICES_INCOMPLETE` vs `CLOSING_PRICES_INCOMPLETE`),
+    which the existing generic, file-level `rejected_row_sample`
+    (`sample_rejected_rows`, from `validate_file`'s own generic issues,
+    identical across every split) cannot distinguish. This is IN ADDITION
+    TO that generic sample — it is never removed or repurposed."""
 
     requirements = requirements or {
         "require_result": False,
@@ -543,10 +569,25 @@ def build_file_records(
 
     records: list[dict[str, Any]] = []
     pending_settlement_count = 0
+    split_specific_sample: list[dict[str, Any]] = []
     for idx, row in enumerate(rows):
         row_issues = issues_by_index.get(idx, [])
-        eligible, result_pending = _row_eligible_for_split(row, row_issues, ftr_col, time_col, odds_findings, requirements)
+        eligible, result_pending, split_rejection_reason = _row_eligible_for_split(
+            row, row_issues, ftr_col, time_col, odds_findings, requirements
+        )
         if not eligible:
+            if len(split_specific_sample) < split_specific_sample_cap:
+                split_specific_sample.append(
+                    {
+                        "league_code": league_code,
+                        "season_code": season_code,
+                        "row_index": idx,
+                        "home_team": (row.get(home_col) or "").strip() if home_col else None,
+                        "away_team": (row.get(away_col) or "").strip() if away_col else None,
+                        "date_raw": (row.get(date_col) or "").strip() if date_col else None,
+                        "split_rejection_reason": split_rejection_reason,
+                    }
+                )
             continue
         result_raw = (row.get(ftr_col) or "").strip() if ftr_col else ""
         if result_pending:
@@ -564,7 +605,7 @@ def build_file_records(
                 "price_observations": _price_observations_for_row(row, odds_findings, source_retrieved_at),
             }
         )
-    return records, pending_settlement_count
+    return records, pending_settlement_count, split_specific_sample
 
 
 def sample_rejected_rows(
@@ -655,6 +696,7 @@ def build_split(
     records: list[dict[str, Any]] = []
     files_evidence: list[dict[str, Any]] = []
     rejected_sample: list[dict[str, Any]] = []
+    split_specific_rejected_sample: list[dict[str, Any]] = []
     totals = {
         "source_rows": 0,
         # `usable_settled_rows` and `rejected_unique_rows` below are THIS
@@ -686,7 +728,7 @@ def build_split(
 
             validation_result = validate_file(csv_path)
             occurrences = sum(validation_result.rejection_reason_counts.values())
-            file_records, pending_settlement_in_file = build_file_records(
+            file_records, pending_settlement_in_file, file_split_specific_sample = build_file_records(
                 csv_path,
                 league_code,
                 season_code,
@@ -697,6 +739,10 @@ def build_split(
             )
             records.extend(file_records)
             rejected_sample.extend(sample_rejected_rows(validation_result, league_code, season_code))
+            if len(split_specific_rejected_sample) < 50:
+                split_specific_rejected_sample.extend(
+                    file_split_specific_sample[: 50 - len(split_specific_rejected_sample)]
+                )
             usable_settled_in_file = len(file_records) - pending_settlement_in_file
             rejected_unique_in_file = validation_result.total_rows - len(file_records)
 
@@ -726,15 +772,28 @@ def build_split(
     )
     closing_line_benchmark_model_required = bool(split_row.get("closing_line_benchmark_model_required")) or has_closing
 
+    # SOURCE_UNAVAILABLE when EVERY (league, season) file this split's
+    # season list resolves to is missing under raw_dir — a generic check
+    # over `files_evidence`, never hardcoded to one split id (e.g.
+    # split_genuine_prospective_scoring's 2627 file not yet existing on
+    # football-data.co.uk), so any split could in principle report this
+    # status if none of its files exist yet. `files_evidence` is only
+    # empty when `season_codes_for_split` itself is empty (no split in
+    # DATASET_SPLIT_IDS has that today) — treated as BUILT (there is
+    # nothing to be "unavailable" about an intentionally empty split).
+    status = "SOURCE_UNAVAILABLE" if files_evidence and all(f["missing"] for f in files_evidence) else "BUILT"
+
     return {
         "split_id": split_id,
         "use": split_row.get("use"),
         "season_codes": season_codes_for_split,
         "include_excluded_seasons": include_excluded_seasons,
+        "status": status,
         "records": records,
         "files": files_evidence,
         "totals": totals,
         "rejected_row_sample": rejected_sample[:50],
+        "split_specific_rejected_row_sample": split_specific_rejected_sample[:50],
         "closing_line_benchmark_model_required": closing_line_benchmark_model_required,
         "closing_line_benchmark_model_label": _CLOSING_LINE_BENCHMARK_MODEL_LABEL if closing_line_benchmark_model_required else None,
     }
@@ -804,6 +863,82 @@ def build_season_1415_diagnostic(raw_dir: Path = DEFAULT_RAW_DIR) -> dict[str, A
     }
 
 
+def _sanitized_rejected_sample_from_validation(
+    validation_result: FileValidationResult, league_code: str, season_code: str, cap: int = 10
+) -> list[dict[str, Any]]:
+    """A small, sanitized (no odds values) sample of a SINGLE file's own
+    rejected rows straight from `validate_file` — `row_index`,
+    `home_team`, `away_team`, `date_raw`, `issues`, capped at `cap`
+    (default 10). Used by `season_1415_rejection_breakdown`, independent
+    of any split."""
+
+    sample: list[dict[str, Any]] = []
+    for row in validation_result.row_results:
+        if row.usable:
+            continue
+        if len(sample) >= cap:
+            break
+        sample.append(
+            {
+                "league_code": league_code,
+                "season_code": season_code,
+                "row_index": row.row_index,
+                "home_team": row.home_team,
+                "away_team": row.away_team,
+                "date_raw": row.date_raw,
+                "issues": [issue.reason for issue in row.issues],
+            }
+        )
+    return sample
+
+
+def build_season_1415_rejection_breakdown(raw_dir: Path = DEFAULT_RAW_DIR) -> dict[str, Any]:
+    """Diagnostic evidence ONLY (this task's item 5/check-2), alongside
+    `build_season_1415_diagnostic`'s own column-drift evidence: for each of
+    the 5 leagues, run `validate_file()` directly against that league's
+    OWN 1415 raw file (independent of any split's requirements) and report
+    its `rejection_reason_counts`, `total_rows`, `usable_fixtures`,
+    `rejected_fixtures`, plus a small sanitized sample (capped at 10 per
+    league, no odds values) of that file's own rejected rows.
+
+    This does NOT change season 1415's excluded-by-default status in any
+    way (see `split_excluded_by_default` and
+    `season_1415_diagnostic_pending_review` in the contract) — it remains
+    excluded pending human review; this section only adds diagnostic
+    evidence a human can read to make that decision, exactly like the
+    existing column-drift diagnostic."""
+
+    per_league: dict[str, Any] = {}
+    for league_code in LEAGUE_CODES:
+        csv_path = raw_file_path(raw_dir, league_code, "1415")
+        if not csv_path.exists():
+            per_league[league_code] = {"available": False}
+            continue
+        validation_result = validate_file(csv_path)
+        per_league[league_code] = {
+            "available": True,
+            "total_rows": validation_result.total_rows,
+            "usable_fixtures": validation_result.usable_fixtures,
+            "rejected_fixtures": validation_result.rejected_fixtures,
+            "rejection_reason_counts": {k: v for k, v in validation_result.rejection_reason_counts.items() if v},
+            "rejected_row_sample": _sanitized_rejected_sample_from_validation(validation_result, league_code, "1415"),
+        }
+
+    return {
+        "status": "UNRESOLVED_PENDING_HUMAN_REVIEW",
+        "statement": (
+            "This diagnostic reports each league's own season-1415 file's typed "
+            "rejection-reason breakdown (independent of any split's own "
+            "requirements). It does NOT change season 1415's excluded-by-default "
+            "status — that remains pending human review (see "
+            "season_1415_diagnostic_pending_review in the contract) — it only adds "
+            "evidence for that review, exactly like the column-drift diagnostic "
+            "above."
+        ),
+        "per_league": per_league,
+    }
+
+
 def build_dataset_report(
     raw_dir: Path = DEFAULT_RAW_DIR,
     dataset_dir: Path = DEFAULT_DATASET_DIR,
@@ -813,7 +948,7 @@ def build_dataset_report(
 ) -> dict[str, Any]:
     """Build every defined split, write each split's dataset file, and
     assemble the full evidence report (this task's item 6's primary
-    output). Splits are always all four `DATASET_SPLIT_IDS` — a caller
+    output). Splits are always all seven `DATASET_SPLIT_IDS` — a caller
     who wants a single split's result should call `build_split` directly."""
 
     contract_rows = contract_rows or load_contract_rows()
@@ -834,9 +969,11 @@ def build_dataset_report(
             "use": split_result["use"],
             "season_codes": split_result["season_codes"],
             "include_excluded_seasons": split_result["include_excluded_seasons"],
+            "status": split_result["status"],
             "totals": split_result["totals"],
             "files": split_result["files"],
             "rejected_row_sample": split_result["rejected_row_sample"],
+            "split_specific_rejected_row_sample": split_result["split_specific_rejected_row_sample"],
             "dataset_file": str(dataset_path.relative_to(REPO_ROOT)) if dataset_path.is_relative_to(REPO_ROOT) else str(dataset_path),
             "dataset_file_sha256": dataset_hash,
             "closing_line_benchmark_model_required": split_result["closing_line_benchmark_model_required"],
@@ -850,6 +987,7 @@ def build_dataset_report(
         "splits": splits_report,
         "dataset_snapshot_sha256": combined_snapshot_hash(per_split_hashes),
         "season_1415_diagnostic": build_season_1415_diagnostic(raw_dir),
+        "season_1415_rejection_breakdown": build_season_1415_rejection_breakdown(raw_dir),
         "note": (
             "This report describes whatever raw files were actually present under "
             f"{raw_dir.relative_to(REPO_ROOT) if raw_dir.is_relative_to(REPO_ROOT) else raw_dir} at build "
@@ -895,19 +1033,19 @@ def write_dataset_build_report(
         "SPLIT'S OWN eligibility decision (never the generic, split-unaware "
         "validate_file check — see dataset_builder.py's module docstring); "
         "`pending_settlement_rows_included` is nonzero only for "
-        "split_prospective_paper_scoring (not-yet-played fixtures admitted with a "
+        "split_genuine_prospective_scoring (not-yet-played fixtures admitted with a "
         "null result); `validation_issue_occurrences` is generic FILE-level "
         "diagnostic evidence, deliberately outside the three-way reconciliation."
     )
     lines.append("")
     lines.append("## Per-split summary")
     lines.append("")
-    lines.append("| Split | Season codes | Source rows | Usable (settled) | Pending settlement | Rejected (unique) | Issue occurrences | Dataset SHA-256 | Closing-line-benchmark label required |")
-    lines.append("|---|---|---:|---:|---:|---:|---:|---|---|")
+    lines.append("| Split | Status | Season codes | Source rows | Usable (settled) | Pending settlement | Rejected (unique) | Issue occurrences | Dataset SHA-256 | Closing-line-benchmark label required |")
+    lines.append("|---|---|---|---:|---:|---:|---:|---:|---|---|")
     for split_id, split in report["splits"].items():
         totals = split["totals"]
         lines.append(
-            f"| {split_id} | {', '.join(split['season_codes']) or '(none)'} | {totals['source_rows']} | "
+            f"| {split_id} | {split['status']} | {', '.join(split['season_codes']) or '(none)'} | {totals['source_rows']} | "
             f"{totals['usable_settled_rows']} | {totals['pending_settlement_rows_included']} | "
             f"{totals['rejected_unique_rows']} | {totals['validation_issue_occurrences']} | "
             f"`{split['dataset_file_sha256'][:12]}…` | {split['closing_line_benchmark_model_label'] or 'no'} |"
@@ -934,6 +1072,39 @@ def write_dataset_build_report(
         lines.append(f"| {league_code} | {cells[0]} | {cells[1]} |")
     lines.append("")
 
+    lines.append("## Season 1415 rejection-reason breakdown — UNRESOLVED, pending human review")
+    lines.append("")
+    breakdown = report["season_1415_rejection_breakdown"]
+    lines.append(f"> {breakdown['statement']}")
+    lines.append("")
+    for league_code, league_result in breakdown["per_league"].items():
+        lines.append(f"### {league_code}")
+        lines.append("")
+        if not league_result.get("available"):
+            lines.append("_1415 file not available._")
+            lines.append("")
+            continue
+        lines.append(
+            f"total_rows={league_result['total_rows']}, "
+            f"usable_fixtures={league_result['usable_fixtures']}, "
+            f"rejected_fixtures={league_result['rejected_fixtures']}"
+        )
+        lines.append("")
+        lines.append("| Rejection reason | Count |")
+        lines.append("|---|---:|")
+        for reason, count in league_result["rejection_reason_counts"].items():
+            lines.append(f"| {reason} | {count} |")
+        lines.append("")
+        if league_result["rejected_row_sample"]:
+            lines.append("Sanitized rejected-row sample:")
+            lines.append("")
+            for row in league_result["rejected_row_sample"]:
+                lines.append(
+                    f"- row {row['row_index']}: {row['home_team']} vs {row['away_team']} "
+                    f"({row['date_raw']}) — {row['issues']}"
+                )
+            lines.append("")
+
     lines.append("## Sanitized rejected-row sample (capped, no odds values)")
     lines.append("")
     any_sample = False
@@ -952,6 +1123,35 @@ def write_dataset_build_report(
         lines.append("")
     if not any_sample:
         lines.append("_No rejected rows sampled (no split had a rejected row, or no raw files were present)._")
+        lines.append("")
+
+    lines.append("## Split-specific rejected-row sample (capped, no odds values)")
+    lines.append("")
+    lines.append(
+        "Unlike the generic sample above (identical across every split, sourced from "
+        "`validate_file`'s own file-level issues), each row here carries the exact "
+        "`split_rejection_reason` THIS split's own requirements rejected it for — e.g. "
+        "distinguishing a row rejected for `OPENING_PRICES_INCOMPLETE` (a "
+        "training/calibration/locked-test-shaped split's own requirement) from one "
+        "rejected for `CLOSING_PRICES_INCOMPLETE`, never conflated."
+    )
+    lines.append("")
+    any_split_specific_sample = False
+    for split_id, split in report["splits"].items():
+        sample = split["split_specific_rejected_row_sample"]
+        if not sample:
+            continue
+        any_split_specific_sample = True
+        lines.append(f"### {split_id}")
+        lines.append("")
+        for row in sample:
+            lines.append(
+                f"- {row['league_code']}/{row['season_code']} row {row['row_index']}: "
+                f"{row['home_team']} vs {row['away_team']} ({row['date_raw']}) — {row['split_rejection_reason']}"
+            )
+        lines.append("")
+    if not any_split_specific_sample:
+        lines.append("_No split-specific rejected rows sampled (no split rejected a row, or no raw files were present)._")
         lines.append("")
 
     lines.append(f"> {report['note']}")

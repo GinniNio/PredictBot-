@@ -249,13 +249,15 @@ class BuildSourceAttemptsTests(unittest.TestCase):
                 self.assertIsNone(row["total_rows"])
                 self.assertIsNone(row["usable_fixtures"])
 
-    def test_real_retrieval_log_produces_165_rows_total(self):
+    def test_real_retrieval_log_produces_170_rows_total(self):
         # This checked-in retrieval_log.json predates this manifest's
-        # unconfirmed_seasons actually being attempted, so the 10
-        # unconfirmed rows (5 leagues x 2 seasons) have no record in it —
-        # they must land on "not yet attempted in THIS log", never a
-        # fabricated SOURCE_NOT_LISTED (that requires an actual confirmed
-        # 404, which this stale log never recorded for them).
+        # unconfirmed_seasons actually being attempted, so the 15
+        # unconfirmed rows (5 leagues x 3 seasons — 2425/2526/2627, the
+        # last added by the dataset-contract correction to attempt the
+        # actual 2026-27 prospective season) have no record in it — they
+        # must land on "not yet attempted in THIS log", never a fabricated
+        # SOURCE_NOT_LISTED (that requires an actual confirmed 404, which
+        # this stale log never recorded for them).
         retrieval_log_path = REPO_ROOT / "data_pipeline" / "retrieval_log.json"
         if not retrieval_log_path.exists():
             self.skipTest("no retrieval_log.json present in this checkout")
@@ -266,14 +268,14 @@ class BuildSourceAttemptsTests(unittest.TestCase):
 
         manifest_rows = load_manifest(DEFAULT_MANIFEST_PATH)
         rows = build_source_attempts(manifest_rows, retrieval_log)
-        # 5 leagues x (31 confirmed-range seasons + 2 unconfirmed) = 165.
-        self.assertEqual(len(rows), 165)
+        # 5 leagues x (31 confirmed-range seasons + 3 unconfirmed) = 170.
+        self.assertEqual(len(rows), 170)
 
         not_yet_attempted_rows = [r for r in rows if r["download_status"] == DOWNLOAD_STATUS_NOT_YET_ATTEMPTED]
-        self.assertEqual(len(not_yet_attempted_rows), 10)
+        self.assertEqual(len(not_yet_attempted_rows), 15)
         for row in not_yet_attempted_rows:
             self.assertEqual(row["season"], row["season"])  # sanity: still one row per season
-            self.assertIn(row["season"], ("2425", "2526"))
+            self.assertIn(row["season"], ("2425", "2526", "2627"))
             self.assertEqual(row["source_label"], FIXTURE_ONLY_VALIDATED)
 
         for row in rows:

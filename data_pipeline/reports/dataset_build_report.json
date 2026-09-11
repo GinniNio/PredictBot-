@@ -1,19 +1,18 @@
 {
-  "generated_at_utc": "2026-09-11T03:12:38+00:00",
-  "contract_version": "1.0.0",
+  "generated_at_utc": "2026-09-11T05:22:26+00:00",
+  "contract_version": "2.0.0",
   "contract_status": "DRAFT_FOR_OPERATOR_REVIEW",
   "splits": {
-    "split_model_dev_and_completed_eval": {
-      "use": "Model development and completed-season evaluation",
+    "split_training": {
+      "use": "Training",
       "season_codes": [
         "1920",
         "2021",
         "2122",
-        "2223",
-        "2324",
-        "2425"
+        "2223"
       ],
       "include_excluded_seasons": false,
+      "status": "SOURCE_UNAVAILABLE",
       "totals": {
         "source_rows": 0,
         "usable_settled_rows": 0,
@@ -43,68 +42,164 @@
           "missing": true
         },
         {
+          "league_code": "D1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2223",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "1920",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2021",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2122",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2223",
+          "missing": true
+        }
+      ],
+      "rejected_row_sample": [],
+      "split_specific_rejected_row_sample": [],
+      "dataset_file": "data_pipeline/dataset/split_training.json",
+      "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "closing_line_benchmark_model_required": false,
+      "closing_line_benchmark_model_label": null
+    },
+    "split_calibration_validation": {
+      "use": "Calibration / validation",
+      "season_codes": [
+        "2324"
+      ],
+      "include_excluded_seasons": false,
+      "status": "SOURCE_UNAVAILABLE",
+      "totals": {
+        "source_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
+        "rejected_unique_rows": 0,
+        "validation_issue_occurrences": 0
+      },
+      "files": [
+        {
           "league_code": "E0",
           "season_code": "2324",
           "missing": true
         },
         {
+          "league_code": "D1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2324",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2324",
+          "missing": true
+        }
+      ],
+      "rejected_row_sample": [],
+      "split_specific_rejected_row_sample": [],
+      "dataset_file": "data_pipeline/dataset/split_calibration_validation.json",
+      "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "closing_line_benchmark_model_required": false,
+      "closing_line_benchmark_model_label": null
+    },
+    "split_locked_test": {
+      "use": "Locked test",
+      "season_codes": [
+        "2425"
+      ],
+      "include_excluded_seasons": false,
+      "status": "SOURCE_UNAVAILABLE",
+      "totals": {
+        "source_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
+        "rejected_unique_rows": 0,
+        "validation_issue_occurrences": 0
+      },
+      "files": [
+        {
           "league_code": "E0",
           "season_code": "2425",
           "missing": true
         },
         {
           "league_code": "D1",
-          "season_code": "1920",
-          "missing": true
-        },
-        {
-          "league_code": "D1",
-          "season_code": "2021",
-          "missing": true
-        },
-        {
-          "league_code": "D1",
-          "season_code": "2122",
-          "missing": true
-        },
-        {
-          "league_code": "D1",
-          "season_code": "2223",
-          "missing": true
-        },
-        {
-          "league_code": "D1",
-          "season_code": "2324",
-          "missing": true
-        },
-        {
-          "league_code": "D1",
           "season_code": "2425",
-          "missing": true
-        },
-        {
-          "league_code": "SP1",
-          "season_code": "1920",
-          "missing": true
-        },
-        {
-          "league_code": "SP1",
-          "season_code": "2021",
-          "missing": true
-        },
-        {
-          "league_code": "SP1",
-          "season_code": "2122",
-          "missing": true
-        },
-        {
-          "league_code": "SP1",
-          "season_code": "2223",
-          "missing": true
-        },
-        {
-          "league_code": "SP1",
-          "season_code": "2324",
           "missing": true
         },
         {
@@ -114,57 +209,7 @@
         },
         {
           "league_code": "I1",
-          "season_code": "1920",
-          "missing": true
-        },
-        {
-          "league_code": "I1",
-          "season_code": "2021",
-          "missing": true
-        },
-        {
-          "league_code": "I1",
-          "season_code": "2122",
-          "missing": true
-        },
-        {
-          "league_code": "I1",
-          "season_code": "2223",
-          "missing": true
-        },
-        {
-          "league_code": "I1",
-          "season_code": "2324",
-          "missing": true
-        },
-        {
-          "league_code": "I1",
           "season_code": "2425",
-          "missing": true
-        },
-        {
-          "league_code": "F1",
-          "season_code": "1920",
-          "missing": true
-        },
-        {
-          "league_code": "F1",
-          "season_code": "2021",
-          "missing": true
-        },
-        {
-          "league_code": "F1",
-          "season_code": "2122",
-          "missing": true
-        },
-        {
-          "league_code": "F1",
-          "season_code": "2223",
-          "missing": true
-        },
-        {
-          "league_code": "F1",
-          "season_code": "2324",
           "missing": true
         },
         {
@@ -174,7 +219,104 @@
         }
       ],
       "rejected_row_sample": [],
-      "dataset_file": "data_pipeline/dataset/split_model_dev_and_completed_eval.json",
+      "split_specific_rejected_row_sample": [],
+      "dataset_file": "data_pipeline/dataset/split_locked_test.json",
+      "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "closing_line_benchmark_model_required": false,
+      "closing_line_benchmark_model_label": null
+    },
+    "split_out_of_time_retrospective_holdout": {
+      "use": "Out-of-time retrospective holdout \u2014 unseen-season evidence, never described as prospective",
+      "season_codes": [
+        "2526"
+      ],
+      "include_excluded_seasons": false,
+      "status": "SOURCE_UNAVAILABLE",
+      "totals": {
+        "source_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
+        "rejected_unique_rows": 0,
+        "validation_issue_occurrences": 0
+      },
+      "files": [
+        {
+          "league_code": "E0",
+          "season_code": "2526",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2526",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2526",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2526",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2526",
+          "missing": true
+        }
+      ],
+      "rejected_row_sample": [],
+      "split_specific_rejected_row_sample": [],
+      "dataset_file": "data_pipeline/dataset/split_out_of_time_retrospective_holdout.json",
+      "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "closing_line_benchmark_model_required": false,
+      "closing_line_benchmark_model_label": null
+    },
+    "split_genuine_prospective_scoring": {
+      "use": "Current-season genuine prospective/PAPER scoring",
+      "season_codes": [
+        "2627"
+      ],
+      "include_excluded_seasons": false,
+      "status": "SOURCE_UNAVAILABLE",
+      "totals": {
+        "source_rows": 0,
+        "usable_settled_rows": 0,
+        "pending_settlement_rows_included": 0,
+        "rejected_unique_rows": 0,
+        "validation_issue_occurrences": 0
+      },
+      "files": [
+        {
+          "league_code": "E0",
+          "season_code": "2627",
+          "missing": true
+        },
+        {
+          "league_code": "D1",
+          "season_code": "2627",
+          "missing": true
+        },
+        {
+          "league_code": "SP1",
+          "season_code": "2627",
+          "missing": true
+        },
+        {
+          "league_code": "I1",
+          "season_code": "2627",
+          "missing": true
+        },
+        {
+          "league_code": "F1",
+          "season_code": "2627",
+          "missing": true
+        }
+      ],
+      "rejected_row_sample": [],
+      "split_specific_rejected_row_sample": [],
+      "dataset_file": "data_pipeline/dataset/split_genuine_prospective_scoring.json",
       "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
       "closing_line_benchmark_model_required": false,
       "closing_line_benchmark_model_label": null
@@ -190,6 +332,7 @@
         "2425"
       ],
       "include_excluded_seasons": false,
+      "status": "SOURCE_UNAVAILABLE",
       "totals": {
         "source_rows": 0,
         "usable_settled_rows": 0,
@@ -350,56 +493,11 @@
         }
       ],
       "rejected_row_sample": [],
+      "split_specific_rejected_row_sample": [],
       "dataset_file": "data_pipeline/dataset/split_closing_line_benchmark.json",
       "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
       "closing_line_benchmark_model_required": true,
       "closing_line_benchmark_model_label": "CLOSING_LINE_BENCHMARK_MODEL"
-    },
-    "split_prospective_paper_scoring": {
-      "use": "Current-season prospective/PAPER scoring",
-      "season_codes": [
-        "2526"
-      ],
-      "include_excluded_seasons": false,
-      "totals": {
-        "source_rows": 0,
-        "usable_settled_rows": 0,
-        "pending_settlement_rows_included": 0,
-        "rejected_unique_rows": 0,
-        "validation_issue_occurrences": 0
-      },
-      "files": [
-        {
-          "league_code": "E0",
-          "season_code": "2526",
-          "missing": true
-        },
-        {
-          "league_code": "D1",
-          "season_code": "2526",
-          "missing": true
-        },
-        {
-          "league_code": "SP1",
-          "season_code": "2526",
-          "missing": true
-        },
-        {
-          "league_code": "I1",
-          "season_code": "2526",
-          "missing": true
-        },
-        {
-          "league_code": "F1",
-          "season_code": "2526",
-          "missing": true
-        }
-      ],
-      "rejected_row_sample": [],
-      "dataset_file": "data_pipeline/dataset/split_prospective_paper_scoring.json",
-      "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-      "closing_line_benchmark_model_required": false,
-      "closing_line_benchmark_model_label": null
     },
     "split_earlier_research_backtesting": {
       "use": "Earlier research/backtesting",
@@ -412,6 +510,7 @@
         "1819"
       ],
       "include_excluded_seasons": false,
+      "status": "SOURCE_UNAVAILABLE",
       "totals": {
         "source_rows": 0,
         "usable_settled_rows": 0,
@@ -572,13 +671,14 @@
         }
       ],
       "rejected_row_sample": [],
+      "split_specific_rejected_row_sample": [],
       "dataset_file": "data_pipeline/dataset/split_earlier_research_backtesting.json",
       "dataset_file_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
       "closing_line_benchmark_model_required": true,
       "closing_line_benchmark_model_label": "CLOSING_LINE_BENCHMARK_MODEL"
     }
   },
-  "dataset_snapshot_sha256": "8a460f1223fb8fa7b089ef7f305fbb028522b7a1428624d6617c75430e3371e4",
+  "dataset_snapshot_sha256": "2c950a1a26d69ae20aea4a6b53cdba2edd7e449b1fff3110e1545e554ec57bb7",
   "season_1415_diagnostic": {
     "status": "UNRESOLVED_PENDING_HUMAN_REVIEW",
     "statement": "This diagnostic reports column-header differences only. It does NOT confirm a root cause for the season-1415 usable-fixture-rate collapse observed across all 5 leagues in the live GitHub Actions run at commit 6093d0a. A human must read this evidence (and, when 'no_drift' is true for every league, conclude the anomaly is at the row/value level, not the schema level) before season 1415 is cleared for default inclusion.",
@@ -622,6 +722,27 @@
         "1415_vs_1516": {
           "available": false
         }
+      }
+    }
+  },
+  "season_1415_rejection_breakdown": {
+    "status": "UNRESOLVED_PENDING_HUMAN_REVIEW",
+    "statement": "This diagnostic reports each league's own season-1415 file's typed rejection-reason breakdown (independent of any split's own requirements). It does NOT change season 1415's excluded-by-default status \u2014 that remains pending human review (see season_1415_diagnostic_pending_review in the contract) \u2014 it only adds evidence for that review, exactly like the column-drift diagnostic above.",
+    "per_league": {
+      "E0": {
+        "available": false
+      },
+      "D1": {
+        "available": false
+      },
+      "SP1": {
+        "available": false
+      },
+      "I1": {
+        "available": false
+      },
+      "F1": {
+        "available": false
       }
     }
   },
