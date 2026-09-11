@@ -50,4 +50,44 @@
       capturedAtUtc,
     });
   };
+
+  // Fourth, independent entry point for the "Capture settled bets" button --
+  // injected alongside ticket_parser.js's sibling module, settled_bets_
+  // parser.js, only. A real account can have 190+ pages (see that file's
+  // own header comment), so this exposes a small polling surface
+  // (__bet9jaSettledBetsReadProgress / __bet9jaSettledBetsRequestCancel)
+  // instead of a live callback -- a function reference cannot cross the
+  // chrome.scripting.executeScript() argument boundary, so popup.js
+  // periodically re-injects a tiny read of `window.
+  // __bet9jaSettledBetsProgress` while this call is in flight, and a
+  // "Cancel" click sets `window.__bet9jaSettledBetsCancelRequested`,
+  // which settled_bets_parser.js's `shouldCancel` polls between pages.
+  window.__bet9jaSettledBetsCaptureRun = function (sourceUrl, pageTitle, capturedAtUtc) {
+    window.__bet9jaSettledBetsProgress = { pageNumber: 0, pagesVisited: 0, pagesAvailable: null, ticketsParsedSoFar: 0 };
+    window.__bet9jaSettledBetsCancelRequested = false;
+    return window.Bet9jaSettledBetsCapture.captureFromDocument(document, {
+      sourceUrl,
+      pageTitle,
+      capturedAtUtc,
+      onProgress: (info) => {
+        const prior = window.__bet9jaSettledBetsProgress || { ticketsParsedSoFar: 0 };
+        window.__bet9jaSettledBetsProgress = {
+          pageNumber: info.pageNumber,
+          pagesVisited: info.pagesVisited,
+          pagesAvailable: info.pagesAvailable,
+          ticketsParsedSoFar: (prior.ticketsParsedSoFar || 0) + (info.pageResult ? info.pageResult.tickets_parsed : 0),
+        };
+      },
+      shouldCancel: () => window.__bet9jaSettledBetsCancelRequested === true,
+    });
+  };
+
+  window.__bet9jaSettledBetsReadProgress = function () {
+    return window.__bet9jaSettledBetsProgress || null;
+  };
+
+  window.__bet9jaSettledBetsRequestCancel = function () {
+    window.__bet9jaSettledBetsCancelRequested = true;
+    return true;
+  };
 })();

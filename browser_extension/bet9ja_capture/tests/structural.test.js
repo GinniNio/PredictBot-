@@ -66,7 +66,7 @@ test('manifest permissions are exactly activeTab, scripting, downloads -- no hos
 });
 
 test('no source file in this extension calls fetch or XMLHttpRequest', () => {
-  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js', 'soccer_walker.js'];
+  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js', 'soccer_walker.js', 'settled_bets_parser.js'];
   for (const filename of sourceFiles) {
     const source = fs.readFileSync(path.join(ROOT, filename), 'utf-8');
     // Actual call/construction patterns only -- not a bare substring match,
@@ -78,7 +78,7 @@ test('no source file in this extension calls fetch or XMLHttpRequest', () => {
 });
 
 test('no source file in this extension reads document.cookie', () => {
-  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js', 'soccer_walker.js'];
+  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js', 'soccer_walker.js', 'settled_bets_parser.js'];
   for (const filename of sourceFiles) {
     const source = fs.readFileSync(path.join(ROOT, filename), 'utf-8');
     assert.ok(!source.includes('document.cookie'), `${filename} must never read document.cookie`);
@@ -125,4 +125,25 @@ test('popup.js has a synchronous re-entrancy guard before the first await in the
   const disableIndex = handlerBody.indexOf('soccerAllButton.disabled = true');
   assert.ok(guardIndex !== -1 && guardIndex < firstAwaitIndex, 'soccerAllCaptureInFlight guard must appear before the first await');
   assert.ok(disableIndex !== -1 && disableIndex < firstAwaitIndex, 'soccerAllButton.disabled = true must appear before the first await');
+});
+
+test('content.js only ever (re)assigns one settled-bets entry point, never appends to a list', () => {
+  const assignments = contentJs.match(/window\.__bet9jaSettledBetsCaptureRun\s*=/g) || [];
+  assert.equal(assignments.length, 1, 'exactly one assignment to window.__bet9jaSettledBetsCaptureRun expected');
+});
+
+test('popup.js registers the settled-bets button click listener exactly once, at module load', () => {
+  const listenerMatches = popupJs.match(/settledButton\.addEventListener\(/g) || [];
+  assert.equal(listenerMatches.length, 1, 'expected exactly one settledButton.addEventListener call in popup.js');
+});
+
+test('popup.js has a synchronous re-entrancy guard before the first await in the settled-bets click handler', () => {
+  const handlerStart = popupJs.indexOf("settledButton.addEventListener('click'");
+  assert.notEqual(handlerStart, -1, 'settled-bets click handler not found');
+  const handlerBody = popupJs.slice(handlerStart);
+  const firstAwaitIndex = handlerBody.indexOf('await ');
+  const guardIndex = handlerBody.indexOf('settledCaptureInFlight');
+  const disableIndex = handlerBody.indexOf('settledButton.disabled = true');
+  assert.ok(guardIndex !== -1 && guardIndex < firstAwaitIndex, 'settledCaptureInFlight guard must appear before the first await');
+  assert.ok(disableIndex !== -1 && disableIndex < firstAwaitIndex, 'settledButton.disabled = true must appear before the first await');
 });
