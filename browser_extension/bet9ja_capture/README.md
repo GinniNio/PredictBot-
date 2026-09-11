@@ -455,13 +455,57 @@ only — no UTC-qualified timestamp exists in this markup, so
 `placed_at_utc` stays null, never guessed), `.mybets-head__item` (ticket
 id, only present after expansion), `.mybets-item` (one per leg, four
 `.mybets-item__row` children each: selection+odds, market, fixture+time,
-competition), `.mybets__systable` (present only on system tickets).
-Ticket boundaries are reliable — every ticket's expanded detail stays
-inside its own `.accordion-item` — so the same page-wide-scan defense
-described in "Fail-closed ticket boundaries" below applies here too. A
-system ticket's 6 legs render as 3 `.mybets-row` groups of 2
-`.mybets-item` legs each; individual legs are still found directly via
-`.mybets-item`, independent of that visual grouping.
+competition — or **three**, when the competition row is genuinely
+absent; see Round 5 below), `.mybets__systable` (present only on system
+tickets). Ticket boundaries are reliable — every ticket's expanded
+detail stays inside its own `.accordion-item` — so the same
+page-wide-scan defense described in "Fail-closed ticket boundaries"
+below applies here too. A system ticket's 6 legs render as 3
+`.mybets-row` groups of 2 `.mybets-item` legs each; individual legs are
+still found directly via `.mybets-item`, independent of that visual
+grouping.
+
+**Round 5 real-capture corrections** (a real 16-page, 80-ticket capture
+— see `TICKET_REAL_PAGE_VALIDATION.md`, verified end-to-end against all
+19 successfully-parsed real tickets: 0 stake/return mismatches):
+
+- **The 4-row leg layout is not universal.** 49 of 532 real legs had
+  exactly 3 rows — the competition row genuinely absent — now accepted
+  with `competition_raw: null` / `competition_resolution:
+  'COMPETITION_UNAVAILABLE'`, never rejected. Any other row count is
+  still fail-closed and unresolved, now preserving each found row's own
+  text (`row_texts`) — and, for a 0-row element, its own text — for
+  audit.
+- **Structural, row-less `.mybets-item` elements are excluded at
+  candidacy.** 12 of 532 real `.mybets-item` elements had zero
+  `.mybets-item__row` children at all — confirmed structural elements
+  sharing the leg class, not genuine legs (mirroring `parser.js`'s own
+  structural/spacer-row exclusion). These no longer count as a
+  fail-closed leg, or as a leg at all.
+- **`selection` now always mirrors the trimmed `selection_raw`
+  verbatim.** Real selections are team names and other market-specific
+  labels ("Stade Rennes", "Czechia (Home -1.5)"), not H/D/A-style codes —
+  the old attempted H/D/A mapping returned `null` for 107 of 126 real
+  legs, discarding real data. Numeric-style labels ("1", "2") pass
+  through unchanged, same as any other selection.
+- **Stake/return fields are now mapped — for system tickets.**
+  `total_stake`/`potential_return` come from
+  `.mybets-holder__info-item`'s confirmed `"Stake: <amount>"`/`"Max Win:
+  <amount>"` labels (reliable regardless of system complexity — amounts
+  use a comma THOUSANDS separator, e.g. `"1,308.10"`, parsed
+  accordingly). `unit_stake`/`ticket_type_raw` come from
+  `.mybets__systable`'s confirmed concatenated-values shape (e.g.
+  `"Singles835.00280.00"` = 8 bets × 35.00 unit stake = 280.00 stake) —
+  but ONLY when the System Type text is letters-only and the digit split
+  is arithmetically unambiguous (13 of 19 real tickets); a digit-prefixed
+  type (`"4 Folds"`) or a multi-row full-cover system (6 of 19) is left
+  unparsed rather than guessed, with `system_table_raw` still preserved
+  for audit either way.
+- **`source_event_id` has never once been found on a real leg** (0 of
+  126). Every real leg's `fixture_id` is therefore provisional,
+  natural-key-only identity — treat cross-referencing against the
+  forecast ledger by `fixture_id` as provisional until stronger evidence
+  is found.
 
 **Named, currently-open gaps** (every MYBETS-profile capture carries a
 matching `capture_status_reasons` entry for each, and can never report
@@ -475,21 +519,18 @@ matching `capture_status_reasons` entry for each, and can never report
   'INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED'`),
   never silently assumed without saying so.
   (`LIVE_VIRTUAL_ZOOM_DETECTION_UNCONFIRMED_FOR_MYBETS_PROFILE`)
-- **Stake/return cell mapping unconfirmed.** `.mybets-holder__info-item`
-  and `.mybets__systable`'s exact label/value structure (which item is
-  stake vs. potential return; which cell is System Type vs. No. Bets vs.
-  Unit Stake vs. Stake) hasn't been confirmed, so `unit_stake`/
-  `total_stake`/`potential_return` all stay `null` for this profile — the
-  raw text is preserved for audit (`stake_return_raw_items`,
-  `system_table_raw`) rather than guessed into a typed field.
-  (`STAKE_RETURN_FIELD_MAPPING_UNCONFIRMED`)
+- **Stake/return mapping confirmed for system tickets only.** No real
+  sample of a non-system ticket (single/double/treble/accumulator) has
+  been captured yet, so the mapping above remains unconfirmed for those.
+  (`STAKE_RETURN_FIELD_MAPPING_CONFIRMED_ONLY_FOR_SYSTEM_TICKETS`)
 - **Ticket type detection is limited to system-table presence.** A
   `.mybets__systable` element is real, confirmed evidence of a system
   ticket (`ticket_type_normalized: 'SYSTEM'`); no confirmed markup
   distinguishes single/double/treble/accumulator from each other yet, so
   they all currently report `ticket_type_normalized: null`.
   (`TICKET_TYPE_DETECTION_LIMITED_TO_SYSTEM_TABLE_PRESENCE`)
-Pagination is now automated (confirmed Round 3 — see "Pagination" below).
+
+Pagination is automated (confirmed Round 3 — see "Pagination" below).
 
 ### Pagination
 
@@ -617,20 +658,25 @@ honesty as fixture capture's `kickoff_resolution`), `ticket_type_raw` /
 `(SINGLE, DOUBLE, TREBLE, SYSTEM)` — there is no entry for a straight
 4+-leg all-up "Accumulator"/"Fourfold" bet, a real Bet9ja UI category.
 `ticket_type_raw` always preserves the exact text seen (placeholder
-profile only — the MYBETS profile has no confirmed raw-type-text markup,
-see above); `ticket_type_normalized` is only ever set for an unambiguous
-SINGLE/DOUBLE/TREBLE/SYSTEM match, and `ticket_type_taxonomy_gap: true`
-flags every other non-empty raw type — surfaced for a future importer to
-decide, never silently mapped to the nearest guess. This does not exclude
-the ticket; it is still fully captured.
+profile: the raw ticket-type label; MYBETS profile, since Round 5: the
+confirmed "System Type" sub-value, e.g. `"Trebles"`, when
+`.mybets__systable`'s digit split is unambiguous — see "The MYBETS
+profile" above); `ticket_type_normalized` is only ever set for an
+unambiguous SINGLE/DOUBLE/TREBLE/SYSTEM match, and
+`ticket_type_taxonomy_gap: true` flags every other non-empty raw type —
+surfaced for a future importer to decide, never silently mapped to the
+nearest guess. This does not exclude the ticket; it is still fully
+captured.
 
-MYBETS-profile tickets carry two additional profile-specific audit fields
-not present on placeholder-profile output: `bet9ja_ticket_id_raw` (the
-full `.mybets-head__item` text the id was extracted from) and
-`system_table_raw`/`stake_return_raw_items` (see the stake/return gap
-above). Both profiles emit the same core key set otherwise, so a
-downstream reader can treat `tickets[]` uniformly regardless of which
-profile produced a given record.
+MYBETS-profile tickets carry additional profile-specific audit fields not
+present on placeholder-profile output: `bet9ja_ticket_id_raw` (the full
+`.mybets-head__item` text the id was extracted from), `system_table_raw`/
+`stake_return_raw_items` (raw text, always preserved regardless of
+whether `unit_stake`/`ticket_type_raw` parsed — see "The MYBETS profile"
+above), and each leg's `competition_resolution` (`'PRESENT'` or
+`'COMPETITION_UNAVAILABLE'`, since Round 5). Both profiles emit the same
+core key set otherwise, so a downstream reader can treat `tickets[]`
+uniformly regardless of which profile produced a given record.
 
 ## Loading it unpacked for testing
 
@@ -695,15 +741,21 @@ synthetic HTML:
   open (never force-collapsed), a collapsed ticket being restored after
   capture, five tickets each expanded/parsed/collapsed in strict sequence
   without cross-contamination, a 6-leg system ticket's `.mybets__systable`
-  driving `ticket_type_normalized: 'SYSTEM'` while stake/return fields
-  stay `null` (unconfirmed cell mapping), the fail-closed contract for a
-  malformed leg row count and unparseable odds, a missing-ticket-id
-  refusal, an expand-timeout distinct from an empty ticket, the
-  `source_event_id`/`fixture_id` exposure and its natural-key fallback,
-  the coverage invariant, the permanent `CAPTURE_PARTIAL` cap while named
-  gaps remain open, single-page-only (no-pagination-control) mode, and a
-  privacy test confirming account info rendered outside `.mybets` never
-  leaks in.
+  driving `ticket_type_normalized: 'SYSTEM'` with its confirmed stake
+  columns mapped (Round 5), a 3-row leg (competition omitted) being
+  accepted rather than rejected, a structural 0-row `.mybets-item` being
+  excluded at candidacy (both Round 5), a digit-prefixed System Type
+  ("4 Folds") and a multi-row full-cover system both left unparsed rather
+  than guessed while `total_stake`/`potential_return` still populate from
+  the always-unambiguous info items, selection normalization (named,
+  numeric, and handicap-style selections all pass through as the trimmed
+  raw text), the fail-closed contract for a genuinely malformed leg row
+  count and unparseable odds, a missing-ticket-id refusal, an
+  expand-timeout distinct from an empty ticket, the `source_event_id`/
+  `fixture_id` exposure and its natural-key fallback, the coverage
+  invariant, the permanent `CAPTURE_PARTIAL` cap while named gaps remain
+  open, single-page-only (no-pagination-control) mode, and a privacy test
+  confirming account info rendered outside `.mybets` never leaks in.
 - The pagination tests (a jsdom harness that simulates client-side page
   transitions via a swapped ticket-list container and a moved `--current`
   marker, plus first/prev/next/last click counters): walking every
@@ -766,13 +818,21 @@ Open bet ticket capture's core real-page selector question is now also
 answered for ticket boundaries, ids, legs, and pagination (the MYBETS
 profile, confirmed Rounds 2–3) — see "The MYBETS profile" and
 "Pagination" above for exactly what's confirmed vs. still named as an
-open gap (live/Virtual/Zoom detection, stake/return cell mapping,
-ticket-type detection beyond system tickets). Round 4's first real
-multi-page captures found two real implementation defects (ticket
-expansion and pagination both reading content before it had actually
-rendered) — both are now fixed and regression-tested; see the Round 4
-notes above and in `TICKET_REAL_PAGE_VALIDATION.md`. The very next step
-is running one more real "Capture open bets" click on the same 16-page
-account against these fixes and recording the result as Round 5,
+open gap (live/Virtual/Zoom detection, ticket-type detection beyond
+system tickets, and stake/return mapping for non-system tickets). Round
+4's first real multi-page captures found two real implementation defects
+(ticket expansion and pagination both reading content before it had
+actually rendered) — fixed and regression-tested. Round 5's first
+complete 16-page, 80-ticket capture found and fixed four more real
+defects (the 4-row leg assumption, structural 0-row leg elements, the
+H/D/A selection mapping, and stake/return field mapping) — verified
+end-to-end against all 19 real tickets it successfully parsed (0
+mismatches); see the Round 4 and Round 5 notes above and in
+`TICKET_REAL_PAGE_VALIDATION.md`. The very next step is running one more
+real "Capture open bets" click on the same account against these fixes
+and recording the result as Round 6 — in particular, whether all 80
+tickets now parse cleanly, and whether a non-system ticket (single/
+double/treble/accumulator) appears to finally confirm or correct the
+stake/return and ticket-type gaps that remain open for that category —
 following the same evidence-driven correction discipline used throughout
 this project.
