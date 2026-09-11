@@ -412,3 +412,90 @@ concrete piece of evidence — e.g. the `PAGE_CONTENT_TIMEOUT_MS` window
 may need lengthening, or the real page may have a different loading
 signal than "ticket containers eventually appear" that would need its
 own DOM inspection.
+
+## Round 5 — 2026-09-11
+
+**Result: pagination confirmed fixed. Ticket normalization needed one
+more correction round before the file can feed the betting ledger.**
+
+| Check | Result |
+|---|---:|
+| Pages available | 16 |
+| Pages visited | 16 |
+| Ticket containers found | 80 |
+| Per-page results | 16 entries |
+| Containers per page | 5 |
+| Reconciliation | 80 = 19 parsed + 61 unresolved |
+| Sensitive-data indicators | 0 |
+
+Pagination (Round 3/4 work) is confirmed working end to end: the
+extension walked the entire 16-page account history in one click and
+combined the results into one file, with `tickets_seen` now correctly
+accumulating across every page (the exact Round 4 defect, now closed).
+
+**What failed:** only 19 of 80 ticket containers were accepted; 61 failed
+with `LEG_FAILED_TO_PARSE` → `LEG_UNEXPECTED_ROW_COUNT`:
+
+| Failure shape | Occurrences |
+|---|---:|
+| Leg contained 3 rows instead of 4 | 49 |
+| Apparent leg contained 0 rows | 12 |
+
+Three field-quality problems were also found in the 19 accepted tickets:
+`total_stake`/`unit_stake`/`potential_return` missing on every one;
+`source_event_id` missing on all 126 parsed legs; and 107 of 126
+normalized `selection` values were `null` despite `selection_raw`
+containing readable selections (team names, handicap lines).
+
+### Fixes (this round)
+
+1. **3-row legs are accepted.** The competition row is genuinely absent
+   on some real legs — now parsed as `competition_raw: null` /
+   `competition_resolution: 'COMPETITION_UNAVAILABLE'`, never rejected.
+2. **0-row `.mybets-item` elements are excluded at candidacy.** Confirmed
+   structural elements sharing the leg class, not genuine legs — no
+   longer fail-close the ticket they're found in.
+3. **`selection` always mirrors trimmed `selection_raw`.** The H/D/A
+   mapping attempt is dropped for this profile — real selections are
+   team names and market-specific labels, not simple codes.
+4. **Stake/return mapping — confirmed for system tickets.**
+   `total_stake`/`potential_return` from `.mybets-holder__info-item`'s
+   `"Stake:"`/`"Max Win:"` labels (comma-thousands-separator amounts
+   parsed correctly, e.g. `"1,308.10"`). `unit_stake`/`ticket_type_raw`
+   from `.mybets__systable`'s concatenated-values shape, ONLY when the
+   System Type text is letters-only and the No.Bets/Unit Stake digit
+   split is arithmetically unambiguous — verified against all 19 real
+   tickets: **13 parse and validate cleanly** (e.g.
+   `"Singles835.00280.00"` → 8 × 35.00 = 280.00); **6 are genuinely
+   ambiguous from text alone** (a digit-prefixed type like `"4
+   Folds283.0084.00"`, or a multi-row full-cover system like
+   `"Doubles156.0090.00Trebles202.0040.00"`) and are correctly left
+   unparsed rather than guessed — `total_stake`/`potential_return` still
+   populate for all 19 regardless, since those come from the info items,
+   never the table.
+5. `source_event_id` stays `null` (never guessed); the header comment and
+   README now state plainly that `fixture_id` is provisional,
+   natural-key-only identity until stronger evidence is found.
+
+**Verification:** an end-to-end replay of all 19 real Round 5 tickets
+(reconstructing their exact real HTML from the uploaded JSON's own raw
+fields) through the fixed parser produced 19/19 parsed, 0 stake
+mismatches, and 0 return mismatches against the real uploaded values —
+this fix is confirmed correct against real data, not just synthetic
+tests.
+
+### Out of scope for this round (per explicit instruction)
+
+Settlement capture, live/Virtual/Zoom detection, and ledger import were
+not started.
+
+### Recommendation for Round 6
+
+One more real "Capture open bets" click on the same account. Expect all
+80 ticket containers to now parse (or, for any that don't, a new typed
+reason rather than `LEG_UNEXPECTED_ROW_COUNT`/`MISSING_TICKET_ID`
+recurring). In particular: does a non-system ticket (single/double/
+treble/accumulator) appear? If so, its `stake_return_raw_items` and any
+type-label markup are the next piece of evidence needed to close the two
+remaining named gaps (stake/return mapping and ticket-type detection
+beyond system-table presence) for that category.

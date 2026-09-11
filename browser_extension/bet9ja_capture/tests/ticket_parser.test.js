@@ -779,19 +779,65 @@ test('mybets: five tickets on one page -- each expanded, parsed, and collapsed i
   assert.equal(oddsByTicket['900123455'], 1.5);
 });
 
-test('mybets: a system ticket\'s 6 legs (3 rows of 2) are all captured, and its system table marks ticket_type_normalized SYSTEM', async () => {
+test('mybets: a system ticket\'s 6 legs (3 rows of 2) are all captured, its system table marks ticket_type_normalized SYSTEM, and confirmed stake columns are mapped (Round 5)', async () => {
   const legs = [1, 2, 3, 4, 5, 6].map((n) => mybetsLeg({ selection: `Sel ${n}`, eventId: `${n}` }));
   const { envelope } = await captureMybets(
-    mybetsTicket({ ticketId: 'SYS-1', legs, systemTable: 'System Type: 2/4 | No. Bets: 6 | Unit Stake: 1.00 | Stake: 6.00' })
+    mybetsTicket({
+      ticketId: 'SYS-1',
+      legs,
+      // Real confirmed shape (a real Round 5 ticket, "Trebles" type: a
+      // letters-only System Type, unambiguously splittable): fixed
+      // header run immediately followed by the four values concatenated
+      // with no separators. 56 x 3.00 = 168.00.
+      systemTable: 'System TypeNo.BetsUnit StakeStakeTrebles563.00168.00',
+      infoItems: ['Stake: 168.00', 'Max Win: 1,308.10'],
+    })
   );
   const t = envelope.tickets[0];
   assert.equal(t.legs.length, 6);
   assert.equal(t.ticket_type_normalized, 'SYSTEM');
+  assert.equal(t.ticket_type_raw, 'Trebles');
   assert.match(t.system_table_raw, /System Type/);
-  // Cell-level mapping is unconfirmed -- typed stake/return fields stay
-  // null even though the raw table text is preserved for audit.
+  assert.equal(t.unit_stake, 3);
+  assert.equal(t.total_stake, 168);
+  assert.equal(t.potential_return, 1308.1, 'comma thousands separator must not corrupt the parsed amount');
+});
+
+test('mybets: a System Type starting with a digit ("N Folds") is left unparsed rather than guessed -- total_stake/potential_return are unaffected (Round 5)', async () => {
+  // Real Round 5 example: the digit-prefixed type text makes the
+  // No.Bets/Unit Stake split genuinely ambiguous from text alone (see
+  // parseSystemTableRaw's own comment) -- unlike the letters-only cases,
+  // this is never guessed at.
+  const { envelope } = await captureMybets(
+    mybetsTicket({
+      systemTable: 'System TypeNo.BetsUnit StakeStake6 Folds283.0084.00',
+      infoItems: ['Stake: 84.00', 'Max Win: 1,308.10'],
+    })
+  );
+  const t = envelope.tickets[0];
+  assert.equal(t.ticket_type_normalized, 'SYSTEM', 'presence of a system table alone still confirms SYSTEM');
+  assert.equal(t.ticket_type_raw, null, 'the digit-prefixed type text is not confidently splittable');
   assert.equal(t.unit_stake, null);
-  assert.equal(t.total_stake, null);
+  // Unaffected -- these always come from the info items, never the table.
+  assert.equal(t.total_stake, 84);
+  assert.equal(t.potential_return, 1308.1);
+});
+
+test('mybets: a multi-row full-cover system table (two type+value groups concatenated) is left unparsed rather than guessed (Round 5)', async () => {
+  // Real Round 5 example: "Doubles...Trebles..." -- two complete
+  // type+value groups in one string, with no reliable way to tell where
+  // one ends and the next begins from text alone.
+  const { envelope } = await captureMybets(
+    mybetsTicket({
+      systemTable: 'System TypeNo.BetsUnit StakeStakeDoubles156.0090.00Trebles202.0040.00',
+      infoItems: ['Stake: 130.00', 'Max Win: 720.46'],
+    })
+  );
+  const t = envelope.tickets[0];
+  assert.equal(t.ticket_type_raw, null);
+  assert.equal(t.unit_stake, null);
+  assert.equal(t.total_stake, 130);
+  assert.equal(t.potential_return, 720.46);
 });
 
 test('mybets: fail closed -- a leg with an unexpected row count voids the whole ticket', async () => {
@@ -800,6 +846,70 @@ test('mybets: fail closed -- a leg with an unexpected row count voids the whole 
   assert.equal(envelope.tickets.length, 0);
   assert.equal(envelope.unresolved_tickets[0].reason, 'LEG_FAILED_TO_PARSE');
   assert.match(envelope.unresolved_tickets[0].detail, /LEG_UNEXPECTED_ROW_COUNT/);
+});
+
+test('mybets: a 3-row leg (competition omitted) is ACCEPTED, not a failure -- Round 5 real-capture correction', async () => {
+  const threeRowLeg = `
+    <div class="mybets-item">
+      <div class="mybets-item__row"><span class="mybets-bet">Team A</span><span class="mybets-odd">1.50</span></div>
+      <div class="mybets-item__row">1X2</div>
+      <div class="mybets-item__row">Team A - Team B11 Sep 19:00</div>
+    </div>
+  `;
+  const { envelope } = await captureMybets(mybetsTicket({ ticketId: 'THREE-ROWS', legs: [threeRowLeg] }));
+  assert.equal(envelope.tickets.length, 1);
+  const leg = envelope.tickets[0].legs[0];
+  assert.equal(leg.competition_raw, null);
+  assert.equal(leg.competition_resolution, 'COMPETITION_UNAVAILABLE');
+  assert.equal(leg.selection, 'Team A');
+  assert.equal(leg.selection_raw, 'Team A');
+});
+
+test('mybets: a 2-row leg is still an unexpected row count, and preserves each found row\'s own text for audit', async () => {
+  const twoRowLeg = `
+    <div class="mybets-item">
+      <div class="mybets-item__row"><span class="mybets-bet">X</span><span class="mybets-odd">1.50</span></div>
+      <div class="mybets-item__row">1X2</div>
+    </div>
+  `;
+  const { envelope } = await captureMybets(mybetsTicket({ ticketId: 'TWO-ROWS', legs: [twoRowLeg] }));
+  const legRaw = envelope.unresolved_tickets[0].raw.leg_raw;
+  assert.equal(legRaw.row_count, 2);
+  assert.deepEqual(legRaw.row_texts, ['X1.50', '1X2']);
+  assert.equal(legRaw.leg_element_text, null, 'leg_element_text is only populated for the 0-row case');
+});
+
+test('mybets: a leg with zero .mybets-item__row children is excluded at candidacy, never treated as a fail-closed leg', async () => {
+  const zeroRowLeg = `<div class="mybets-item">Cashout available</div>`;
+  const { envelope } = await captureMybets(
+    mybetsTicket({ ticketId: 'HAS-STRUCTURAL', legs: [mybetsLeg({ eventId: '1' }), zeroRowLeg] })
+  );
+  // The structural 0-row element is silently excluded -- the ticket still
+  // parses cleanly from its one genuine leg, never voided because of it.
+  assert.equal(envelope.tickets.length, 1);
+  assert.equal(envelope.tickets[0].legs.length, 1);
+});
+
+test('mybets: a ticket whose ONLY .mybets-item is a 0-row structural element reports NO_LEGS_FOUND, never invents a leg', async () => {
+  const zeroRowLeg = `<div class="mybets-item">Cashout available</div>`;
+  const { envelope } = await captureMybets(mybetsTicket({ ticketId: 'ONLY-STRUCTURAL', legs: [zeroRowLeg] }));
+  assert.equal(envelope.tickets.length, 0);
+  assert.equal(envelope.unresolved_tickets[0].reason, 'NO_LEGS_FOUND');
+});
+
+test('mybets: more than 4 rows is also an unexpected row count, never silently truncated to the first 4', async () => {
+  const fiveRowLeg = `
+    <div class="mybets-item">
+      <div class="mybets-item__row"><span class="mybets-bet">X</span><span class="mybets-odd">1.50</span></div>
+      <div class="mybets-item__row">1X2</div>
+      <div class="mybets-item__row">Team A - Team B</div>
+      <div class="mybets-item__row">England - Premier League</div>
+      <div class="mybets-item__row">Extra row</div>
+    </div>
+  `;
+  const { envelope } = await captureMybets(mybetsTicket({ ticketId: 'FIVE-ROWS', legs: [fiveRowLeg] }));
+  assert.equal(envelope.tickets.length, 0);
+  assert.match(envelope.unresolved_tickets[0].detail, /found 5/);
 });
 
 test('mybets: fail closed -- unparseable odds on any leg voids the whole ticket', async () => {
@@ -858,6 +968,17 @@ test('mybets: a toggle that never adds the open class is reported as an expansio
   assert.equal(envelope.unresolved_tickets[0].reason, 'TICKET_EXPANSION_TIMEOUT');
 });
 
+test('mybets: selection always mirrors the trimmed selection_raw verbatim -- named selections are never discarded, numeric ones pass through unchanged (Round 5)', async () => {
+  const named = await captureMybets(mybetsTicket({ legs: [mybetsLeg({ selection: 'Real Madrid' })] }));
+  assert.equal(named.envelope.tickets[0].legs[0].selection, 'Real Madrid');
+
+  const numeric = await captureMybets(mybetsTicket({ legs: [mybetsLeg({ selection: '1' })] }));
+  assert.equal(numeric.envelope.tickets[0].legs[0].selection, '1');
+
+  const handicap = await captureMybets(mybetsTicket({ legs: [mybetsLeg({ selection: 'Czechia (Home -1.5)' })] }));
+  assert.equal(handicap.envelope.tickets[0].legs[0].selection, 'Czechia (Home -1.5)');
+});
+
 test('mybets: source_event_id and fixture_id are exposed per leg, matching the fixture-capture extension\'s own scheme', async () => {
   const Bet9jaIds = require('../ids.js');
   const expected = Bet9jaIds.stableId('bxf', ['external', 'bet9ja-event-999']);
@@ -892,7 +1013,7 @@ test('mybets: never CAPTURE_OK -- unconfirmed live/Virtual/Zoom detection and st
   const { envelope } = await captureMybets(mybetsTicket());
   assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
   assert.ok(envelope.capture_status_reasons.includes('LIVE_VIRTUAL_ZOOM_DETECTION_UNCONFIRMED_FOR_MYBETS_PROFILE'));
-  assert.ok(envelope.capture_status_reasons.includes('STAKE_RETURN_FIELD_MAPPING_UNCONFIRMED'));
+  assert.ok(envelope.capture_status_reasons.includes('STAKE_RETURN_FIELD_MAPPING_CONFIRMED_ONLY_FOR_SYSTEM_TICKETS'));
 });
 
 test('mybets: no pagination container -- single page mode, coverage names pages_available=1/pages_visited=1', async () => {

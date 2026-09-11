@@ -80,8 +80,26 @@
  * elements of 2 `.mybets-item` legs each; individual legs are still
  * found directly via `.mybets-item` regardless of that grouping.
  *
- * NOT YET CONFIRMED (see TICKET_REAL_PAGE_VALIDATION.md Round 2 for the
- * full list -- every capture using this profile carries a matching
+ * Round 5 real-capture corrections (a real 16-page, 80-ticket capture --
+ * see TICKET_REAL_PAGE_VALIDATION.md): a leg's 4-row layout (selection,
+ * market, fixture+time, competition) is NOT universal -- 49 of 532 real
+ * legs had exactly 3 rows, the competition row genuinely absent, and are
+ * now accepted with `competition_raw: null` / `competition_resolution:
+ * 'COMPETITION_UNAVAILABLE'` rather than rejected. Separately, 12 of 532
+ * `.mybets-item` elements had ZERO row children at all -- confirmed
+ * structural elements sharing the leg class, not genuine legs (mirroring
+ * parser.js's own structural/spacer-row exclusion) -- these are now
+ * excluded at candidacy (see isCandidateMybetsLeg) before parsing, never
+ * counted as a fail-closed leg. Any OTHER row count (0 excluded already,
+ * so effectively 1, 2, or 5+) remains fail-closed and unresolved. Real
+ * selections are team names and other market-specific labels ("Stade
+ * Rennes", "Czechia (Home -1.5)"), not H/D/A-style codes -- `selection`
+ * now always mirrors the trimmed `selection_raw` verbatim (107 of 126
+ * real legs previously came back `null` under the old H/D/A-mapping
+ * attempt, discarding real data for no benefit).
+ *
+ * NOT YET CONFIRMED (see TICKET_REAL_PAGE_VALIDATION.md for the full
+ * list -- every capture using this profile carries a matching
  * capture_status_reasons entry for each, so this can never be mistaken
  * for a fully validated result):
  *   - No live/Virtual/Zoom status marker has been identified in this
@@ -90,13 +108,27 @@
  *     profile's (unconfirmed) legStatusHint was designed to. Every
  *     ticket found under `.mybets` is treated as OPEN pre-match, flagged
  *     explicitly via status_resolution -- never silently assumed.
- *   - `.mybets-holder__info-item` and `.mybets__systable`'s exact
- *     label/value cell structure (which item is stake vs. potential
- *     return; which cell is System Type vs. No. Bets vs. Unit Stake vs.
- *     Stake) is unconfirmed -- their raw text is preserved for audit
- *     (`stake_return_raw_items`, `system_table_raw`) rather than parsed
- *     into `unit_stake`/`total_stake`/`potential_return`, which stay
- *     null for this profile until that mapping is confirmed.
+ *   - `source_event_id` has never once been found on a real leg (Round 5:
+ *     0 of 126 real legs) -- every real leg's `fixture_id` is therefore
+ *     PROVISIONAL, natural-key-only identity (`fixture_id_resolution:
+ *     'NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID'`), with no kickoff time
+ *     available to disambiguate a rematch later in the season. Treat
+ *     cross-referencing a ticket leg against the forecast ledger by
+ *     `fixture_id` as provisional until stronger identity evidence (or a
+ *     different matching strategy) is found.
+ *   - Stake/return mapping (Round 5, see parseSystemTableRaw and
+ *     findLabeledInfoItemAmount) is CONFIRMED for system tickets only,
+ *     verified end-to-end against all 19 real Round 5 tickets (0 stake/
+ *     return mismatches): `total_stake`/`potential_return` come from
+ *     `.mybets-holder__info-item`'s "Stake:"/"Max Win:" labels (reliable
+ *     regardless of system complexity); `unit_stake`/`ticket_type_raw`
+ *     come from `.mybets__systable` ONLY when its System Type text is
+ *     letters-only and the No. Bets/Unit Stake split is arithmetically
+ *     unambiguous (13 of 19 real tickets) -- a digit-prefixed type ("4
+ *     Folds") or a multi-row full-cover system (6 of 19) is left
+ *     unparsed rather than guessed. No real sample of a non-system
+ *     ticket (single/double/treble/accumulator) has been captured yet,
+ *     so all of the above remains unconfirmed for those.
  *
  * PAGINATION -- confirmed via a second live inspection (Round 3, see
  * TICKET_REAL_PAGE_VALIDATION.md): 16 genuine numbered pages
@@ -143,7 +175,7 @@
 (function (root) {
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.4.0-mybets-content-wait';
+  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.6.0-mybets-round5-fixes';
 
   // See SELECTOR CONTRACT above -- every value here is an unconfirmed
   // best guess, not evidence-derived.
@@ -341,22 +373,161 @@
    * ticket can be voided by the caller, per this file's fail-closed
    * contract.
    */
+  // Round 5 real-capture correction: 12 of 80 real `.mybets-item` elements
+  // carried zero `.mybets-item__row` children at all -- structural
+  // elements sharing the leg class, not genuine legs (mirrors parser.js's
+  // own structural/spacer-row exclusion for `.table-f`). These are now
+  // excluded at candidacy, before parsing, rather than counted as a
+  // fail-closed "leg" that voids the whole ticket.
+  function isCandidateMybetsLeg(el) {
+    return el.querySelectorAll(`:scope > ${MYBETS_SELECTORS.legDetailRow}`).length > 0;
+  }
+
+  // Round 5 real-capture correction: `.mybets-holder__info-item` entries
+  // are confirmed (from real captures) to be labeled `"<Label>: <amount>"`
+  // text, e.g. "Stake: 84.00" / "Max Win: 1,308.10" -- finds the first
+  // item whose label matches (case-insensitively) any of the given
+  // candidate labels and returns its raw amount text, or null if none
+  // match. Only "Stake" and "Max Win" have been seen in real captures so
+  // far; other candidate labels here are untested guesses at synonyms a
+  // different ticket type might use, kept only because trying them costs
+  // nothing extra and finding none simply leaves the field null, same as
+  // today -- never a fabricated value either way.
+  function findLabeledInfoItemAmount(items, candidateLabels) {
+    for (const label of candidateLabels) {
+      const prefix = `${label.toLowerCase()}:`;
+      const found = items.find((item) => item.trim().toLowerCase().startsWith(prefix));
+      if (found) return found.slice(found.indexOf(':') + 1).trim();
+    }
+    return null;
+  }
+
+  // Real evidence (Round 5): amounts here use a comma THOUSANDS separator
+  // with a period decimal point (e.g. "1,308.10"), the opposite
+  // convention from parseDecimal()'s comma-as-decimal-point assumption
+  // used elsewhere in this file -- reusing parseDecimal on these values
+  // would silently corrupt any four-figure-or-larger amount (e.g.
+  // "1,308.10" -> "1.308.10"). This parser is therefore MYBETS-specific
+  // and intentionally not shared with the placeholder profile's fields.
+  function parseMybetsAmount(rawText) {
+    if (!rawText) return null;
+    const match = String(rawText).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+    const value = Number(match[0]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  // Real evidence (Round 5): `.mybets__systable`'s text is always the
+  // fixed header run "System TypeNo.BetsUnit StakeStake" immediately
+  // followed by System Type / No. Bets / Unit Stake / Stake concatenated
+  // with NO separators -- e.g. "Singles835.00280.00" (Singles, 8 bets,
+  // 35.00 unit stake, 280.00 stake; 8 x 35 = 280). Verified against all
+  // 19 real Round 5 tickets: 13 (System Type spelled out in letters only
+  // -- "Singles"/"Doubles"/"Trebles") parse and arithmetically validate
+  // cleanly; the digit run between the type text and the two trailing
+  // 2-decimal amounts has NO delimiter marking where "No. Bets" ends, so
+  // splitting it correctly requires trying every possible split point and
+  // keeping only the one where bets x unit stake == stake -- e.g.
+  // "835.00280.00" superficially also splits as bets="83"/unit="5.00"
+  // (which still matches the TEXT shape) but only bets="8"/unit="35.00"
+  // satisfies 8 x 35 = 280; only ONE candidate split is ever kept, and
+  // only when it's the SOLE one that validates.
+  //
+  // 6 of 19 real tickets have a System Type that itself STARTS with a
+  // digit ("4 Folds", "5 Folds", "6 Folds"), and 1 has multiple
+  // type+value groups concatenated in one string (a full-cover system
+  // spanning e.g. both Doubles and Trebles) -- both shapes are
+  // genuinely ambiguous to split from text alone with no further
+  // structural evidence, so both are left unparsed (returns null) rather
+  // than guessed. `total_stake`/`potential_return` are unaffected either
+  // way -- they come from the always-unambiguous
+  // `.mybets-holder__info-item` labels, never from this table.
+  const SYSTEM_TABLE_HEADER_PREFIX = 'System TypeNo.BetsUnit StakeStake';
+  // System Type text confirmed to be letters/spaces only for every
+  // splittable real example ("Singles", "Doubles", "Trebles") -- a type
+  // starting with a digit ("4 Folds") is deliberately NOT matched here,
+  // falling through to the unparsed case above.
+  const SYSTEM_TABLE_LETTER_TYPE_PATTERN = /^([A-Za-z][A-Za-z ]*)(\d.*)$/;
+  const SYSTEM_TABLE_TRAILING_DECIMAL_PAIR = /^(\d[\d,]*\.\d{2})(\d[\d,]*\.\d{2})$/;
+
+  function findUnambiguousSystemSplit(digitsRemainder) {
+    const validSplits = [];
+    for (let i = 1; i < digitsRemainder.length; i += 1) {
+      const betsPart = digitsRemainder.slice(0, i);
+      if (!/^\d+$/.test(betsPart)) break; // bets is always a bare leading integer
+      const rest = digitsRemainder.slice(i);
+      const decimalMatch = rest.match(SYSTEM_TABLE_TRAILING_DECIMAL_PAIR);
+      if (!decimalMatch) continue;
+      const bets = parseInt(betsPart, 10);
+      const unit = parseMybetsAmount(decimalMatch[1]);
+      const stake = parseMybetsAmount(decimalMatch[2]);
+      if (Math.abs(bets * unit - stake) < 0.01) {
+        validSplits.push({ numberOfBetsRaw: betsPart, unitStakeRaw: decimalMatch[1], stakeRaw: decimalMatch[2] });
+      }
+    }
+    // Only ever trust a split that is the SOLE arithmetically-valid one --
+    // zero or multiple candidates both mean "genuinely ambiguous", never
+    // resolved by picking an arbitrary one.
+    return validSplits.length === 1 ? validSplits[0] : null;
+  }
+
+  function parseSystemTableRaw(raw) {
+    if (!raw) return null;
+    const valuesPart = raw.startsWith(SYSTEM_TABLE_HEADER_PREFIX) ? raw.slice(SYSTEM_TABLE_HEADER_PREFIX.length) : raw;
+    const typeMatch = valuesPart.match(SYSTEM_TABLE_LETTER_TYPE_PATTERN);
+    if (!typeMatch) return null;
+    const split = findUnambiguousSystemSplit(typeMatch[2]);
+    if (!split) return null;
+    return {
+      systemTypeRaw: typeMatch[1].trim() || null,
+      numberOfBetsRaw: split.numberOfBetsRaw,
+      unitStakeRaw: split.unitStakeRaw,
+      stakeRaw: split.stakeRaw,
+    };
+  }
+
   function extractMybetsLeg(legEl) {
     const rows = Array.from(legEl.querySelectorAll(`:scope > ${MYBETS_SELECTORS.legDetailRow}`));
-    if (rows.length < 4) {
+    // Round 5 real-capture correction: a real 16-page capture found 49
+    // legs with exactly 3 rows -- confirmed to be a real, valid shape
+    // (the competition row is genuinely absent for some legs), not a
+    // malformed one. A 3-row leg is therefore accepted with
+    // `competition_raw: null` / `competition_resolution:
+    // 'COMPETITION_UNAVAILABLE'`, never rejected. Any OTHER row count
+    // (0, or >4) remains fail-closed and unresolved -- still voiding the
+    // whole ticket, never guessed at -- but now preserves every row's own
+    // text (and, for the 0-row case, this element's own text) so the
+    // NEXT real capture carries its own diagnosis rather than requiring
+    // another separate DevTools session.
+    let selectionRow;
+    let marketRow;
+    let fixtureRow;
+    let competitionRow = null;
+    let competitionResolution;
+    if (rows.length === 4) {
+      [selectionRow, marketRow, fixtureRow, competitionRow] = rows;
+      competitionResolution = 'PRESENT';
+    } else if (rows.length === 3) {
+      [selectionRow, marketRow, fixtureRow] = rows;
+      competitionResolution = 'COMPETITION_UNAVAILABLE';
+    } else {
       return {
         ok: false,
         reason: 'LEG_UNEXPECTED_ROW_COUNT',
-        detail: `expected 4 .mybets-item__row children (selection, market, fixture+time, competition), found ${rows.length}`,
-        raw: { row_count: rows.length },
+        detail: `expected 4 .mybets-item__row children (selection, market, fixture+time, competition) or 3 (competition omitted), found ${rows.length}`,
+        raw: {
+          row_count: rows.length,
+          row_texts: rows.map((row) => text(row)),
+          leg_element_text: rows.length === 0 ? text(legEl) : null,
+        },
       };
     }
-    const [selectionRow, marketRow, fixtureRow, competitionRow] = rows;
+
     const selectionRaw = text(selectionRow.querySelector(MYBETS_SELECTORS.legSelection));
     const oddsRaw = text(selectionRow.querySelector(MYBETS_SELECTORS.legOdds));
     const marketRaw = text(marketRow);
     const fixtureAndTimeRaw = text(fixtureRow);
-    const competitionRaw = text(competitionRow);
+    const competitionRaw = competitionRow ? text(competitionRow) : null;
 
     const rawSnapshot = {
       selection_raw: selectionRaw,
@@ -377,6 +548,14 @@
       return { ok: false, reason: 'LEG_UNPARSEABLE_ODDS', detail: `odds_raw="${oddsRaw}"`, raw: rawSnapshot };
     }
 
+    // Round 5 real-capture correction: `source_event_id` has never once
+    // been found on a real leg (all 126 parsed legs came back null) --
+    // this markup evidently carries no `_event-{id}`-style identity
+    // marker at all. The lookup is kept (harmless, defensive) but
+    // `fixture_id` should be read as PROVISIONAL, natural-key-only
+    // identity until real evidence of an identity marker surfaces; see
+    // the MYBETS PROFILE header comment and TICKET_REAL_PAGE_VALIDATION.md
+    // Round 5.
     const identityEl = legEl.querySelector(MYBETS_SELECTORS.legIdentityElement);
     const eventIdMatch = identityEl && identityEl.id.match(MYBETS_SELECTORS.legEventIdPattern);
     const sourceEventId = eventIdMatch ? eventIdMatch[1] : null;
@@ -402,7 +581,15 @@
       fixtureIdResolution = 'NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID';
     }
 
-    const selectionMapped = OUTCOME_LABEL_MAP[(selectionRaw || '').toLowerCase()] || null;
+    // Round 5 real-capture correction: real selections are team names and
+    // other market-specific labels ("Stade Rennes", "Czechia (Home
+    // -1.5)"), not just H/D/A-style codes -- the old OUTCOME_LABEL_MAP
+    // attempt returned null for 107 of 126 real legs, discarding readable
+    // data for no benefit. `selection` now always mirrors the trimmed
+    // `selection_raw` verbatim (numeric-style labels like "1"/"2" pass
+    // through unchanged, same as any other selection) -- no attempted
+    // classification, since none is confirmed to exist in this markup.
+    const selectionNormalized = selectionRaw.trim();
 
     return {
       ok: true,
@@ -411,12 +598,13 @@
         fixture_id: fixtureId,
         fixture_id_resolution: fixtureIdResolution,
         selection_raw: selectionRaw || null,
-        selection: selectionMapped,
+        selection: selectionNormalized || null,
         odds_raw: oddsRaw || null,
         odds,
         market_raw: marketRaw || null,
         fixture_and_time_raw: fixtureAndTimeRaw || null,
-        competition_raw: competitionRaw || null,
+        competition_raw: competitionRaw,
+        competition_resolution: competitionResolution,
       },
     };
   }
@@ -444,13 +632,13 @@
       };
     }
 
-    const legEls = Array.from(ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow));
+    const legEls = Array.from(ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow)).filter(isCandidateMybetsLeg);
     if (legEls.length === 0) {
       return {
         outcome: 'UNRESOLVED',
         record: makeUnresolvedTicket({
           reason: 'NO_LEGS_FOUND',
-          detail: 'Ticket expanded but contains no .mybets-item leg rows.',
+          detail: 'Ticket expanded but contains no .mybets-item leg rows with any row content.',
           sourceIndex,
           raw: { ticket_id_raw: id },
         }),
@@ -486,6 +674,23 @@
     const systemTableRaw = systemTableEl ? text(systemTableEl) : null;
     const stakeReturnRawItems = Array.from(ticketEl.querySelectorAll(MYBETS_SELECTORS.stakeReturnInfoItem)).map(text);
 
+    // Round 5 real-capture correction: both mappings below are now
+    // confirmed against 9 real system tickets (cross-checked
+    // arithmetically -- see parseSystemTableRaw's own comment). Neither
+    // has been confirmed yet for a ticket WITHOUT a system table (no real
+    // single/double/treble/accumulator sample has been captured), so
+    // those still come back null here exactly as before -- narrowing,
+    // not removing, the gap this profile started with.
+    const systemTableParsed = parseSystemTableRaw(systemTableRaw);
+    const unitStakeRaw = systemTableParsed ? systemTableParsed.unitStakeRaw : null;
+    const totalStakeRawFromInfoItems = findLabeledInfoItemAmount(stakeReturnRawItems, ['Stake']);
+    const totalStakeRaw = totalStakeRawFromInfoItems || (systemTableParsed ? systemTableParsed.stakeRaw : null);
+    const potentialReturnRaw = findLabeledInfoItemAmount(stakeReturnRawItems, [
+      'Max Win',
+      'Max Return',
+      'Potential Return',
+    ]);
+
     return {
       outcome: 'PARSED',
       record: {
@@ -506,18 +711,18 @@
         // accumulator) currently has no confirmed distinguishing markup,
         // so it stays unclassified rather than guessed -- see
         // TICKET_TYPE_DETECTION_LIMITED_TO_SYSTEM_TABLE_PRESENCE.
-        ticket_type_raw: null,
+        // ticket_type_raw carries the confirmed "System Type" sub-value
+        // (e.g. "6 Folds", "Trebles") when the table parses -- extra
+        // detail, not a new classification.
+        ticket_type_raw: systemTableParsed ? systemTableParsed.systemTypeRaw : null,
         ticket_type_normalized: systemTableRaw ? 'SYSTEM' : null,
         ticket_type_taxonomy_gap: false,
-        // Cell-level label/value mapping for stake/return is unconfirmed
-        // (see the MYBETS PROFILE header comment) -- kept null/typed here
-        // rather than guessed; the raw text is preserved for audit below.
-        unit_stake_raw: null,
-        unit_stake: null,
-        total_stake_raw: null,
-        total_stake: null,
-        potential_return_raw: null,
-        potential_return: null,
+        unit_stake_raw: unitStakeRaw,
+        unit_stake: parseMybetsAmount(unitStakeRaw),
+        total_stake_raw: totalStakeRaw,
+        total_stake: parseMybetsAmount(totalStakeRaw),
+        potential_return_raw: potentialReturnRaw,
+        potential_return: parseMybetsAmount(potentialReturnRaw),
         stake_return_raw_items: stakeReturnRawItems,
         system_table_raw: systemTableRaw,
         legs,
@@ -981,7 +1186,13 @@
         continue; // never attempt to parse or collapse a ticket we couldn't confirm ready
       }
 
-      const legsOnThisTicket = ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow).length;
+      // Structural .mybets-item elements with zero row children (see
+      // isCandidateMybetsLeg's own comment) are excluded from this count
+      // too -- legs_seen should reflect genuine leg candidates, the same
+      // way parser.js's own coverage counts exclude structural rows.
+      const legsOnThisTicket = Array.from(ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow)).filter(
+        isCandidateMybetsLeg
+      ).length;
       aggregate.legsSeen += legsOnThisTicket;
       legsSeenThisPage += legsOnThisTicket;
       const { outcome, record } = processMybetsTicket(ticketEl, index, capturedAtUtc);
@@ -1228,7 +1439,7 @@
     const statusReasons = [
       'MYBETS_SELECTOR_PROFILE_ACTIVE',
       'LIVE_VIRTUAL_ZOOM_DETECTION_UNCONFIRMED_FOR_MYBETS_PROFILE',
-      'STAKE_RETURN_FIELD_MAPPING_UNCONFIRMED',
+      'STAKE_RETURN_FIELD_MAPPING_CONFIRMED_ONLY_FOR_SYSTEM_TICKETS',
       'TICKET_TYPE_DETECTION_LIMITED_TO_SYSTEM_TABLE_PRESENCE',
     ];
     if (duplicateTicketsSkipped > 0) {
