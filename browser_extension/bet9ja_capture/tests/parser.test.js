@@ -437,6 +437,92 @@ test('BET9JA_DESKTOP: navigation and betslip-panel decoys are never captured as 
   assert.ok(!allText.includes('betslip decoy'), 'betslip-panel decoy text must never appear anywhere in the envelope');
 });
 
+test('BET9JA_DESKTOP: rows are grouped by their nearest preceding .sports-head__date heading', () => {
+  const { envelope } = capture('bet9ja_desktop_date_headings_and_1up.html');
+  const byHome = Object.fromEntries(envelope.fixtures.map((f) => [f.participants.home, f]));
+  assert.equal(byHome['Ararat-Armenia'].date_heading_raw, 'Today');
+  assert.equal(byHome['Team Alpha'].date_heading_raw, 'Today');
+  assert.equal(byHome['Team Gamma'].date_heading_raw, 'Tomorrow');
+  // Two distinct date headings -> two distinct sections, not one flat batch.
+  assert.equal(envelope.coverage.sections_seen, 2);
+});
+
+test('BET9JA_DESKTOP: date_heading_raw is recorded for audit but never used to derive kickoff_utc', () => {
+  const { envelope } = capture('bet9ja_desktop_date_headings_and_1up.html');
+  for (const fixture of envelope.fixtures) {
+    assert.notEqual(fixture.date_heading_raw, null);
+    // No confirmed date-string format exists for .sports-head__date -- a
+    // bare time plus an unparsed heading string must never combine into a
+    // guessed UTC timestamp.
+    assert.equal(fixture.kickoff_utc, null);
+    assert.equal(fixture.kickoff_resolution, 'UNRESOLVED_NO_EXPLICIT_TIMESTAMP');
+  }
+});
+
+test('BET9JA_DESKTOP: LEGACY fixtures always carry date_heading_raw: null (no such concept there)', () => {
+  const { envelope } = capture('normal_soccer_1x2.html');
+  assert.equal(envelope.fixtures[0].date_heading_raw, null);
+});
+
+test('BET9JA_DESKTOP: a real "1X2 1UP" second odds list is never merged into the 1X2 market or silently dropped', () => {
+  const { envelope } = capture('bet9ja_desktop_date_headings_and_1up.html');
+  const gammaFixture = envelope.fixtures.find((f) => f.participants.home === 'Team Gamma');
+  // The real 1X2 market on this row is unaffected by the second list.
+  assert.deepEqual(gammaFixture.offered_odds, { H: 1.5, D: 4.0, A: 6.0 });
+
+  // The 1UP list is retained for audit under its own distinct family, not
+  // aliased to "1x2" and not silently dropped.
+  const oneUpRecord = envelope.unparsed_records.find(
+    (r) => r.reason === 'UNSUPPORTED_MARKET_FAMILY' && r.raw.market && r.raw.market.family === '1x2_1up'
+  );
+  assert.ok(oneUpRecord, 'expected an UNSUPPORTED_MARKET_FAMILY record for family "1x2_1up"');
+  assert.equal(oneUpRecord.expected_unsupported, true);
+  // And it must never have contaminated the real fixture's own outcomes.
+  assert.equal(gammaFixture.outcomes.some((o) => o.price === 1.3), false);
+});
+
+test('BET9JA_DESKTOP: competition-page id shape ("prematch_event-{id}", no sport-N segment) still resolves identity and sport', () => {
+  const { envelope } = capture('bet9ja_desktop_competition_page_sample.html', {
+    sourceUrl: 'https://sports.bet9ja.com/competition/soccer/netherlands/eredivisie/1-11077-1016657',
+  });
+  assert.equal(envelope.fixtures.length, 1);
+  const fixture = envelope.fixtures[0];
+  assert.equal(fixture.sport, 'SOCCER');
+  assert.deepEqual(fixture.participants, { home: 'Ajax', away: 'Feyenoord' });
+  assert.deepEqual(fixture.offered_odds, { H: 2.05, D: 3.5, A: 3.3 });
+  assert.match(fixture.fixture_id, /^bxf_[0-9a-f]{16}$/);
+});
+
+test('BET9JA_DESKTOP: region/competition are recorded from a confirmed competition-page URL, as raw slugs', () => {
+  const { envelope } = capture('bet9ja_desktop_competition_page_sample.html', {
+    sourceUrl: 'https://sports.bet9ja.com/competition/soccer/netherlands/eredivisie/1-11077-1016657',
+  });
+  assert.equal(envelope.fixtures[0].region, 'netherlands');
+  assert.equal(envelope.fixtures[0].competition, 'eredivisie');
+});
+
+test('BET9JA_DESKTOP: region/competition stay null on a page whose URL does not match the confirmed competition-page shape', () => {
+  // The Highlights page's own real URL mixes competitions, so it must
+  // never be attributed to a single country/league -- sport here resolves
+  // via this row's own sport-N id segment, not the URL, which is exactly
+  // what distinguishes the Highlights page from a competition page.
+  const { envelope } = capture('bet9ja_desktop_real_sample.html', {
+    sourceUrl: 'https://sports.bet9ja.com/sport/soccer/1',
+  });
+  assert.equal(envelope.fixtures[0].region, null);
+  assert.equal(envelope.fixtures[0].competition, null);
+  assert.equal(envelope.fixtures[0].sport, 'SOCCER');
+});
+
+test('BET9JA_DESKTOP: an unrecognized URL and no sport-N id segment leaves sport unresolved, never guessed', () => {
+  const { envelope } = capture('bet9ja_desktop_competition_page_sample.html', {
+    sourceUrl: 'https://sports.bet9ja.com/some/other/unrecognized/path',
+  });
+  assert.equal(envelope.fixtures.length, 0);
+  assert.equal(envelope.unparsed_records.length, 1);
+  assert.equal(envelope.unparsed_records[0].reason, 'UNSUPPORTED_SPORT');
+});
+
 test('BET9JA_DESKTOP: for every records_seen, records_parsed + records_unresolved accounts for all of them', () => {
   // NOTE: this equality is NOT a universal invariant of the envelope --
   // records_unresolved deliberately excludes "expected unsupported" rows
@@ -445,7 +531,12 @@ test('BET9JA_DESKTOP: for every records_seen, records_parsed + records_unresolve
   // would legitimately show records_seen > records_parsed + records_unresolved.
   // It holds for every fixture in this real-page validation set specifically
   // because none of their rows are expected-unsupported.
-  for (const fixtureName of ['bet9ja_desktop_real_sample.html', 'bet9ja_desktop_mixed_pass_fail.html', 'bet9ja_desktop_nav_and_betslip_decoys.html']) {
+  for (const fixtureName of [
+    'bet9ja_desktop_real_sample.html',
+    'bet9ja_desktop_mixed_pass_fail.html',
+    'bet9ja_desktop_nav_and_betslip_decoys.html',
+    'bet9ja_desktop_date_headings_and_1up.html',
+  ]) {
     const { envelope } = capture(fixtureName);
     assert.equal(
       envelope.coverage.records_seen,

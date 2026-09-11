@@ -1,0 +1,14 @@
+<!-- Confirmed real markup shape for Bet9ja COMPETITION pages (round-2
+     live inspection, 2026-09-11): same .sports-table/.table-f/
+     .sports-head__date/odds-id structure as the Highlights page, but the
+     matchup cell's id uses a "prematch_event-{id}" prefix -- no "sport-N"
+     segment at all. Confirmed identical across four competitions
+     (Eredivisie, Premier League, LaLiga, Ligue 1); this fixture uses a
+     synthetic event id and team names since no single real row from a
+     competition page was supplied verbatim (unlike
+     bet9ja_desktop_real_sample.html's Highlights-page row, which is exact
+     real markup). -->
+<div class="sports-table">
+  <div class="sports-head__date">Today</div>
+  <div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>19:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="prematch_event-845123456"><div class="sports-table__home txt-cut">Ajax</div><div class="sports-table__away txt-cut">Feyenoord</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="prematch_event-845123456_odds_market-1x2_sign-1">2.05</li><li class="sports-table__odds-item dib pt10" id="prematch_event-845123456_odds_market-1x2_sign-X">3.50</li><li class="sports-table__odds-item dib pt10" id="prematch_event-845123456_odds_market-1x2_sign-2">3.30</li></ul></div></div>
+</div>

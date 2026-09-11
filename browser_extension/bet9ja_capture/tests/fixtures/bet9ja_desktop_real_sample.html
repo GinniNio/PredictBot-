@@ -1,17 +1,18 @@
 <!--
   Sanitized, real Bet9ja desktop sportsbook markup (BET9JA_DESKTOP profile).
 
-  Provenance: captured 2026-09-11 from https://sports.bet9ja.com/sport/soccer/1
-  (a real, authenticated Bet9ja pre-match Soccer page) during the extension's
-  first real-page validation pass. This is the exact row markup as supplied,
-  unmodified except for this comment -- it does not appear inside any
-  known competition-group/list wrapper (none was captured alongside it), so
-  parser.js's BET9JA_DESKTOP fallback profile treats it (and any sibling
-  `.table-f` rows) as one flat, ungrouped batch. See parser.js's top-of-file
-  SELECTOR CONTRACT comment for exactly what this one sample does and does
-  not confirm -- notably: no live/virtual/Zoom row has been sampled yet, and
-  no year/timezone-qualified kickoff timestamp exists in this markup shape
-  at all (kickoff resolves to an honest UNRESOLVED_NO_EXPLICIT_TIMESTAMP,
-  not a bug).
+  Provenance: the one fixture row is exact real markup captured 2026-09-11
+  from https://sports.bet9ja.com/sport/soccer/1 (a real, authenticated
+  Bet9ja pre-match Soccer page). The `.sports-table` wrapper around it was
+  confirmed in a round-2 live inspection the same day (the row is a direct
+  child of `.sports-table`), added here so this fixture matches the
+  confirmed root-scoped selector contract -- see parser.js's top-of-file
+  SELECTOR CONTRACT comment and BET9JA_DESKTOP_SELECTORS for exactly what
+  this profile does and does not confirm. Known open gaps: no live/virtual/
+  Zoom row sampled yet (every row is treated as pre-match), and no
+  confirmed date-string format from `.sports-head__date` (kickoff resolves
+  honestly to UNRESOLVED_NO_EXPLICIT_TIMESTAMP, not a bug).
 -->
+<div class="sports-table">
 <div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>16:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="home_highlights_sport-1_event-832455154"><div class="sports-table__home txt-cut">Ararat-Armenia</div><div class="sports-table__away txt-cut">FC Syunik</div></div><div class="sports-table__td" style="display: flex; width: 52px;"><div class="" style="display: flex; justify-content: flex-end; margin-top: 5px; margin-bottom: 5px;"><div class="sports-table__pts txt-c"><div class="livestream-icon statistic-icon"></div></div></div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-832455154_odds_market-1x2_sign-1">1.14</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-832455154_odds_market-1x2_sign-X">7.30</li><li class="sports-table__odds-item dib pt10" id="home_highlights_sport-1_event-832455154_odds_market-1x2_sign-2">12.25</li></ul></div></div>
+</div>
