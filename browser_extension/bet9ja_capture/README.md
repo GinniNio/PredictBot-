@@ -8,13 +8,13 @@ A Manifest V3 browser extension (Chrome/Edge) with two independent buttons:
   normalized JSON file. This replaces copy-pasting a Bet9ja page into a
   chat host as the first step of `docs/LEDGER_DAILY_WORKFLOW.md`.
 - **Capture open bets** (see "Open bet ticket capture" below — real
-  selectors confirmed Round 2 for ticket boundaries/id/legs, with named
-  open gaps: live/Virtual/Zoom detection, stake/return cell mapping, and
-  automated pagination): expands, parses, and re-collapses each open
-  ticket accordion on the currently visible Open Bets page — ticket id,
+  selectors confirmed Rounds 2–3 for ticket boundaries/id/legs/pagination,
+  with named open gaps: live/Virtual/Zoom detection and stake/return cell
+  mapping): expands, parses, and re-collapses each open ticket accordion,
+  walking automatically through every numbered page — ticket id,
   placement time, each leg's selection/odds/market/fixture/source event
-  id — into a second normalized JSON file, so what you actually bet can
-  be recorded in the betting ledger without hand-transcription.
+  id — into one combined normalized JSON file, so what you actually bet
+  can be recorded in the betting ledger without hand-transcription.
 
 This is deliberately the smallest useful slice — see "Boundaries" below for
 everything it does not do yet.
@@ -485,15 +485,44 @@ matching `capture_status_reasons` entry for each, and can never report
   distinguishes single/double/treble/accumulator from each other yet, so
   they all currently report `ticket_type_normalized: null`.
   (`TICKET_TYPE_DETECTION_LIMITED_TO_SYSTEM_TABLE_PRESENCE`)
-- **Pagination is not automated.** Round 2 found 5 tickets on the visible
-  page plus 20 pagination items, but whether those 20 are genuine page
-  links (vs. prev/next/ellipsis/disabled controls) is itself unconfirmed —
-  automating clicks through unconfirmed pagination markup risks clicking
-  an unintended control, so this release captures only the page already
-  on screen (`coverage.pages_captured: 1`, `coverage.pagination_automated:
-  false`). See `TICKET_REAL_PAGE_VALIDATION.md` Round 2 for exactly what
-  evidence is needed to add this safely.
-  (`PAGINATION_NOT_YET_AUTOMATED_SINGLE_PAGE_ONLY`)
+Pagination is now automated (confirmed Round 3 — see "Pagination" below).
+
+### Pagination
+
+Confirmed via a second live authenticated inspection (Round 3, see
+`TICKET_REAL_PAGE_VALIDATION.md`): 16 genuine numbered pages
+(`.mybets .pg-pagination__item` whose text matches `/^\d+$/`), plus
+first/prev/next/last controls that this parser **never clicks** — only a
+verified numbered item is ever a click target, re-checked immediately
+before the click itself, not just when it's found. Pagination is
+client-side (the URL never changes); the current page number is read
+from `.pg-pagination__item--current`'s own text.
+
+The automated loop: parse and deduplicate (by `bet9ja_ticket_id`) the
+current page → read the current page number → click the next numbered
+page (current + 1) → wait for the `--current` marker to actually advance
+to that number before parsing anything → merge that page's tickets into
+the running total, deduplicating cross-page (a ticket id repeated on two
+pages is counted once; a fixture legitimately appearing in two different
+tickets is not affected — those keep their own distinct ticket ids) →
+repeat. It stops when: no further numbered page exists (the run reached
+the highest page), a page number would be revisited (a loop guard), a
+page's exact ticket-id set repeats a previous page's (the transition
+looked successful but the content didn't actually change), a page
+transition doesn't confirm within the wait window (a timeout, never a
+silent skip), or a fixed safety cap on page count is hit. Every stop
+reason is recorded verbatim as `PAGINATION_STOPPED_<reason>` in
+`capture_status_reasons`. If the run advanced past page 1, it clicks back
+to page 1 afterward — fire-and-forget, same "restore what capture
+touched" spirit as ticket collapse, never required for the correctness of
+the capture that already happened.
+
+One combined envelope covers the whole run — `coverage.pages_available`
+(the highest numbered page ever seen; can grow as a windowed pagination
+UI is navigated), `coverage.pages_visited`, and `coverage.
+duplicate_tickets_skipped` alongside the usual ticket/leg counts. There is
+still no per-ticket live/Virtual/Zoom or settled-status signal on this
+page (see the gap above) — pagination completeness doesn't change that.
 
 ### `coverage`'s row-accounting invariant
 
@@ -582,8 +611,9 @@ profile produced a given record.
    directory.
 4. Open a Bet9ja pre-match page, log in, click the extension icon, click
    **Capture fixtures**. Separately, open your "Open Bets"/"My Bets" page
-   and click **Capture open bets** to try the (unverified-selector) ticket
-   capture.
+   and click **Capture open bets** — it will expand each ticket in turn
+   and walk every numbered pagination page automatically before
+   downloading one combined file.
 
 Not published to the Chrome Web Store in this release.
 
@@ -642,11 +672,21 @@ synthetic HTML:
   refusal, an expand-timeout distinct from an empty ticket, the
   `source_event_id`/`fixture_id` exposure and its natural-key fallback,
   the coverage invariant, the permanent `CAPTURE_PARTIAL` cap while named
-  gaps remain open, the single-page-only coverage fields, and a privacy
-  test confirming account info rendered outside `.mybets` never leaks in.
+  gaps remain open, single-page-only (no-pagination-control) mode, and a
+  privacy test confirming account info rendered outside `.mybets` never
+  leaks in.
+- The pagination tests (a jsdom harness that simulates client-side page
+  transitions via a swapped ticket-list container and a moved `--current`
+  marker, plus first/prev/next/last click counters): walking every
+  numbered page and merging tickets, never clicking first/prev/next/last,
+  restoring to page 1 after a multi-page walk, cross-page deduplication by
+  ticket id, stopping on repeated page content, stopping on a page
+  transition that never confirms (a timeout, not a silent skip), and the
+  `pages_available`/`pages_visited`/`duplicate_tickets_skipped` coverage
+  fields.
   A dedicated "safety" test greps the compiled `ticket_parser.js` source
   itself to confirm `.click()` is only ever called on the confirmed
-  accordion toggle.
+  accordion toggle or a verified numbered pagination item.
 
 ## Boundaries (Release 1 fixtures / this release's tickets)
 
@@ -658,13 +698,14 @@ synthetic HTML:
   item — see `docs/LEDGER_DAILY_WORKFLOW.md`).
 - No result lookup.
 - No background scraping — capture runs only on a user click, and only
-  ever expands/collapses ticket accordions already visible on the current
-  Open Bets tab (you must start there; no navigation is performed).
-- No automated pagination yet — this release captures the single page
-  already on screen (`coverage.pages_captured: 1`). See "The MYBETS
-  profile" above and `TICKET_REAL_PAGE_VALIDATION.md` Round 2 for exactly
-  what pagination-control selector evidence is needed before this is safe
-  to automate.
+  ever expands/collapses ticket accordions and clicks verified numbered
+  pagination pages already reachable from the current Open Bets tab (you
+  must start there; no cross-tab or cross-page URL navigation is
+  performed — pagination here is client-side clicking, never a URL
+  change).
+- Pagination automatically walks every numbered page and restores the
+  browser to page 1 afterward — never clicks `.first`/`.prev`/`.next`/
+  `.last` (see "Pagination" above).
 - No backend, database, Render, or Neon.
 - No all-sports parser in this release.
 - No live, Zoom, or Virtual ticket capture from the placeholder profile;
@@ -689,13 +730,12 @@ confirmed. Its remaining named gap is live/virtual/Zoom event marking,
 still unconfirmed for lack of a real sample of each state.
 
 Open bet ticket capture's core real-page selector question is now also
-answered for ticket boundaries, ids, and legs (the MYBETS profile,
-confirmed Round 2) — see "The MYBETS profile" above for exactly what's
-confirmed vs. still named as an open gap (live/Virtual/Zoom detection,
-stake/return cell mapping, ticket-type detection beyond system tickets,
-and automated pagination). The very next step is running one real
-"Capture open bets" click against the confirmed selectors and recording
-the result in `TICKET_REAL_PAGE_VALIDATION.md` Round 3 — following the
-same evidence-driven correction discipline used throughout this project —
-and, separately, supplying the pagination control's real selector
-evidence so multi-page capture can be added safely rather than guessed.
+answered for ticket boundaries, ids, legs, and pagination (the MYBETS
+profile, confirmed Rounds 2–3) — see "The MYBETS profile" and
+"Pagination" above for exactly what's confirmed vs. still named as an
+open gap (live/Virtual/Zoom detection, stake/return cell mapping,
+ticket-type detection beyond system tickets). The very next step is
+running one real "Capture open bets" click against the confirmed
+selectors — including a multi-page account, if available — and recording
+the result in `TICKET_REAL_PAGE_VALIDATION.md` Round 4, following the
+same evidence-driven correction discipline used throughout this project.

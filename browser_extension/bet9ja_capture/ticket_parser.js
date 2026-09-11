@@ -92,20 +92,53 @@
  *     (`stake_return_raw_items`, `system_table_raw`) rather than parsed
  *     into `unit_stake`/`total_stake`/`potential_return`, which stay
  *     null for this profile until that mapping is confirmed.
- *   - Pagination is NOT automated. The live inspection found 20
- *     pagination items on top of the 5 tickets visible on the current
- *     page, but whether those are all genuine page links (vs. prev/next/
- *     ellipsis/disabled controls) is itself unconfirmed -- automating
- *     clicks through unconfirmed pagination markup risks clicking an
- *     unintended control, which this parser will not do without real
- *     selector evidence. This release captures the CURRENTLY VISIBLE
- *     page only (`coverage.pages_captured: 1`,
- *     `PAGINATION_NOT_YET_AUTOMATED_SINGLE_PAGE_ONLY`).
+ *
+ * PAGINATION -- confirmed via a second live inspection (Round 3, see
+ * TICKET_REAL_PAGE_VALIDATION.md): 16 genuine numbered pages
+ * (`.mybets .pg-pagination__item` whose text matches `/^\d+$/`), plus
+ * first/prev/next/last controls (`.first`/`.prev`/`.next`/`.last`
+ * classes) that are NEVER clicked -- only a verified numbered item ever
+ * is. Pagination is client-side (the URL never changes); the current
+ * page is read from `.pg-pagination__item--current`'s text. The
+ * automated loop (see paginateAndCaptureAllPages):
+ *   1. Parses and deduplicates (by `bet9ja_ticket_id`) the current page.
+ *   2. Reads the current page number from the `--current` marker.
+ *   3. Clicks the NEXT NUMBERED item (current + 1) -- never the generic
+ *      `.next` control -- only after verifying its text is `/^\d+$/` and
+ *      it carries no `disabled` attribute.
+ *   4. Waits for the `--current` marker to actually advance to that
+ *      number before parsing (a click that doesn't move the marker in
+ *      time is a stop condition, not a silent skip).
+ *   5. Parses that page's tickets, merging into the running total with
+ *      cross-page duplicate detection (by ticket id) -- a ticket that
+ *      legitimately reappears across pages is deduplicated, not double-
+ *      counted or double-captured.
+ *   6. Stops when: no next-numbered item exists any more (the highest
+ *      page reached), the next page number was already visited (a loop
+ *      guard), a page's ticket-id set exactly repeats a previous page's
+ *      (content didn't actually change), a page transition doesn't
+ *      confirm within the wait window, or a fixed safety cap on page
+ *      count is hit -- never an unbounded loop.
+ *   7. Produces ONE combined envelope for the whole run, not one file
+ *      per page.
+ *   8. Records `pages_available` (the highest numbered page ever seen,
+ *      which may grow as a windowed pagination UI is navigated),
+ *      `pages_visited`, and per-run ticket/leg counts in `coverage`.
+ *   9. The ONLY elements ever clicked anywhere in this file remain the
+ *      confirmed `.accordion-toggle` and a verified numbered pagination
+ *      item -- never `.first`/`.prev`/`.next`/`.last`, never Cashout,
+ *      never "Reload Selections", never a bet-placement control. See the
+ *      SAFETY note above and the safety test in
+ *      tests/ticket_parser.test.js, which greps this file's own source.
+ * On the FIRST page only, if this run advanced past page 1, it clicks
+ * back to page 1 afterward (fire-and-forget, same "restore what capture
+ * touched" spirit as collapseIfNeeded) -- best-effort, never required
+ * for the correctness of the capture that already happened.
  */
 (function (root) {
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.2.0-mybets-partial';
+  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.3.0-mybets-pagination';
 
   // See SELECTOR CONTRACT above -- every value here is an unconfirmed
   // best guess, not evidence-derived.
@@ -162,14 +195,32 @@
     // proven otherwise.
     legIdentityElement: '[id*="_event-"]',
     legEventIdPattern: /event-([a-z0-9]+)/i,
+    // Confirmed Round 3 (live authenticated inspection, 16 genuine
+    // numbered pages + first/prev/next/last controls). See the
+    // PAGINATION header comment above for the full contract. Only a
+    // verified numbered item (`/^\d+$/` text) is ever a click target --
+    // first/prev/next/last are named here for detection/documentation
+    // only and are NEVER queried for a click.
+    paginationContainer: '.pg-pagination',
+    paginationItem: '.pg-pagination__item',
+    paginationCurrent: '.pg-pagination__item--current',
   };
+
+  const NUMBERED_PAGE_TEXT = /^\d+$/;
 
   // A `.accordion-toggle` click that never adds the open class within this
   // window is reported as EXPAND_TIMEOUT (unresolved), never silently
   // treated as "no legs" -- distinguishing "couldn't confirm expansion"
-  // from "confirmed empty" matters for an accurate coverage count.
+  // from "confirmed empty" matters for an accurate coverage count. The
+  // same timeout/interval is reused for a pagination click's wait for
+  // the `--current` marker to advance.
   const EXPAND_TIMEOUT_MS = 3000;
   const EXPAND_POLL_INTERVAL_MS = 25;
+  // Real evidence confirmed 16 pages; this is a generous multiple of that
+  // kept as a hard backstop against an unbounded loop should a future
+  // page count grow or a stop condition ever fail to trigger -- never
+  // relied upon in the normal case.
+  const MAX_PAGES_SAFETY_CAP = 200;
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -851,30 +902,24 @@
   }
 
   /**
-   * MYBETS profile capture -- async because expanding a collapsed ticket
-   * requires a real click and a wait for the resulting DOM mutation (see
-   * the MYBETS PROFILE header comment). Each ticket is expanded, parsed,
-   * and (if this call opened it) collapsed again in strict sequence --
-   * never in parallel -- so at most one ticket is ever mid-expansion at a
-   * time, keeping the live page's own state predictable throughout.
+   * Processes every `.accordion-item` currently rendered under
+   * `mybetsRoot` -- i.e. one page's worth of tickets. Always re-queries
+   * fresh (never caches ticket elements across a pagination click, since
+   * a client-side page transition may replace them entirely). Merges
+   * results into the caller's running totals, deduplicating by
+   * `bet9ja_ticket_id` against `seenTicketIds` (shared across the whole
+   * multi-page run, not reset per page) -- a ticket that legitimately
+   * reappears across pages is counted once, never twice.
    */
-  async function captureMybetsEnvelope(doc, context, envelopeBase, mybetsRoot) {
-    const capturedAtUtc = context.capturedAtUtc;
+  async function processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate) {
     const ticketEls = Array.from(mybetsRoot.querySelectorAll(MYBETS_SELECTORS.ticket));
-
-    const tickets = [];
-    const unresolvedTickets = [];
-    const excludedTickets = [];
-    const seenTicketIds = new Set();
-    let legsSeen = 0;
-    let legsParsed = 0;
-    let duplicateTicketsSkipped = 0;
+    const ticketIdsOnThisPage = [];
 
     for (let index = 0; index < ticketEls.length; index += 1) {
       const ticketEl = ticketEls[index];
       const expandResult = await ensureTicketExpanded(ticketEl);
       if (!expandResult.opened) {
-        unresolvedTickets.push(
+        aggregate.unresolvedTickets.push(
           makeUnresolvedTicket({
             reason: expandResult.reason === 'TOGGLE_NOT_FOUND' ? 'TICKET_TOGGLE_NOT_FOUND' : 'TICKET_EXPAND_TIMEOUT',
             detail: `Could not confirm ticket[${index}] expanded (.accordion-item--open never appeared).`,
@@ -885,29 +930,193 @@
         continue; // never attempt to parse or collapse a ticket we couldn't confirm open
       }
 
-      legsSeen += ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow).length;
+      aggregate.legsSeen += ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow).length;
       const { outcome, record } = processMybetsTicket(ticketEl, index, capturedAtUtc);
       if (outcome === 'PARSED') {
+        ticketIdsOnThisPage.push(record.bet9ja_ticket_id);
         if (seenTicketIds.has(record.bet9ja_ticket_id)) {
-          // Not expected on a single page, but guarded rather than
-          // assumed -- a duplicate ticket id is recorded in coverage
-          // rather than silently pushed twice or silently dropped.
-          duplicateTicketsSkipped += 1;
+          // A ticket id repeated within THIS page (not merely across
+          // pages -- see pageFingerprints in the caller for that case)
+          // is guarded rather than assumed impossible.
+          aggregate.duplicateTicketsSkipped += 1;
         } else {
           seenTicketIds.add(record.bet9ja_ticket_id);
-          tickets.push(record);
-          legsParsed += record.legs.length;
+          aggregate.tickets.push(record);
+          aggregate.legsParsed += record.legs.length;
         }
       } else if (outcome === 'EXCLUDED') {
-        excludedTickets.push(record);
+        aggregate.excludedTickets.push(record);
       } else {
-        unresolvedTickets.push(record);
+        aggregate.unresolvedTickets.push(record);
       }
 
       collapseIfNeeded(ticketEl, expandResult.wasAlreadyOpen);
     }
 
-    const ticketsSeen = ticketEls.length;
+    aggregate.ticketsSeen += ticketEls.length;
+    return { ticketCount: ticketEls.length, ticketIdsOnThisPage: ticketIdsOnThisPage.slice().sort() };
+  }
+
+  function getPageNumberText(el) {
+    return el ? text(el).trim() : '';
+  }
+
+  function isVerifiedNumberedPaginationItem(el) {
+    return !!el && NUMBERED_PAGE_TEXT.test(getPageNumberText(el)) && !el.hasAttribute('disabled');
+  }
+
+  function getCurrentPageNumber(paginationEl) {
+    const currentEl = paginationEl.querySelector(MYBETS_SELECTORS.paginationCurrent);
+    const t = getPageNumberText(currentEl);
+    return NUMBERED_PAGE_TEXT.test(t) ? parseInt(t, 10) : null;
+  }
+
+  function getNumberedPaginationItems(paginationEl) {
+    return Array.from(paginationEl.querySelectorAll(MYBETS_SELECTORS.paginationItem)).filter(
+      isVerifiedNumberedPaginationItem
+    );
+  }
+
+  /**
+   * Walks every reachable numbered page, starting from whatever page is
+   * currently on screen, merging each page's tickets into `aggregate` via
+   * processCurrentPageTickets. See the PAGINATION header comment for the
+   * full contract (click-target restriction, stop conditions, restore-
+   * to-page-1 best effort). Returns pagination-specific coverage fields;
+   * a page with no `.pg-pagination` container at all is single-page mode
+   * (pages_available: 1, pages_visited: 1, pagination_stopped_reason:
+   * 'NO_PAGINATION_CONTROL_FOUND') -- not an error, just nothing to
+   * paginate through.
+   */
+  async function paginateAndCaptureAllPages(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate) {
+    const firstPageResult = await processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate);
+
+    const paginationEl = mybetsRoot.querySelector(MYBETS_SELECTORS.paginationContainer);
+    if (!paginationEl) {
+      return { pagesAvailable: 1, pagesVisited: 1, stoppedReason: 'NO_PAGINATION_CONTROL_FOUND' };
+    }
+
+    let currentPage = getCurrentPageNumber(paginationEl) || 1;
+    const visitedPageNumbers = new Set([currentPage]);
+    const pageFingerprints = new Set([firstPageResult.ticketIdsOnThisPage.join(',')]);
+    let pagesAvailable = currentPage;
+    for (const item of getNumberedPaginationItems(paginationEl)) {
+      const n = parseInt(getPageNumberText(item), 10);
+      if (n > pagesAvailable) pagesAvailable = n;
+    }
+    let pagesVisited = 1;
+    let stoppedReason = null;
+
+    while (true) {
+      if (pagesVisited >= MAX_PAGES_SAFETY_CAP) {
+        stoppedReason = 'MAX_PAGES_SAFETY_CAP_REACHED';
+        break;
+      }
+      // Re-query fresh every iteration -- a client-side page transition
+      // may replace the pagination container's own children (or the
+      // container itself), so nothing from a prior iteration is trusted.
+      const currentPaginationEl = mybetsRoot.querySelector(MYBETS_SELECTORS.paginationContainer);
+      if (!currentPaginationEl) {
+        stoppedReason = 'PAGINATION_CONTROL_DISAPPEARED';
+        break;
+      }
+      const numberedItems = getNumberedPaginationItems(currentPaginationEl);
+      for (const item of numberedItems) {
+        const n = parseInt(getPageNumberText(item), 10);
+        if (n > pagesAvailable) pagesAvailable = n;
+      }
+
+      const nextPageNumber = currentPage + 1;
+      const nextItem = numberedItems.find((el) => getPageNumberText(el) === String(nextPageNumber));
+      if (!nextItem) {
+        stoppedReason = 'NO_FURTHER_NUMBERED_PAGE';
+        break;
+      }
+      if (visitedPageNumbers.has(nextPageNumber)) {
+        stoppedReason = 'PAGE_NUMBER_REPEATED';
+        break;
+      }
+      // Belt-and-suspenders re-verification immediately before the click,
+      // even though `nextItem` was already filtered by
+      // isVerifiedNumberedPaginationItem above -- this is the only click
+      // target in this loop, so it is re-checked right at the point of
+      // the click itself, not just when it was found.
+      if (!isVerifiedNumberedPaginationItem(nextItem)) {
+        stoppedReason = 'NEXT_PAGE_ITEM_FAILED_VERIFICATION';
+        break;
+      }
+
+      nextItem.click();
+      const advanced = await waitFor(
+        () => {
+          const el = mybetsRoot.querySelector(MYBETS_SELECTORS.paginationContainer);
+          return !!el && getCurrentPageNumber(el) === nextPageNumber;
+        },
+        EXPAND_TIMEOUT_MS,
+        EXPAND_POLL_INTERVAL_MS
+      );
+      if (!advanced) {
+        stoppedReason = 'PAGE_TRANSITION_TIMEOUT';
+        break;
+      }
+
+      currentPage = nextPageNumber;
+      visitedPageNumbers.add(currentPage);
+      pagesVisited += 1;
+
+      const pageResult = await processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate);
+      const fingerprint = pageResult.ticketIdsOnThisPage.join(',');
+      if (fingerprint !== '' && pageFingerprints.has(fingerprint)) {
+        stoppedReason = 'PAGE_CONTENT_REPEATED';
+        break;
+      }
+      pageFingerprints.add(fingerprint);
+    }
+
+    if (currentPage !== 1) {
+      // Best-effort restore to page 1, fire-and-forget -- same spirit as
+      // collapseIfNeeded: never awaited, never required for the
+      // correctness of the capture that already happened.
+      const restoreEl = mybetsRoot.querySelector(MYBETS_SELECTORS.paginationContainer);
+      const firstItem = restoreEl && getNumberedPaginationItems(restoreEl).find((el) => getPageNumberText(el) === '1');
+      if (firstItem) firstItem.click();
+    }
+
+    return { pagesAvailable, pagesVisited, stoppedReason };
+  }
+
+  /**
+   * MYBETS profile capture -- async because expanding a collapsed ticket
+   * (and, now, advancing a pagination page) requires a real click and a
+   * wait for the resulting DOM mutation (see the MYBETS PROFILE and
+   * PAGINATION header comments). Everything happens in strict sequence --
+   * never in parallel -- so at most one ticket or one page transition is
+   * ever in flight at a time, keeping the live page's own state
+   * predictable throughout.
+   */
+  async function captureMybetsEnvelope(doc, context, envelopeBase, mybetsRoot) {
+    const capturedAtUtc = context.capturedAtUtc;
+    const seenTicketIds = new Set();
+    const aggregate = {
+      tickets: [],
+      unresolvedTickets: [],
+      excludedTickets: [],
+      ticketsSeen: 0,
+      legsSeen: 0,
+      legsParsed: 0,
+      duplicateTicketsSkipped: 0,
+    };
+
+    const { pagesAvailable, pagesVisited, stoppedReason } = await paginateAndCaptureAllPages(
+      mybetsRoot,
+      capturedAtUtc,
+      seenTicketIds,
+      aggregate
+    );
+
+    const { tickets, unresolvedTickets, excludedTickets, ticketsSeen, legsSeen, legsParsed, duplicateTicketsSkipped } =
+      aggregate;
+
     // Every reason below is a currently-known, real gap (see the MYBETS
     // PROFILE header comment) -- present on EVERY capture using this
     // profile so a result can never be mistaken for fully validated.
@@ -916,11 +1125,11 @@
       'LIVE_VIRTUAL_ZOOM_DETECTION_UNCONFIRMED_FOR_MYBETS_PROFILE',
       'STAKE_RETURN_FIELD_MAPPING_UNCONFIRMED',
       'TICKET_TYPE_DETECTION_LIMITED_TO_SYSTEM_TABLE_PRESENCE',
-      'PAGINATION_NOT_YET_AUTOMATED_SINGLE_PAGE_ONLY',
     ];
     if (duplicateTicketsSkipped > 0) {
       statusReasons.push('DUPLICATE_TICKET_IDS_SKIPPED');
     }
+    statusReasons.push(`PAGINATION_STOPPED_${stoppedReason}`);
 
     let captureStatus;
     if (ticketsSeen === 0) {
@@ -945,7 +1154,7 @@
         capture_status: captureStatus,
         capture_status_reasons: statusReasons,
         coverage: {
-          visible_page_only: true,
+          visible_page_only: false,
           tickets_seen: ticketsSeen,
           tickets_parsed: tickets.length,
           tickets_unresolved: unresolvedTickets.length,
@@ -953,11 +1162,9 @@
           legs_seen: legsSeen,
           legs_parsed: legsParsed,
           duplicate_tickets_skipped: duplicateTicketsSkipped,
-          // Automated multi-page capture needs confirmed pagination
-          // selectors (see the MYBETS PROFILE header comment) -- this
-          // release only ever captures the one page already on screen.
-          pages_captured: 1,
-          pagination_automated: false,
+          pages_available: pagesAvailable,
+          pages_visited: pagesVisited,
+          pagination_automated: true,
         },
         tickets,
         unresolved_tickets: unresolvedTickets,
