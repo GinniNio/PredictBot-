@@ -32,9 +32,15 @@ Four labels, EXPLICITLY DISTINCT (this task's core reporting requirement
 - `source_rows`               — total rows read from a file (before any
                                   validation judgment).
 - `usable_rows`                — rows `validation.validate_file` found no
-                                  issue with at all (only these are
-                                  actually written into a split's dataset
-                                  file).
+                                  issue with at all. These are always
+                                  written into a split's dataset file;
+                                  `split_prospective_paper_scoring` ALSO
+                                  writes a row whose sole issue is a blank
+                                  (not-yet-settled) result, with
+                                  `result: None` — see
+                                  `pending_settlement_rows_included` below
+                                  and `build_file_records`'s own
+                                  docstring.
 - `rejected_unique_rows`       — `source_rows - usable_rows`: ONE count
                                   per row, even if that row tripped several
                                   typed rejection reasons at once.
@@ -103,7 +109,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from data_pipeline.manifest_yaml import load_yaml_categories_file
 from data_pipeline.schema_inspection import column_drift, inspect_header, read_csv_rows_with_encoding
-from data_pipeline.validation import FileValidationResult, validate_file
+from data_pipeline.validation import FileValidationResult, RejectionReason, validate_file
 
 CONTRACT_PATH = REPO_ROOT / "docs" / "adapters" / "data" / "soccer_1x2_dataset_contract.yaml"
 DEFAULT_RAW_DIR = REPO_ROOT / "data_pipeline" / "raw"
@@ -318,12 +324,25 @@ def build_file_records(
     validation_result: FileValidationResult,
     include_kickoff_time: bool,
     source_retrieved_at: str | None = None,
+    allow_null_result: bool = False,
 ) -> list[dict[str, Any]]:
     """Build normalized per-match records for every USABLE row of one
-    file (rejected rows are never written into a dataset file — they are
-    only ever surfaced, sanitized, in the evidence report's rejected-row
-    sample). `include_kickoff_time` reflects the split's own contract row
-    (kickoff time is only meaningful from season 1920 onward — see
+    file, plus — only when `allow_null_result=True` (the
+    `split_prospective_paper_scoring` split only, per its contract row's
+    `result_nullable_until_settlement` required field) — every row whose
+    ONLY validation issue is `MISSING_RESULT` (a fixture that simply
+    hasn't been played yet has a blank FTR column and nothing else wrong
+    with it). Such a row is included with `result: None` rather than
+    dropped, since dropping it would silently exclude exactly the
+    not-yet-settled fixtures the prospective split exists to score. A row
+    with `MISSING_RESULT` alongside any OTHER issue (bad date, missing
+    team identity, etc.) is still excluded — a genuinely malformed row is
+    never smuggled in just because one of its several problems happens to
+    be a blank result. Every other split leaves `allow_null_result` at its
+    default `False` and behaves exactly as before (usable rows only).
+
+    `include_kickoff_time` reflects the split's own contract row (kickoff
+    time is only meaningful from season 1920 onward — see
     `price_field_match_kickoff_at`); when False, `match_kickoff_at` is
     always `None`, even if the file happens to carry a `Time` column
     (never inferred from the file — from the split's contract instead, so
@@ -352,8 +371,17 @@ def build_file_records(
 
     records: list[dict[str, Any]] = []
     usable_index_set = {r.row_index for r in validation_result.row_results if r.usable}
+    null_result_index_set: set[int] = set()
+    if allow_null_result:
+        for r in validation_result.row_results:
+            if r.usable or r.row_index in usable_index_set:
+                continue
+            reasons = {issue.reason for issue in r.issues}
+            if reasons == {RejectionReason.MISSING_RESULT}:
+                null_result_index_set.add(r.row_index)
+
     for idx, row in enumerate(rows):
-        if idx not in usable_index_set:
+        if idx not in usable_index_set and idx not in null_result_index_set:
             continue
         result_raw = (row.get(ftr_col) or "").strip() if ftr_col else ""
         records.append(
@@ -365,6 +393,7 @@ def build_file_records(
                 "home_team": (row.get(home_col) or "").strip() if home_col else None,
                 "away_team": (row.get(away_col) or "").strip() if away_col else None,
                 "result": result_raw.upper() or None,
+                "result_pending_settlement": idx in null_result_index_set,
                 "price_observations": _price_observations_for_row(row, odds_findings, source_retrieved_at),
             }
         )
@@ -446,6 +475,14 @@ def build_split(
     split_row = contract_rows[split_id]
     season_codes_for_split = resolve_split_season_codes(split_id, contract_rows, include_excluded_seasons)
     include_kickoff_time = split_row.get("kickoff_time_available", True) is not False
+    # Driven by the contract's own `required_fields` string, never a
+    # hardcoded split_id check — a row whose ONLY validation issue is a
+    # blank result is included with result=None for a split whose
+    # contract explicitly says results are nullable-until-settlement (see
+    # build_file_records' own docstring for why: dropping such a row
+    # would silently exclude exactly the not-yet-played fixtures a
+    # prospective split exists to score).
+    allow_null_result = "result_nullable_until_settlement" in (split_row.get("required_fields") or "")
 
     retrieved_at_by_key: dict[tuple[str, str], str | None] = {}
     if retrieval_log:
@@ -455,7 +492,20 @@ def build_split(
     records: list[dict[str, Any]] = []
     files_evidence: list[dict[str, Any]] = []
     rejected_sample: list[dict[str, Any]] = []
-    totals = {"source_rows": 0, "usable_rows": 0, "rejected_unique_rows": 0, "validation_issue_occurrences": 0}
+    totals = {
+        "source_rows": 0,
+        "usable_rows": 0,
+        "rejected_unique_rows": 0,
+        "validation_issue_occurrences": 0,
+        # Only ever nonzero for a split with allow_null_result=True: rows
+        # whose sole issue was a blank (not-yet-settled) result, included
+        # in `records` with result=None rather than dropped. These are
+        # counted separately from `usable_rows` (validate_file's generic,
+        # split-unaware usability check) precisely so len(records) is
+        # always reconcilable from this totals dict:
+        # len(records) == usable_rows + pending_settlement_rows_included.
+        "pending_settlement_rows_included": 0,
+    }
 
     for league_code in LEAGUE_CODES:
         for season_code in season_codes_for_split:
@@ -475,14 +525,17 @@ def build_split(
                 validation_result,
                 include_kickoff_time,
                 source_retrieved_at=retrieved_at_by_key.get((league_code, season_code)),
+                allow_null_result=allow_null_result,
             )
             records.extend(file_records)
             rejected_sample.extend(sample_rejected_rows(validation_result, league_code, season_code))
+            pending_settlement_in_file = sum(1 for r in file_records if r["result_pending_settlement"])
 
             totals["source_rows"] += validation_result.total_rows
             totals["usable_rows"] += validation_result.usable_fixtures
             totals["rejected_unique_rows"] += validation_result.rejected_fixtures
             totals["validation_issue_occurrences"] += occurrences
+            totals["pending_settlement_rows_included"] += pending_settlement_in_file
 
             files_evidence.append(
                 {
@@ -494,6 +547,7 @@ def build_split(
                     "usable_rows": validation_result.usable_fixtures,
                     "rejected_unique_rows": validation_result.rejected_fixtures,
                     "validation_issue_occurrences": occurrences,
+                    "pending_settlement_rows_included": pending_settlement_in_file,
                     "rejection_reason_counts": {k: v for k, v in validation_result.rejection_reason_counts.items() if v},
                 }
             )
@@ -642,11 +696,14 @@ def build_dataset_report(
 
 
 def _format_totals_markdown(totals: dict[str, int]) -> str:
-    return (
+    text = (
         f"source_rows={totals['source_rows']}, usable_rows={totals['usable_rows']}, "
         f"rejected_unique_rows={totals['rejected_unique_rows']}, "
         f"validation_issue_occurrences={totals['validation_issue_occurrences']}"
     )
+    if totals.get("pending_settlement_rows_included"):
+        text += f", pending_settlement_rows_included={totals['pending_settlement_rows_included']}"
+    return text
 
 
 def write_dataset_build_report(

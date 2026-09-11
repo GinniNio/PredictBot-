@@ -252,6 +252,66 @@ class LeakageAndContractFieldTests(unittest.TestCase):
         self.assertIsNone(split_result["closing_line_benchmark_model_label"])
 
 
+class ProspectiveNullableResultTests(unittest.TestCase):
+    """Regression coverage for a real defect found during independent
+    review: build_file_records originally filtered strictly to
+    validate_file's generic usable_index_set, which flags ANY blank-FTR
+    row as MISSING_RESULT and drops it — silently excluding exactly the
+    not-yet-played fixtures split_prospective_paper_scoring's own contract
+    row (required_fields: ...,result_nullable_until_settlement) exists to
+    admit. season_2526_prospective.csv has 3 rows: one played (complete
+    FTR) and two not yet played (blank FTHG/FTAG/FTR)."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.raw_dir = Path(self._tmpdir.name) / "raw"
+        _populate_raw_dir(self.raw_dir)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_unplayed_fixtures_included_with_null_result_for_prospective_split(self):
+        rows = load_contract_rows()
+        split_result = build_split("split_prospective_paper_scoring", raw_dir=self.raw_dir, contract_rows=rows)
+        # All 3 rows in the fixture must appear: 1 played + 2 unplayed.
+        self.assertEqual(len(split_result["records"]), 3)
+        pending = [r for r in split_result["records"] if r["result_pending_settlement"]]
+        settled = [r for r in split_result["records"] if not r["result_pending_settlement"]]
+        self.assertEqual(len(pending), 2)
+        self.assertEqual(len(settled), 1)
+        for record in pending:
+            self.assertIsNone(record["result"])
+        self.assertIsNotNone(settled[0]["result"])
+        # Evidence totals must reconcile: len(records) == usable_rows +
+        # pending_settlement_rows_included (never a silent mismatch).
+        totals = split_result["totals"]
+        self.assertEqual(len(split_result["records"]), totals["usable_rows"] + totals["pending_settlement_rows_included"])
+        self.assertEqual(totals["pending_settlement_rows_included"], 2)
+
+    def test_other_splits_never_include_a_pending_settlement_row(self):
+        rows = load_contract_rows()
+        for split_id in ("split_model_dev_and_completed_eval", "split_closing_line_benchmark", "split_earlier_research_backtesting"):
+            split_result = build_split(split_id, raw_dir=self.raw_dir, contract_rows=rows)
+            self.assertEqual(split_result["totals"]["pending_settlement_rows_included"], 0, split_id)
+            self.assertFalse(any(r["result_pending_settlement"] for r in split_result["records"]), split_id)
+
+    def test_a_row_with_missing_result_and_another_issue_is_still_excluded(self):
+        # A row missing BOTH team identity AND result must not be smuggled
+        # in just because one of its several problems is a blank result —
+        # allow_null_result only rescues a row whose SOLE issue is
+        # MISSING_RESULT.
+        csv_path = FIXTURES / "season_2526_prospective.csv"
+        validation_result = validate_file(csv_path)
+        records_without_rescue = build_file_records(
+            csv_path, "E0", "2526", validation_result, include_kickoff_time=True, allow_null_result=False
+        )
+        records_with_rescue = build_file_records(
+            csv_path, "E0", "2526", validation_result, include_kickoff_time=True, allow_null_result=True
+        )
+        self.assertEqual(len(records_without_rescue), 1)
+        self.assertEqual(len(records_with_rescue), 3)
+
+
 class RejectedVsOccurrencesRegressionTests(unittest.TestCase):
     """This task's item 6/8 regression test: rejected_unique_rows and
     validation_issue_occurrences must stay explicitly distinct — a row
