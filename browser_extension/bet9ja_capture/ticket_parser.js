@@ -55,10 +55,15 @@
  * added to the ticket element, and its `.accordion-toggle` is the click
  * target that expands/collapses it). captureFromDocument is therefore
  * ASYNC when this profile is active: for each ticket it (1) clicks the
- * toggle if not already expanded, (2) waits for the open class to appear,
- * (3) parses the ticket and its legs entirely within that one ticket's
- * own subtree, then (4) clicks the toggle again to restore the original
- * collapsed/expanded state. See ensureTicketExpanded/collapseIfNeeded.
+ * toggle if not already expanded, (2) waits for BOTH the open class AND
+ * the ticket's own `.mybets-head__item` to be present -- Round 4 real
+ * captures showed the open class can appear before the ticket's actual
+ * content has finished rendering, so the class alone is not sufficient
+ * evidence a ticket is ready to parse (see EXPAND_TIMEOUT_MS's own
+ * comment) -- (3) parses the ticket and its legs entirely within that
+ * one ticket's own subtree, then (4) clicks the toggle again to restore
+ * the original collapsed/expanded state. See
+ * ensureTicketExpanded/collapseIfNeeded.
  *
  * SAFETY: the ONLY element this profile ever calls .click() on is a
  * `.accordion-toggle` inside a ticket found under the `.mybets` root --
@@ -138,7 +143,7 @@
 (function (root) {
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.3.0-mybets-pagination';
+  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.4.0-mybets-content-wait';
 
   // See SELECTOR CONTRACT above -- every value here is an unconfirmed
   // best guess, not evidence-derived.
@@ -208,14 +213,40 @@
 
   const NUMBERED_PAGE_TEXT = /^\d+$/;
 
-  // A `.accordion-toggle` click that never adds the open class within this
-  // window is reported as EXPAND_TIMEOUT (unresolved), never silently
-  // treated as "no legs" -- distinguishing "couldn't confirm expansion"
-  // from "confirmed empty" matters for an accurate coverage count. The
-  // same timeout/interval is reused for a pagination click's wait for
-  // the `--current` marker to advance.
+  // A `.accordion-toggle` click that never produces BOTH the open class
+  // and the ticket's actual content within this window is reported as
+  // TICKET_EXPANSION_TIMEOUT (unresolved), never silently treated as "no
+  // legs" -- distinguishing "couldn't confirm expansion" from "confirmed
+  // empty" matters for an accurate coverage count. The same timeout/
+  // interval is reused for a pagination click's wait for the `--current`
+  // marker to advance.
+  //
+  // Round 4 real-capture correction: the open class alone is NOT
+  // sufficient evidence a ticket is ready to parse. Two real captures
+  // against the live, authenticated My Bets page both returned
+  // MISSING_TICKET_ID for every ticket (`.accordion-item--open` was
+  // present, but `.mybets-head__item` was not) -- the real page's
+  // ticket detail (head item, legs) evidently populates on a short delay
+  // AFTER the open class itself toggles, not synchronously with it.
+  // ensureTicketExpanded therefore waits for BOTH conditions together,
+  // never the open class alone.
   const EXPAND_TIMEOUT_MS = 3000;
   const EXPAND_POLL_INTERVAL_MS = 25;
+  // Round 4 also showed cross-page ticket totals not accumulating past
+  // the first page despite pagination itself correctly walking all 16
+  // pages -- consistent with the same class of problem: a pagination
+  // click's `--current` marker can update before that page's own ticket
+  // list has finished (re)rendering. This separate wait, applied once
+  // per page AFTER `--current` is confirmed, gives that content a chance
+  // to appear before this page is parsed. A page that is still empty
+  // when this window elapses is parsed as-is (0 tickets) rather than
+  // treated as an error -- a genuinely sparse last page is a real
+  // possibility this parser cannot yet distinguish from a load that was
+  // simply slower than this window; each page_results[] entry records
+  // whether this wait ever succeeded, exactly so a future round can
+  // tell the two apart from real evidence rather than another guess.
+  const PAGE_CONTENT_TIMEOUT_MS = 3000;
+  const PAGE_CONTENT_POLL_INTERVAL_MS = 25;
   // Real evidence confirmed 16 pages; this is a generous multiple of that
   // kept as a hard backstop against an unbounded loop should a future
   // page count grow or a stop condition ever fail to trigger -- never
@@ -236,27 +267,38 @@
   }
 
   /**
-   * The ONLY function in this file that ever calls .click(). Expands a
-   * ticket if it isn't already open, waiting for the confirmed
-   * `.accordion-item--open` class -- never assumes the click succeeded
-   * just because it was dispatched (a slow/failed render is reported as
-   * EXPAND_TIMEOUT, not silently treated as an empty ticket).
+   * The ONLY function in this file that ever calls .click() on a ticket.
+   * Expands a ticket if it isn't already open, then waits for BOTH the
+   * confirmed `.accordion-item--open` class AND the ticket's own
+   * `.mybets-head__item` to be present -- never assumes the ticket is
+   * ready to parse just because the open class appeared (see the
+   * EXPAND_TIMEOUT_MS comment above for why: the real page's content
+   * populates after a short delay, not synchronously with the class).
+   * `wasAlreadyOpen` reflects whether the OPEN CLASS was already present
+   * when this call started (regardless of whether content was ready
+   * yet), since that -- not content readiness -- is what
+   * collapseIfNeeded uses to decide whether this call may collapse the
+   * ticket again afterward.
    */
   async function ensureTicketExpanded(ticketEl) {
-    if (ticketEl.classList.contains(MYBETS_SELECTORS.ticketOpenClass)) {
-      return { opened: true, wasAlreadyOpen: true, reason: null };
+    const isReadyToParse = () =>
+      ticketEl.classList.contains(MYBETS_SELECTORS.ticketOpenClass) &&
+      !!ticketEl.querySelector(MYBETS_SELECTORS.ticketIdHeadItem);
+
+    const wasAlreadyOpen = ticketEl.classList.contains(MYBETS_SELECTORS.ticketOpenClass);
+    if (!wasAlreadyOpen) {
+      const toggle = ticketEl.querySelector(MYBETS_SELECTORS.toggle);
+      if (!toggle) {
+        return { opened: false, wasAlreadyOpen: false, reason: 'TOGGLE_NOT_FOUND' };
+      }
+      toggle.click();
     }
-    const toggle = ticketEl.querySelector(MYBETS_SELECTORS.toggle);
-    if (!toggle) {
-      return { opened: false, wasAlreadyOpen: false, reason: 'TOGGLE_NOT_FOUND' };
+
+    if (isReadyToParse()) {
+      return { opened: true, wasAlreadyOpen, reason: null };
     }
-    toggle.click();
-    const opened = await waitFor(
-      () => ticketEl.classList.contains(MYBETS_SELECTORS.ticketOpenClass),
-      EXPAND_TIMEOUT_MS,
-      EXPAND_POLL_INTERVAL_MS
-    );
-    return { opened, wasAlreadyOpen: false, reason: opened ? null : 'EXPAND_TIMEOUT' };
+    const ready = await waitFor(isReadyToParse, EXPAND_TIMEOUT_MS, EXPAND_POLL_INTERVAL_MS);
+    return { opened: ready, wasAlreadyOpen, reason: ready ? null : 'TICKET_EXPANSION_TIMEOUT' };
   }
 
   /**
@@ -911,29 +953,41 @@
    * multi-page run, not reset per page) -- a ticket that legitimately
    * reappears across pages is counted once, never twice.
    */
-  async function processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate) {
+  async function processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate, pageNumber) {
     const ticketEls = Array.from(mybetsRoot.querySelectorAll(MYBETS_SELECTORS.ticket));
     const ticketIdsOnThisPage = [];
+    // Per-page deltas, independent of the running `aggregate` totals --
+    // this is exactly the evidence a future round needs to distinguish a
+    // real aggregation bug from a per-page content-timing issue, rather
+    // than inferring it indirectly from the final totals alone.
+    let ticketsParsedThisPage = 0;
+    let ticketsUnresolvedThisPage = 0;
+    let ticketsExpectedExcludedThisPage = 0;
+    let legsSeenThisPage = 0;
+    let legsParsedThisPage = 0;
 
     for (let index = 0; index < ticketEls.length; index += 1) {
       const ticketEl = ticketEls[index];
       const expandResult = await ensureTicketExpanded(ticketEl);
       if (!expandResult.opened) {
-        aggregate.unresolvedTickets.push(
-          makeUnresolvedTicket({
-            reason: expandResult.reason === 'TOGGLE_NOT_FOUND' ? 'TICKET_TOGGLE_NOT_FOUND' : 'TICKET_EXPAND_TIMEOUT',
-            detail: `Could not confirm ticket[${index}] expanded (.accordion-item--open never appeared).`,
-            sourceIndex: index,
-            raw: { reason: expandResult.reason },
-          })
-        );
-        continue; // never attempt to parse or collapse a ticket we couldn't confirm open
+        const record = makeUnresolvedTicket({
+          reason: expandResult.reason === 'TOGGLE_NOT_FOUND' ? 'TICKET_TOGGLE_NOT_FOUND' : 'TICKET_EXPANSION_TIMEOUT',
+          detail: `Could not confirm ticket[${index}] ready to parse (.accordion-item--open and .mybets-head__item never appeared together).`,
+          sourceIndex: index,
+          raw: { reason: expandResult.reason },
+        });
+        aggregate.unresolvedTickets.push(record);
+        ticketsUnresolvedThisPage += 1;
+        continue; // never attempt to parse or collapse a ticket we couldn't confirm ready
       }
 
-      aggregate.legsSeen += ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow).length;
+      const legsOnThisTicket = ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow).length;
+      aggregate.legsSeen += legsOnThisTicket;
+      legsSeenThisPage += legsOnThisTicket;
       const { outcome, record } = processMybetsTicket(ticketEl, index, capturedAtUtc);
       if (outcome === 'PARSED') {
         ticketIdsOnThisPage.push(record.bet9ja_ticket_id);
+        ticketsParsedThisPage += 1;
         if (seenTicketIds.has(record.bet9ja_ticket_id)) {
           // A ticket id repeated within THIS page (not merely across
           // pages -- see pageFingerprints in the caller for that case)
@@ -943,18 +997,33 @@
           seenTicketIds.add(record.bet9ja_ticket_id);
           aggregate.tickets.push(record);
           aggregate.legsParsed += record.legs.length;
+          legsParsedThisPage += record.legs.length;
         }
       } else if (outcome === 'EXCLUDED') {
         aggregate.excludedTickets.push(record);
+        ticketsExpectedExcludedThisPage += 1;
       } else {
         aggregate.unresolvedTickets.push(record);
+        ticketsUnresolvedThisPage += 1;
       }
 
       collapseIfNeeded(ticketEl, expandResult.wasAlreadyOpen);
     }
 
     aggregate.ticketsSeen += ticketEls.length;
-    return { ticketCount: ticketEls.length, ticketIdsOnThisPage: ticketIdsOnThisPage.slice().sort() };
+    const fingerprint = ticketIdsOnThisPage.slice().sort().join(',');
+    aggregate.pageResults.push({
+      page_number: pageNumber,
+      ticket_containers_seen: ticketEls.length,
+      tickets_parsed: ticketsParsedThisPage,
+      tickets_unresolved: ticketsUnresolvedThisPage,
+      tickets_expected_excluded: ticketsExpectedExcludedThisPage,
+      legs_seen: legsSeenThisPage,
+      legs_parsed: legsParsedThisPage,
+      page_fingerprint: fingerprint,
+    });
+
+    return { ticketCount: ticketEls.length, ticketIdsOnThisPage: ticketIdsOnThisPage.slice().sort(), fingerprint };
   }
 
   function getPageNumberText(el) {
@@ -989,16 +1058,24 @@
    * paginate through.
    */
   async function paginateAndCaptureAllPages(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate) {
-    const firstPageResult = await processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate);
+    const initialPaginationEl = mybetsRoot.querySelector(MYBETS_SELECTORS.paginationContainer);
+    const initialPage = (initialPaginationEl && getCurrentPageNumber(initialPaginationEl)) || 1;
+    const firstPageResult = await processCurrentPageTickets(
+      mybetsRoot,
+      capturedAtUtc,
+      seenTicketIds,
+      aggregate,
+      initialPage
+    );
 
     const paginationEl = mybetsRoot.querySelector(MYBETS_SELECTORS.paginationContainer);
     if (!paginationEl) {
       return { pagesAvailable: 1, pagesVisited: 1, stoppedReason: 'NO_PAGINATION_CONTROL_FOUND' };
     }
 
-    let currentPage = getCurrentPageNumber(paginationEl) || 1;
+    let currentPage = initialPage;
     const visitedPageNumbers = new Set([currentPage]);
-    const pageFingerprints = new Set([firstPageResult.ticketIdsOnThisPage.join(',')]);
+    const pageFingerprints = new Set([firstPageResult.fingerprint]);
     let pagesAvailable = currentPage;
     for (const item of getNumberedPaginationItems(paginationEl)) {
       const n = parseInt(getPageNumberText(item), 10);
@@ -1064,13 +1141,24 @@
       visitedPageNumbers.add(currentPage);
       pagesVisited += 1;
 
-      const pageResult = await processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate);
-      const fingerprint = pageResult.ticketIdsOnThisPage.join(',');
-      if (fingerprint !== '' && pageFingerprints.has(fingerprint)) {
+      // Round 4 real-capture correction: `--current` can advance before
+      // this page's own ticket list has finished (re)rendering -- wait
+      // for at least one ticket container to appear before parsing, so
+      // a page isn't read the instant its content starts loading. See
+      // PAGE_CONTENT_TIMEOUT_MS's own comment for what happens if this
+      // window elapses anyway (parsed as-is, never a hard stop).
+      await waitFor(
+        () => mybetsRoot.querySelectorAll(MYBETS_SELECTORS.ticket).length > 0,
+        PAGE_CONTENT_TIMEOUT_MS,
+        PAGE_CONTENT_POLL_INTERVAL_MS
+      );
+
+      const pageResult = await processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTicketIds, aggregate, currentPage);
+      if (pageResult.fingerprint !== '' && pageFingerprints.has(pageResult.fingerprint)) {
         stoppedReason = 'PAGE_CONTENT_REPEATED';
         break;
       }
-      pageFingerprints.add(fingerprint);
+      pageFingerprints.add(pageResult.fingerprint);
     }
 
     if (currentPage !== 1) {
@@ -1105,6 +1193,7 @@
       legsSeen: 0,
       legsParsed: 0,
       duplicateTicketsSkipped: 0,
+      pageResults: [],
     };
 
     const { pagesAvailable, pagesVisited, stoppedReason } = await paginateAndCaptureAllPages(
@@ -1114,8 +1203,24 @@
       aggregate
     );
 
-    const { tickets, unresolvedTickets, excludedTickets, ticketsSeen, legsSeen, legsParsed, duplicateTicketsSkipped } =
-      aggregate;
+    const {
+      tickets,
+      unresolvedTickets,
+      excludedTickets,
+      ticketsSeen,
+      legsSeen,
+      legsParsed,
+      duplicateTicketsSkipped,
+      pageResults,
+    } = aggregate;
+
+    // Structurally unreachable given processCurrentPageTickets's own
+    // contract (every ticket container found contributes to exactly one
+    // of tickets/unresolvedTickets/excludedTickets) -- kept as an
+    // explicit guard, mirroring parser.js's own NO_USABLE_OUTPUT guard,
+    // so a self-inconsistent file can never be produced silently if that
+    // contract is ever broken by a future edit.
+    const invariantHolds = ticketsSeen === tickets.length + unresolvedTickets.length + excludedTickets.length;
 
     // Every reason below is a currently-known, real gap (see the MYBETS
     // PROFILE header comment) -- present on EVERY capture using this
@@ -1132,7 +1237,12 @@
     statusReasons.push(`PAGINATION_STOPPED_${stoppedReason}`);
 
     let captureStatus;
-    if (ticketsSeen === 0) {
+    if (!invariantHolds) {
+      // Never download a self-inconsistent file -- fail loud and typed
+      // rather than silently. See the invariantHolds comment above.
+      captureStatus = 'CAPTURE_FAILED';
+      statusReasons.unshift('ROW_ACCOUNTING_INVARIANT_VIOLATED');
+    } else if (ticketsSeen === 0) {
       captureStatus = 'CAPTURE_FAILED';
       statusReasons.unshift('NO_TICKETS_FOUND');
     } else if (tickets.length === 0 && unresolvedTickets.length === 0 && excludedTickets.length === 0) {
@@ -1166,6 +1276,12 @@
           pages_visited: pagesVisited,
           pagination_automated: true,
         },
+        // Per-page evidence: exactly what processCurrentPageTickets saw
+        // and produced on each visited page, so a future round (or the
+        // person reading a real capture) can see whether a shortfall in
+        // the totals traces to one specific page rather than having to
+        // infer it from the aggregate counts alone.
+        page_results: pageResults,
         tickets,
         unresolved_tickets: unresolvedTickets,
         excluded_tickets: excludedTickets,

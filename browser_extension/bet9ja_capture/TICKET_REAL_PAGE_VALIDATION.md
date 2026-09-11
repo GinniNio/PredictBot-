@@ -314,3 +314,101 @@ edge case (e.g. a windowed page-number display that doesn't show all 16
 numbers at once), or a real live/Virtual/Zoom ticket appearing on the
 page — is exactly the next piece of evidence to record here, per the same
 discipline used throughout this project.
+
+## Round 4 — 2026-09-11
+
+**Tester-supplied facts** (from two real "Capture open bets" clicks against
+the same 16-page authenticated account, both producing the same outcome):
+
+| Check | Result |
+|---|---:|
+| Capture attempts | 2 |
+| Pages available | 16 |
+| Pages reported visited | 16 |
+| Tickets seen | 5 |
+| Tickets parsed | 0 |
+| Tickets unresolved | 5 |
+| Legs parsed | 0 |
+| Sensitive-data indicators | 0 |
+
+Both captures: `CAPTURE_PARTIAL`, every one of the 5 unresolved tickets
+failed with `MISSING_TICKET_ID` and the detail `.mybets-head__item`
+absent after automated expansion.
+
+**Result: two real defects found and fixed, both in `ticket_parser.js`.**
+
+### Defect 1 — expansion read before content rendered
+
+`.accordion-item--open` appeared (expansion "succeeded" by the old
+check), but `.mybets-head__item` was not yet present when the ticket was
+parsed immediately afterward. The real page's ticket detail (head item,
+legs) evidently populates on a short delay AFTER the open class itself
+toggles, not synchronously with it — the open class alone was never
+sufficient evidence a ticket was ready to parse.
+
+**Fix:** `ensureTicketExpanded` now waits for BOTH
+`.accordion-item--open` AND a `.mybets-head__item` element to be present
+inside the same ticket container before considering it ready. A ticket
+that never satisfies both within the timeout window is now reported as
+`TICKET_EXPANSION_TIMEOUT` (renamed from the old, single-condition
+`TICKET_EXPAND_TIMEOUT`).
+
+### Defect 2 — cross-page ticket totals not accumulating
+
+16 pages of 5 ticket containers each should never finish with
+`tickets_seen: 5` — only page 1 contributed. Root-caused to the same
+class of problem as Defect 1: a pagination click's `--current` marker
+can update before that page's own ticket list has finished
+(re)rendering, so `processCurrentPageTickets` was called immediately
+after `--current` was confirmed and found the new page still empty,
+every time after the first.
+
+**Fix:** a second wait, applied once per page right after `--current` is
+confirmed (before that page is parsed), gives the ticket list a chance
+to render. If this window elapses with no ticket containers present, the
+page is parsed as-is (0 tickets) rather than treated as an error — this
+parser still cannot fully distinguish "genuinely empty last page" from
+"slower than this window", so `page_results[]` (new, see below) records
+enough detail for a future round to tell the two apart from real
+evidence.
+
+### Also added, per the narrowed PR #30 scope
+
+- **`page_results[]`** — a new top-level array, one entry per visited
+  page (`page_number`, `ticket_containers_seen`, `tickets_parsed`,
+  `tickets_unresolved`, `tickets_expected_excluded`, `legs_seen`,
+  `legs_parsed`, `page_fingerprint`), so a shortfall in the final totals
+  can be traced to a specific page instead of inferred indirectly.
+- **Runtime row-accounting invariant check** — `coverage.tickets_seen ===
+  tickets_parsed + tickets_unresolved + tickets_expected_excluded` is now
+  asserted just before the envelope is returned. A violation (structurally
+  unreachable given how every ticket container is processed, but guarded
+  anyway) forces `CAPTURE_FAILED` with `ROW_ACCOUNTING_INVARIANT_VIOLATED`
+  rather than ever producing a self-inconsistent downloaded file.
+- **Regression tests**: a 16-page × 5-ticket synthetic run asserting
+  `tickets_seen: 80` before deduplication (the exact shape of this
+  round's real defect); a `page_results[]` shape/uniqueness test; and a
+  direct regression test for Defect 2 (a page whose ticket list appends
+  150ms after its `--current` marker moves, confirming it is still
+  parsed correctly rather than read empty).
+- Deduplication by `ticket_id` and the click-target restriction
+  (`.accordion-toggle` + verified numbered pagination items only) are
+  both preserved unchanged.
+- Out of scope for this correction, per the user's explicit instruction:
+  settlement, live/Virtual/Zoom detection, and ledger import.
+
+Full suite after the fix: 121/121 JS tests green, 458/458 Python tests
+green.
+
+### Recommendation for Round 5
+
+One more real "Capture open bets" click on the same 16-page account
+against these two fixes. Expect `tickets_seen`/`tickets_parsed` to
+finally reflect the true total across all 16 pages (not 5), and
+`page_results[]` to show a nonzero `ticket_containers_seen` on every one
+of the 16 entries. If any page still comes back with 0 containers, its
+`page_results[]` entry pinpoints exactly which page and is the next
+concrete piece of evidence — e.g. the `PAGE_CONTENT_TIMEOUT_MS` window
+may need lengthening, or the real page may have a different loading
+signal than "ticket containers eventually appear" that would need its
+own DOM inspection.

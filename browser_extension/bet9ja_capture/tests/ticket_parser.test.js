@@ -635,6 +635,101 @@ test('mybets pagination: coverage always exposes pages_available, pages_visited,
   assert.equal(envelope.coverage.tickets_seen, envelope.coverage.tickets_parsed);
 });
 
+test('mybets pagination: 16 pages of 5 tickets each accumulate to 80 ticket containers before deduplication (Round 4 regression)', async () => {
+  const pages = [];
+  for (let p = 1; p <= 16; p += 1) {
+    const legs = [1, 2, 3, 4, 5].map((n) =>
+      mybetsTicket({ ticketId: `${7000000000 + p * 10 + n}`, legs: [mybetsLeg({ eventId: `${p}${n}` })] })
+    );
+    pages.push(legs.join('\n'));
+  }
+  const doc = docFromHtml(mybetsPaginationHtml({ pageTicketsHtmlList: pages }));
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+
+  assert.equal(envelope.coverage.pages_available, 16);
+  assert.equal(envelope.coverage.pages_visited, 16);
+  assert.equal(envelope.coverage.tickets_seen, 80, '16 pages x 5 tickets must all be counted, not just the first page');
+  assert.equal(envelope.coverage.tickets_parsed, 80);
+  assert.equal(envelope.coverage.duplicate_tickets_skipped, 0);
+  assert.equal(
+    envelope.coverage.tickets_seen,
+    envelope.coverage.tickets_parsed + envelope.coverage.tickets_unresolved + envelope.coverage.tickets_expected_excluded
+  );
+});
+
+test('mybets pagination: page_results records per-page evidence for every visited page', async () => {
+  const pages = [1, 2, 3].map((p) =>
+    mybetsTicket({ ticketId: `${6000000000 + p}`, legs: [mybetsLeg({ eventId: `${p}00` })] })
+  );
+  const doc = docFromHtml(mybetsPaginationHtml({ pageTicketsHtmlList: pages }));
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+
+  assert.equal(envelope.page_results.length, 3);
+  const pageNumbers = envelope.page_results.map((p) => p.page_number);
+  assert.deepEqual(pageNumbers, [1, 2, 3]);
+  for (const page of envelope.page_results) {
+    assert.equal(page.ticket_containers_seen, 1);
+    assert.equal(page.tickets_parsed, 1);
+    assert.equal(page.tickets_unresolved, 0);
+    assert.equal(page.tickets_expected_excluded, 0);
+    assert.equal(typeof page.page_fingerprint, 'string');
+  }
+  // Each page's fingerprint must be distinct -- otherwise this looks
+  // exactly like the PAGE_CONTENT_REPEATED case this parser guards
+  // against.
+  const fingerprints = new Set(envelope.page_results.map((p) => p.page_fingerprint));
+  assert.equal(fingerprints.size, 3);
+});
+
+test('mybets pagination: a page whose ticket list finishes rendering shortly AFTER --current advances is still parsed, not read empty (Round 4 fix)', async () => {
+  // Simulates the exact real-page defect: the pagination click handler
+  // moves --current immediately, but the new page's own ticket markup is
+  // appended a beat later (a real network/render delay). Without the
+  // post-transition content wait, page 2 would be parsed as empty.
+  const page1 = mybetsTicket({ ticketId: '5000000001', legs: [mybetsLeg({ eventId: '1' })] });
+  const page2 = mybetsTicket({ ticketId: '5000000002', legs: [mybetsLeg({ eventId: '2' })] });
+  const doc = docFromHtml(`
+    <body>
+      <div class="mybets">
+        <div id="ticket-list">${page1}</div>
+        <div class="pg-pagination">
+          <span class="pg-pagination__item pg-pagination__item--current" data-page="1">1</span>
+          <span class="pg-pagination__item" data-page="2">2</span>
+        </div>
+      </div>
+      <script>
+        const list = document.getElementById('ticket-list');
+        const pagination = document.querySelector('.pg-pagination');
+        function attachAccordionListeners() {
+          list.querySelectorAll('.accordion-item').forEach((item) => {
+            const toggle = item.querySelector('.accordion-toggle');
+            if (toggle) toggle.addEventListener('click', () => item.classList.toggle('accordion-item--open'));
+          });
+        }
+        attachAccordionListeners();
+        pagination.querySelector('[data-page="2"]').addEventListener('click', function () {
+          pagination.querySelectorAll('.pg-pagination__item').forEach((x) => x.classList.remove('pg-pagination__item--current'));
+          this.classList.add('pg-pagination__item--current');
+          // --current moves synchronously; the ticket list itself only
+          // updates after a short delay, exactly mirroring the real page.
+          list.innerHTML = '';
+          setTimeout(() => {
+            list.innerHTML = ${JSON.stringify(page2)};
+            attachAccordionListeners();
+          }, 150);
+        });
+      </script>
+    </body>
+  `);
+  const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
+
+  assert.equal(envelope.coverage.pages_visited, 2);
+  assert.equal(envelope.coverage.tickets_seen, 2, 'page 2 must not be read empty just because --current advanced first');
+  assert.equal(envelope.coverage.tickets_parsed, 2);
+  const ids = envelope.tickets.map((t) => t.bet9ja_ticket_id).sort();
+  assert.deepEqual(ids, ['5000000001', '5000000002']);
+});
+
 test('mybets: a collapsed ticket is expanded, parsed, and collapsed again', async () => {
   const { envelope } = await captureMybets(mybetsTicket({ ticketId: '9001234567' }));
   assert.equal(envelope.coverage.tickets_seen, 1);
@@ -713,7 +808,12 @@ test('mybets: fail closed -- unparseable odds on any leg voids the whole ticket'
   assert.equal(envelope.unresolved_tickets[0].reason, 'LEG_FAILED_TO_PARSE');
 });
 
-test('mybets: missing ticket id (no .mybets-head__item) is never guessed, routed to unresolved_tickets', async () => {
+test('mybets: no .mybets-head__item ever appears -- reported as an expansion timeout, never reaches ticket-id parsing at all', async () => {
+  // Round 4 correction: ensureTicketExpanded now requires the head item
+  // to exist before considering a ticket ready -- a ticket that opens
+  // but never gets one times out here, rather than falling through to
+  // processMybetsTicket's own (still-reachable, see the next test)
+  // MISSING_TICKET_ID path.
   const html = `
     <div class="accordion-item">
       <div class="accordion-toggle">Toggle</div>
@@ -723,10 +823,24 @@ test('mybets: missing ticket id (no .mybets-head__item) is never guessed, routed
   `;
   const { envelope } = await captureMybets(html);
   assert.equal(envelope.tickets.length, 0);
+  assert.equal(envelope.unresolved_tickets[0].reason, 'TICKET_EXPANSION_TIMEOUT');
+});
+
+test('mybets: a .mybets-head__item exists but its text yields no id -- still MISSING_TICKET_ID, never guessed', async () => {
+  const html = `
+    <div class="accordion-item">
+      <div class="accordion-toggle">Toggle</div>
+      <div class="mybets-holder"><span class="mybets-date">Today 14:32</span></div>
+      <div class="mybets-head__item"></div>
+      ${mybetsLeg()}
+    </div>
+  `;
+  const { envelope } = await captureMybets(html);
+  assert.equal(envelope.tickets.length, 0);
   assert.equal(envelope.unresolved_tickets[0].reason, 'MISSING_TICKET_ID');
 });
 
-test('mybets: a toggle that never adds the open class is reported as an expand timeout, never treated as empty', async () => {
+test('mybets: a toggle that never adds the open class is reported as an expansion timeout, never treated as empty', async () => {
   const html = `
     <div class="mybets">
       <div class="accordion-item">
@@ -741,7 +855,7 @@ test('mybets: a toggle that never adds the open class is reported as an expand t
   const doc = docFromHtml(`<body>${html}</body>`);
   const { envelope } = await ticketParser.captureFromDocument(doc, BASE_CONTEXT);
   assert.equal(envelope.tickets.length, 0);
-  assert.equal(envelope.unresolved_tickets[0].reason, 'TICKET_EXPAND_TIMEOUT');
+  assert.equal(envelope.unresolved_tickets[0].reason, 'TICKET_EXPANSION_TIMEOUT');
 });
 
 test('mybets: source_event_id and fixture_id are exposed per leg, matching the fixture-capture extension\'s own scheme', async () => {

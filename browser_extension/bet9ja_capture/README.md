@@ -434,10 +434,14 @@ legs are only present in the DOM once expanded (an `.accordion-item--open`
 class is added; `.accordion-toggle` is the click target). This makes
 `captureFromDocument` **async** when this profile is active: for each
 ticket it clicks the toggle if not already open, waits for the confirmed
-open class, parses the ticket and its legs entirely within that ticket's
-own subtree, then clicks the toggle again to restore the ticket to
-whatever state it was in before capture touched it. One click, one file —
-you never manually expand a ticket yourself.
+open class **AND** the ticket's own `.mybets-head__item` to be present
+together — Round 4 real captures showed the open class can appear before
+the ticket's actual content has finished rendering, so the class alone
+is not sufficient evidence a ticket is ready to parse (a timeout here is
+`TICKET_EXPANSION_TIMEOUT`) — parses the ticket and its legs entirely
+within that ticket's own subtree, then clicks the toggle again to restore
+the ticket to whatever state it was in before capture touched it. One
+click, one file — you never manually expand a ticket yourself.
 
 **Safety:** the *only* element this profile ever calls `.click()` on is a
 `.accordion-toggle` inside a ticket under `.mybets` — never Cashout,
@@ -523,6 +527,31 @@ UI is navigated), `coverage.pages_visited`, and `coverage.
 duplicate_tickets_skipped` alongside the usual ticket/leg counts. There is
 still no per-ticket live/Virtual/Zoom or settled-status signal on this
 page (see the gap above) — pagination completeness doesn't change that.
+
+**Round 4 real-capture correction:** two real captures against a 16-page
+account both showed `tickets_seen: 5` (only page 1's tickets) despite
+`pages_visited: 16` — the `--current` marker can advance before that
+page's own ticket list has actually (re)rendered, so parsing immediately
+after confirming `--current` read every subsequent page as empty. A
+second wait, applied once per page right after `--current` is confirmed
+(before that page is parsed), gives the ticket list a chance to appear.
+A page still empty when this window elapses is parsed as-is (0 tickets),
+never treated as an error — a genuinely sparse last page is a real
+possibility this parser cannot yet fully distinguish from a slow load;
+`page_results[]` (below) records enough per-page detail for a future
+round to tell the two apart from evidence.
+
+Every capture also includes a top-level `page_results[]` array — one
+entry per visited page (`page_number`, `ticket_containers_seen`,
+`tickets_parsed`, `tickets_unresolved`, `tickets_expected_excluded`,
+`legs_seen`, `legs_parsed`, `page_fingerprint`) — so a shortfall in the
+final totals can be traced to a specific page rather than inferred
+indirectly. `coverage`'s own row-accounting invariant (below) is also
+checked at runtime just before the envelope is returned: a violation
+(structurally unreachable given how every ticket container is processed,
+but guarded anyway) forces `CAPTURE_FAILED` with
+`ROW_ACCOUNTING_INVARIANT_VIOLATED` rather than ever downloading a
+self-inconsistent file.
 
 ### `coverage`'s row-accounting invariant
 
@@ -681,9 +710,13 @@ synthetic HTML:
   numbered page and merging tickets, never clicking first/prev/next/last,
   restoring to page 1 after a multi-page walk, cross-page deduplication by
   ticket id, stopping on repeated page content, stopping on a page
-  transition that never confirms (a timeout, not a silent skip), and the
+  transition that never confirms (a timeout, not a silent skip), the
   `pages_available`/`pages_visited`/`duplicate_tickets_skipped` coverage
-  fields.
+  fields, a 16-page × 5-ticket run accumulating to 80 ticket containers
+  before deduplication (the exact Round 4 regression), the
+  `page_results[]` per-page evidence array, and a page whose ticket list
+  finishes rendering shortly AFTER `--current` advances (a direct
+  regression test for the Round 4 content-timing fix).
   A dedicated "safety" test greps the compiled `ticket_parser.js` source
   itself to confirm `.click()` is only ever called on the confirmed
   accordion toggle or a verified numbered pagination item.
@@ -734,8 +767,12 @@ answered for ticket boundaries, ids, legs, and pagination (the MYBETS
 profile, confirmed Rounds 2–3) — see "The MYBETS profile" and
 "Pagination" above for exactly what's confirmed vs. still named as an
 open gap (live/Virtual/Zoom detection, stake/return cell mapping,
-ticket-type detection beyond system tickets). The very next step is
-running one real "Capture open bets" click against the confirmed
-selectors — including a multi-page account, if available — and recording
-the result in `TICKET_REAL_PAGE_VALIDATION.md` Round 4, following the
-same evidence-driven correction discipline used throughout this project.
+ticket-type detection beyond system tickets). Round 4's first real
+multi-page captures found two real implementation defects (ticket
+expansion and pagination both reading content before it had actually
+rendered) — both are now fixed and regression-tested; see the Round 4
+notes above and in `TICKET_REAL_PAGE_VALIDATION.md`. The very next step
+is running one more real "Capture open bets" click on the same 16-page
+account against these fixes and recording the result as Round 5,
+following the same evidence-driven correction discipline used throughout
+this project.
