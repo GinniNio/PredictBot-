@@ -22,7 +22,12 @@
   // Second, independent entry point for the "Capture open bets" button --
   // injected alongside ticket_parser.js only, never together with a bet
   // placement/cashout action. See ticket_parser.js's own header comment
-  // for scope and the fail-closed ticket-boundary contract.
+  // for scope and the fail-closed ticket-boundary contract. This returns
+  // a Promise (the MYBETS profile clicks each ticket's own accordion
+  // toggle open, parses it, then clicks it closed again, awaiting the
+  // DOM update at each step) -- chrome.scripting.executeScript awaits a
+  // returned Promise automatically, so popup.js needs no change to
+  // receive the resolved envelope.
   window.__bet9jaTicketCaptureRun = function (sourceUrl, pageTitle, capturedAtUtc) {
     return window.Bet9jaTicketCapture.captureFromDocument(document, {
       sourceUrl,

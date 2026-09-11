@@ -46,11 +46,66 @@
  *   exactly this reason, regardless of whether any ticket happened to
  *   parse, so a real capture result can never be silently mistaken for a
  *   validated one.
+ *
+ * MYBETS PROFILE -- real selectors, confirmed via live authenticated
+ * inspection of https://sports.bet9ja.com/myBets/ (2026-09-11, see
+ * TICKET_REAL_PAGE_VALIDATION.md Round 2): tickets render as
+ * `.mybets .accordion-item` elements; each ticket's id and legs are only
+ * present in the DOM once expanded (an `.accordion-item--open` class is
+ * added to the ticket element, and its `.accordion-toggle` is the click
+ * target that expands/collapses it). captureFromDocument is therefore
+ * ASYNC when this profile is active: for each ticket it (1) clicks the
+ * toggle if not already expanded, (2) waits for the open class to appear,
+ * (3) parses the ticket and its legs entirely within that one ticket's
+ * own subtree, then (4) clicks the toggle again to restore the original
+ * collapsed/expanded state. See ensureTicketExpanded/collapseIfNeeded.
+ *
+ * SAFETY: the ONLY element this profile ever calls .click() on is a
+ * `.accordion-toggle` inside a ticket found under the `.mybets` root --
+ * never a cashout button (`.mybets__cashout-holder` is a documented
+ * exclusion zone this parser never queries into), never "Reload
+ * Selections", never any bet-placement control. See
+ * tests/ticket_parser.test.js's "safety" tests, which grep this file's
+ * own source for that guarantee.
+ *
+ * CONFIRMED (Round 2 live inspection): ticket boundaries are reliable --
+ * every ticket's expanded detail stays inside its own `.accordion-item`,
+ * so the same page-wide-scan defense used by the placeholder profile
+ * applies here too. A system ticket's legs render as N `.mybets-row`
+ * elements of 2 `.mybets-item` legs each; individual legs are still
+ * found directly via `.mybets-item` regardless of that grouping.
+ *
+ * NOT YET CONFIRMED (see TICKET_REAL_PAGE_VALIDATION.md Round 2 for the
+ * full list -- every capture using this profile carries a matching
+ * capture_status_reasons entry for each, so this can never be mistaken
+ * for a fully validated result):
+ *   - No live/Virtual/Zoom status marker has been identified in this
+ *     markup, so this profile CANNOT currently enforce the "no live,
+ *     Zoom or Virtual tickets" scope boundary the way the placeholder
+ *     profile's (unconfirmed) legStatusHint was designed to. Every
+ *     ticket found under `.mybets` is treated as OPEN pre-match, flagged
+ *     explicitly via status_resolution -- never silently assumed.
+ *   - `.mybets-holder__info-item` and `.mybets__systable`'s exact
+ *     label/value cell structure (which item is stake vs. potential
+ *     return; which cell is System Type vs. No. Bets vs. Unit Stake vs.
+ *     Stake) is unconfirmed -- their raw text is preserved for audit
+ *     (`stake_return_raw_items`, `system_table_raw`) rather than parsed
+ *     into `unit_stake`/`total_stake`/`potential_return`, which stay
+ *     null for this profile until that mapping is confirmed.
+ *   - Pagination is NOT automated. The live inspection found 20
+ *     pagination items on top of the 5 tickets visible on the current
+ *     page, but whether those are all genuine page links (vs. prev/next/
+ *     ellipsis/disabled controls) is itself unconfirmed -- automating
+ *     clicks through unconfirmed pagination markup risks clicking an
+ *     unintended control, which this parser will not do without real
+ *     selector evidence. This release captures the CURRENTLY VISIBLE
+ *     page only (`coverage.pages_captured: 1`,
+ *     `PAGINATION_NOT_YET_AUTOMATED_SINGLE_PAGE_ONLY`).
  */
 (function (root) {
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.1.0-unverified';
+  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.2.0-mybets-partial';
 
   // See SELECTOR CONTRACT above -- every value here is an unconfirmed
   // best guess, not evidence-derived.
@@ -80,6 +135,304 @@
     legEventIdPattern: /event-([a-z0-9]+)/i,
     legStatusHint: '.leg__status',
   };
+
+  // Confirmed via live authenticated inspection of
+  // https://sports.bet9ja.com/myBets/ (Round 2) -- see the MYBETS PROFILE
+  // header comment above for exactly what is and isn't confirmed.
+  // `.mybets__cashout-holder` is deliberately NOT queried anywhere in this
+  // file -- it is named here only as documentation of the exclusion zone
+  // this parser must never click into (see the SAFETY note above).
+  const MYBETS_SELECTORS = {
+    root: '.mybets',
+    ticket: '.accordion-item',
+    ticketOpenClass: 'accordion-item--open',
+    toggle: '.accordion-toggle',
+    placedAt: '.mybets-date',
+    ticketIdHeadItem: '.mybets-head__item',
+    systemTable: '.mybets__systable',
+    legRow: '.mybets-item',
+    legDetailRow: '.mybets-item__row',
+    legSelection: '.mybets-bet',
+    legOdds: '.mybets-odd',
+    stakeReturnInfoItem: '.mybets-holder__info-item',
+    // Reused from the placeholder profile's identity-via-id convention --
+    // itself only confirmed on the fixtures page, and NOT confirmed to
+    // exist at all on this page's leg markup. Checked defensively; expect
+    // it to be absent (null source_event_id, NATURAL_KEY_FALLBACK) until
+    // proven otherwise.
+    legIdentityElement: '[id*="_event-"]',
+    legEventIdPattern: /event-([a-z0-9]+)/i,
+  };
+
+  // A `.accordion-toggle` click that never adds the open class within this
+  // window is reported as EXPAND_TIMEOUT (unresolved), never silently
+  // treated as "no legs" -- distinguishing "couldn't confirm expansion"
+  // from "confirmed empty" matters for an accurate coverage count.
+  const EXPAND_TIMEOUT_MS = 3000;
+  const EXPAND_POLL_INTERVAL_MS = 25;
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function waitFor(predicate, timeoutMs, intervalMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (predicate()) return true;
+      await sleep(intervalMs);
+    }
+    return predicate();
+  }
+
+  /**
+   * The ONLY function in this file that ever calls .click(). Expands a
+   * ticket if it isn't already open, waiting for the confirmed
+   * `.accordion-item--open` class -- never assumes the click succeeded
+   * just because it was dispatched (a slow/failed render is reported as
+   * EXPAND_TIMEOUT, not silently treated as an empty ticket).
+   */
+  async function ensureTicketExpanded(ticketEl) {
+    if (ticketEl.classList.contains(MYBETS_SELECTORS.ticketOpenClass)) {
+      return { opened: true, wasAlreadyOpen: true, reason: null };
+    }
+    const toggle = ticketEl.querySelector(MYBETS_SELECTORS.toggle);
+    if (!toggle) {
+      return { opened: false, wasAlreadyOpen: false, reason: 'TOGGLE_NOT_FOUND' };
+    }
+    toggle.click();
+    const opened = await waitFor(
+      () => ticketEl.classList.contains(MYBETS_SELECTORS.ticketOpenClass),
+      EXPAND_TIMEOUT_MS,
+      EXPAND_POLL_INTERVAL_MS
+    );
+    return { opened, wasAlreadyOpen: false, reason: opened ? null : 'EXPAND_TIMEOUT' };
+  }
+
+  /**
+   * Restores a ticket to the collapsed state it was in before capture
+   * touched it -- but ONLY if this parser is the one that opened it.
+   * Fire-and-forget by design (per the user's own "optionally collapse
+   * them again" framing): never awaited, never required for the
+   * correctness of the capture that already happened.
+   */
+  function collapseIfNeeded(ticketEl, wasAlreadyOpen) {
+    if (wasAlreadyOpen) return;
+    const toggle = ticketEl.querySelector(MYBETS_SELECTORS.toggle);
+    if (toggle) toggle.click();
+  }
+
+  /**
+   * `.mybets-head__item` may appear more than once per expanded ticket
+   * (the same class plausibly labels several head fields, not only the
+   * ticket id) -- so this prefers whichever one's text contains a
+   * plausible ticket-id-shaped digit run, falling back to the first
+   * item's raw text rather than guessing which one is "the" id field.
+   */
+  function resolveTicketIdFromMybets(ticketEl) {
+    const items = Array.from(ticketEl.querySelectorAll(MYBETS_SELECTORS.ticketIdHeadItem));
+    if (items.length === 0) return { idRaw: null, id: null };
+    for (const el of items) {
+      const t = text(el);
+      const match = t.match(/(\d{6,})/);
+      if (match) return { idRaw: t, id: match[1] };
+    }
+    const firstRaw = text(items[0]);
+    return { idRaw: firstRaw, id: firstRaw || null };
+  }
+
+  /**
+   * Parses one `.mybets-item` leg using the confirmed 4-row layout
+   * (selection+odds, market, fixture+time, competition). Never partially
+   * admits a leg -- any structural surprise (wrong row count, missing
+   * text, unparseable odds) is reported as a typed failure so the WHOLE
+   * ticket can be voided by the caller, per this file's fail-closed
+   * contract.
+   */
+  function extractMybetsLeg(legEl) {
+    const rows = Array.from(legEl.querySelectorAll(`:scope > ${MYBETS_SELECTORS.legDetailRow}`));
+    if (rows.length < 4) {
+      return {
+        ok: false,
+        reason: 'LEG_UNEXPECTED_ROW_COUNT',
+        detail: `expected 4 .mybets-item__row children (selection, market, fixture+time, competition), found ${rows.length}`,
+        raw: { row_count: rows.length },
+      };
+    }
+    const [selectionRow, marketRow, fixtureRow, competitionRow] = rows;
+    const selectionRaw = text(selectionRow.querySelector(MYBETS_SELECTORS.legSelection));
+    const oddsRaw = text(selectionRow.querySelector(MYBETS_SELECTORS.legOdds));
+    const marketRaw = text(marketRow);
+    const fixtureAndTimeRaw = text(fixtureRow);
+    const competitionRaw = text(competitionRow);
+
+    const rawSnapshot = {
+      selection_raw: selectionRaw,
+      odds_raw: oddsRaw,
+      market_raw: marketRaw,
+      fixture_and_time_raw: fixtureAndTimeRaw,
+      competition_raw: competitionRaw,
+    };
+
+    if (!selectionRaw) {
+      return { ok: false, reason: 'LEG_MISSING_SELECTION', detail: null, raw: rawSnapshot };
+    }
+    if (!fixtureAndTimeRaw) {
+      return { ok: false, reason: 'LEG_MISSING_FIXTURE_TEXT', detail: null, raw: rawSnapshot };
+    }
+    const odds = parsePrice(oddsRaw);
+    if (odds === null) {
+      return { ok: false, reason: 'LEG_UNPARSEABLE_ODDS', detail: `odds_raw="${oddsRaw}"`, raw: rawSnapshot };
+    }
+
+    const identityEl = legEl.querySelector(MYBETS_SELECTORS.legIdentityElement);
+    const eventIdMatch = identityEl && identityEl.id.match(MYBETS_SELECTORS.legEventIdPattern);
+    const sourceEventId = eventIdMatch ? eventIdMatch[1] : null;
+
+    // No home/away split is attempted from fixture_and_time_raw -- its
+    // exact separator (if any) between the two team names and the time
+    // is unconfirmed, and guessing one would be exactly the kind of
+    // DOM-structure guess this project's discipline exists to prevent.
+    // The natural-key fallback below uses the raw strings directly
+    // instead of a guessed home/away split.
+    let fixtureId;
+    let fixtureIdResolution;
+    if (sourceEventId) {
+      fixtureId = Bet9jaIds.stableId('bxf', ['external', `bet9ja-event-${sourceEventId}`]);
+      fixtureIdResolution = 'EXTERNAL_EVENT_ID';
+    } else {
+      fixtureId = Bet9jaIds.stableId('bxf', [
+        normalizeForHash(selectionRaw),
+        normalizeForHash(marketRaw),
+        normalizeForHash(fixtureAndTimeRaw),
+        normalizeForHash(competitionRaw),
+      ]);
+      fixtureIdResolution = 'NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID';
+    }
+
+    const selectionMapped = OUTCOME_LABEL_MAP[(selectionRaw || '').toLowerCase()] || null;
+
+    return {
+      ok: true,
+      leg: {
+        source_event_id: sourceEventId,
+        fixture_id: fixtureId,
+        fixture_id_resolution: fixtureIdResolution,
+        selection_raw: selectionRaw || null,
+        selection: selectionMapped,
+        odds_raw: oddsRaw || null,
+        odds,
+        market_raw: marketRaw || null,
+        fixture_and_time_raw: fixtureAndTimeRaw || null,
+        competition_raw: competitionRaw || null,
+      },
+    };
+  }
+
+  /**
+   * Parses one already-expanded `.accordion-item` ticket. Mirrors
+   * processTicket()'s fail-closed contract exactly (one of PARSED /
+   * UNRESOLVED / EXCLUDED, never a partial admission), adapted to this
+   * profile's confirmed fields and unconfirmed gaps (see the MYBETS
+   * PROFILE header comment).
+   */
+  function processMybetsTicket(ticketEl, sourceIndex, capturedAtUtc) {
+    const { idRaw, id } = resolveTicketIdFromMybets(ticketEl);
+    if (!id) {
+      return {
+        outcome: 'UNRESOLVED',
+        record: makeUnresolvedTicket({
+          reason: 'MISSING_TICKET_ID',
+          detail: idRaw
+            ? `head item text="${idRaw}" contained no recognizable id`
+            : 'No .mybets-head__item found after expansion; refusing to guess a synthetic id.',
+          sourceIndex,
+          raw: { ticket_id_raw: idRaw },
+        }),
+      };
+    }
+
+    const legEls = Array.from(ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow));
+    if (legEls.length === 0) {
+      return {
+        outcome: 'UNRESOLVED',
+        record: makeUnresolvedTicket({
+          reason: 'NO_LEGS_FOUND',
+          detail: 'Ticket expanded but contains no .mybets-item leg rows.',
+          sourceIndex,
+          raw: { ticket_id_raw: id },
+        }),
+      };
+    }
+
+    const legs = [];
+    for (let i = 0; i < legEls.length; i += 1) {
+      const parsed = extractMybetsLeg(legEls[i]);
+      if (!parsed.ok) {
+        // Fail closed, same contract as the placeholder profile: any
+        // unparseable leg voids the WHOLE ticket, never just that leg.
+        return {
+          outcome: 'UNRESOLVED',
+          record: makeUnresolvedTicket({
+            reason: 'LEG_FAILED_TO_PARSE',
+            detail: `leg[${i}] reason=${parsed.reason} detail=${parsed.detail || ''}`,
+            sourceIndex,
+            raw: { ticket_id_raw: id, leg_index: i, leg_raw: parsed.raw },
+          }),
+        };
+      }
+      legs.push(parsed.leg);
+    }
+
+    const placedAtRaw = text(ticketEl.querySelector(MYBETS_SELECTORS.placedAt));
+    // No UTC-qualified timestamp attribute exists in this markup (same
+    // honest gap as the placeholder profile's placed_at_utc) -- never
+    // guessed via Date.parse.
+    const { placedAtUtc, placedAtResolution } = resolvePlacedAt(null);
+
+    const systemTableEl = ticketEl.querySelector(MYBETS_SELECTORS.systemTable);
+    const systemTableRaw = systemTableEl ? text(systemTableEl) : null;
+    const stakeReturnRawItems = Array.from(ticketEl.querySelectorAll(MYBETS_SELECTORS.stakeReturnInfoItem)).map(text);
+
+    return {
+      outcome: 'PARSED',
+      record: {
+        bet9ja_ticket_id: id,
+        bet9ja_ticket_id_raw: idRaw,
+        // Every ticket on this page is, by construction, an open bet --
+        // but no explicit per-ticket status marker (settled/live/Virtual/
+        // Zoom) has been identified in this markup, so this is an
+        // inference from page context, not a read label -- see the
+        // MYBETS PROFILE header comment's live/Virtual/Zoom gap.
+        status: 'OPEN',
+        status_resolution: 'INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED',
+        placed_at_raw: placedAtRaw || null,
+        placed_at_utc: placedAtUtc,
+        placed_at_resolution: placedAtResolution,
+        // The system table's presence is itself confirmed, real evidence
+        // of a system ticket; anything else (single/double/treble/
+        // accumulator) currently has no confirmed distinguishing markup,
+        // so it stays unclassified rather than guessed -- see
+        // TICKET_TYPE_DETECTION_LIMITED_TO_SYSTEM_TABLE_PRESENCE.
+        ticket_type_raw: null,
+        ticket_type_normalized: systemTableRaw ? 'SYSTEM' : null,
+        ticket_type_taxonomy_gap: false,
+        // Cell-level label/value mapping for stake/return is unconfirmed
+        // (see the MYBETS PROFILE header comment) -- kept null/typed here
+        // rather than guessed; the raw text is preserved for audit below.
+        unit_stake_raw: null,
+        unit_stake: null,
+        total_stake_raw: null,
+        total_stake: null,
+        potential_return_raw: null,
+        potential_return: null,
+        stake_return_raw_items: stakeReturnRawItems,
+        system_table_raw: systemTableRaw,
+        legs,
+        captured_at_utc: capturedAtUtc,
+        parser_version: PARSER_VERSION,
+      },
+    };
+  }
 
   const KNOWN_TICKET_STATUSES = new Set(['OPEN', 'PENDING']);
   const EXCLUDED_TICKET_STATUSES = new Set(['SETTLED', 'WON', 'LOST', 'VOID', 'CASHED_OUT', 'CANCELLED']);
@@ -407,17 +760,8 @@
    * @param {{sourceUrl: string, pageTitle: string, capturedAtUtc: string}} context
    * @returns {{envelope: object}}
    */
-  function captureFromDocument(doc, context) {
+  function capturePlaceholderEnvelope(doc, context, envelopeBase) {
     const capturedAtUtc = context.capturedAtUtc;
-
-    const envelopeBase = {
-      schema_version: 'bet9ja-ticket-capture.v1',
-      capture_id: Bet9jaIds.captureId(capturedAtUtc),
-      captured_at_utc: capturedAtUtc,
-      source_url: sanitizeSourceUrl(context.sourceUrl),
-      page_title: context.pageTitle,
-      parser_version: PARSER_VERSION,
-    };
 
     const rootEl = doc.querySelector(TICKET_SELECTORS.root);
     const ticketEls = rootEl
@@ -506,7 +850,146 @@
     };
   }
 
-  const api = { captureFromDocument, sanitizeSourceUrl, PARSER_VERSION, TICKET_SELECTORS };
+  /**
+   * MYBETS profile capture -- async because expanding a collapsed ticket
+   * requires a real click and a wait for the resulting DOM mutation (see
+   * the MYBETS PROFILE header comment). Each ticket is expanded, parsed,
+   * and (if this call opened it) collapsed again in strict sequence --
+   * never in parallel -- so at most one ticket is ever mid-expansion at a
+   * time, keeping the live page's own state predictable throughout.
+   */
+  async function captureMybetsEnvelope(doc, context, envelopeBase, mybetsRoot) {
+    const capturedAtUtc = context.capturedAtUtc;
+    const ticketEls = Array.from(mybetsRoot.querySelectorAll(MYBETS_SELECTORS.ticket));
+
+    const tickets = [];
+    const unresolvedTickets = [];
+    const excludedTickets = [];
+    const seenTicketIds = new Set();
+    let legsSeen = 0;
+    let legsParsed = 0;
+    let duplicateTicketsSkipped = 0;
+
+    for (let index = 0; index < ticketEls.length; index += 1) {
+      const ticketEl = ticketEls[index];
+      const expandResult = await ensureTicketExpanded(ticketEl);
+      if (!expandResult.opened) {
+        unresolvedTickets.push(
+          makeUnresolvedTicket({
+            reason: expandResult.reason === 'TOGGLE_NOT_FOUND' ? 'TICKET_TOGGLE_NOT_FOUND' : 'TICKET_EXPAND_TIMEOUT',
+            detail: `Could not confirm ticket[${index}] expanded (.accordion-item--open never appeared).`,
+            sourceIndex: index,
+            raw: { reason: expandResult.reason },
+          })
+        );
+        continue; // never attempt to parse or collapse a ticket we couldn't confirm open
+      }
+
+      legsSeen += ticketEl.querySelectorAll(MYBETS_SELECTORS.legRow).length;
+      const { outcome, record } = processMybetsTicket(ticketEl, index, capturedAtUtc);
+      if (outcome === 'PARSED') {
+        if (seenTicketIds.has(record.bet9ja_ticket_id)) {
+          // Not expected on a single page, but guarded rather than
+          // assumed -- a duplicate ticket id is recorded in coverage
+          // rather than silently pushed twice or silently dropped.
+          duplicateTicketsSkipped += 1;
+        } else {
+          seenTicketIds.add(record.bet9ja_ticket_id);
+          tickets.push(record);
+          legsParsed += record.legs.length;
+        }
+      } else if (outcome === 'EXCLUDED') {
+        excludedTickets.push(record);
+      } else {
+        unresolvedTickets.push(record);
+      }
+
+      collapseIfNeeded(ticketEl, expandResult.wasAlreadyOpen);
+    }
+
+    const ticketsSeen = ticketEls.length;
+    // Every reason below is a currently-known, real gap (see the MYBETS
+    // PROFILE header comment) -- present on EVERY capture using this
+    // profile so a result can never be mistaken for fully validated.
+    const statusReasons = [
+      'MYBETS_SELECTOR_PROFILE_ACTIVE',
+      'LIVE_VIRTUAL_ZOOM_DETECTION_UNCONFIRMED_FOR_MYBETS_PROFILE',
+      'STAKE_RETURN_FIELD_MAPPING_UNCONFIRMED',
+      'TICKET_TYPE_DETECTION_LIMITED_TO_SYSTEM_TABLE_PRESENCE',
+      'PAGINATION_NOT_YET_AUTOMATED_SINGLE_PAGE_ONLY',
+    ];
+    if (duplicateTicketsSkipped > 0) {
+      statusReasons.push('DUPLICATE_TICKET_IDS_SKIPPED');
+    }
+
+    let captureStatus;
+    if (ticketsSeen === 0) {
+      captureStatus = 'CAPTURE_FAILED';
+      statusReasons.unshift('NO_TICKETS_FOUND');
+    } else if (tickets.length === 0 && unresolvedTickets.length === 0 && excludedTickets.length === 0) {
+      captureStatus = 'CAPTURE_FAILED';
+      statusReasons.unshift('NO_USABLE_OUTPUT');
+    } else {
+      // Never CAPTURE_OK for this profile -- the unconfirmed gaps above
+      // (live/Virtual/Zoom detection chief among them) mean even a clean
+      // parse of every visible ticket cannot yet be called fully
+      // validated. This is a deliberate, permanent cap for this profile
+      // version, not a bug -- see PARSER_VERSION.
+      captureStatus = 'CAPTURE_PARTIAL';
+      if (unresolvedTickets.length > 0) statusReasons.unshift('UNRESOLVED_TICKETS_PRESENT');
+    }
+
+    return {
+      envelope: {
+        ...envelopeBase,
+        capture_status: captureStatus,
+        capture_status_reasons: statusReasons,
+        coverage: {
+          visible_page_only: true,
+          tickets_seen: ticketsSeen,
+          tickets_parsed: tickets.length,
+          tickets_unresolved: unresolvedTickets.length,
+          tickets_expected_excluded: excludedTickets.length,
+          legs_seen: legsSeen,
+          legs_parsed: legsParsed,
+          duplicate_tickets_skipped: duplicateTicketsSkipped,
+          // Automated multi-page capture needs confirmed pagination
+          // selectors (see the MYBETS PROFILE header comment) -- this
+          // release only ever captures the one page already on screen.
+          pages_captured: 1,
+          pagination_automated: false,
+        },
+        tickets,
+        unresolved_tickets: unresolvedTickets,
+        excluded_tickets: excludedTickets,
+      },
+    };
+  }
+
+  /**
+   * @param {Document} doc
+   * @param {{sourceUrl: string, pageTitle: string, capturedAtUtc: string}} context
+   * @returns {Promise<{envelope: object}>}
+   */
+  async function captureFromDocument(doc, context) {
+    const capturedAtUtc = context.capturedAtUtc;
+    const envelopeBase = {
+      schema_version: 'bet9ja-ticket-capture.v1',
+      capture_id: Bet9jaIds.captureId(capturedAtUtc),
+      captured_at_utc: capturedAtUtc,
+      source_url: sanitizeSourceUrl(context.sourceUrl),
+      page_title: context.pageTitle,
+      parser_version: PARSER_VERSION,
+    };
+
+    const mybetsRoot = doc.querySelector(MYBETS_SELECTORS.root);
+    if (mybetsRoot) {
+      return captureMybetsEnvelope(doc, context, envelopeBase, mybetsRoot);
+    }
+    return capturePlaceholderEnvelope(doc, context, envelopeBase);
+  }
+
+  const api = { captureFromDocument, sanitizeSourceUrl, PARSER_VERSION, TICKET_SELECTORS, MYBETS_SELECTORS };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
