@@ -289,16 +289,18 @@ jobs:
           PY
 
       - name: Run Soccer 1X2 Elo baseline training + evaluation
-        # IMPLEMENTATION STATUS: this step's numbers are the FIRST real ones
-        # this baseline (research/soccer_1x2_elo_baseline/) has ever produced
-        # from actual downloaded Football-Data content — every number this
-        # PR's own test suite can produce is fixture-derived proof the CODE
-        # behaves correctly, never a performance claim (see train.py's module
-        # docstring). Runs against whatever data_pipeline/download.py actually
-        # retrieved above (real files if any succeeded — this step must
-        # complete cleanly and report an honest "no data available" state,
-        # exactly like dataset_builder.py already does for
-        # SOURCE_UNAVAILABLE/empty splits, if raw_dir is empty). Trains ONLY
+        # EVIDENCE STATUS: this step's own report is labeled by
+        # evidence_class (research/soccer_1x2_elo_baseline/evidence.py),
+        # computed from data_pipeline/retrieval_log.json's own SHA-256-
+        # confirmed record of which raw files this job actually downloaded
+        # from football-data.co.uk — NEVER inferred from row counts or
+        # split status (a synthetic fixture can report a nonzero row count
+        # and status "BUILT" just as easily as a real download). Runs
+        # against whatever data_pipeline/download.py actually retrieved
+        # above (real files if any succeeded — this step must complete
+        # cleanly and report an honest "no data available" state, exactly
+        # like dataset_builder.py already does for SOURCE_UNAVAILABLE/empty
+        # splits, if raw_dir is empty). Trains ONLY
         # on split_training, calibrates ONLY on split_calibration_validation,
         # and never touches split_locked_test/split_out_of_time_retrospective_holdout/
         # split_genuine_prospective_scoring for any fitting decision — see
@@ -331,6 +333,8 @@ jobs:
           print("")
           print("## Soccer 1X2 Elo baseline — training + evaluation evidence")
           print("")
+          print(f"evidence_class: `{report['evidence_class']}`")
+          print("")
           print(f"> {report['implementation_status']}")
           print("")
           print(
@@ -361,15 +365,25 @@ jobs:
           print(f"| combined_hash | `{report['combined_hash']}` |")
           print(f"| temperature | `{report['temperature']}` |")
           print("")
-          print(
-              "**First-ever live run note:** no prior committed frozen-hash baseline "
-              "exists yet for this baseline, so the hashes above are printed here as "
-              "the NEW baseline-establishing values (nothing to compare against yet). "
-              "A future PR/run can commit these values so a later run's own drift "
-              "(the four frozen splits changing after they were supposed to be locked) "
-              "gets flagged loudly instead of silently accepted."
-          )
-          print("")
+
+          hash_provenance_report = report.get("hash_provenance")
+          if hash_provenance_report is not None:
+              print("### Frozen-hash provenance check (against expected_hashes.json — never auto-updated)")
+              print("")
+              print(
+                  "`CANDIDATE` = no real hash pinned yet for this split; `CONFIRMED` = "
+                  "matches a human-pinned real value; `MISMATCH` = a pinned value no "
+                  "longer matches. A MISMATCH only fails this run when evidence_class "
+                  f"is LIVE_SOURCE_VALIDATED (this run: `{report['evidence_class']}`)."
+              )
+              print("")
+              print("| Split | Status | Expected | Computed |")
+              print("|---|---|---|---|")
+              for check in hash_provenance_report["split_checks"]:
+                  print(f"| {check['split_id']} | {check['status']} | `{check['expected']}` | `{check['computed']}` |")
+              combined = hash_provenance_report["combined_check"]
+              print(f"| {combined['split_id']} | {combined['status']} | `{combined['expected']}` | `{combined['computed']}` |")
+              print("")
 
           stream = report["prospective_stream_observation"]
           print("### Prospective stream — split_genuine_prospective_scoring (ROLLING, APPEND-ONLY OBSERVATION — never a test)")
@@ -378,6 +392,23 @@ jobs:
           print(f"- run_timestamp_utc: `{stream['run_timestamp_utc']}`")
           print(f"- row_count: {stream['row_count']}")
           print("")
+
+          def print_reliability_table(title, metrics):
+              table = metrics.get("reliability_table") or []
+              print(f"**{title} — reliability table**")
+              print("")
+              if not table:
+                  print("(no rows)")
+                  print("")
+                  return
+              print("| Bin range | Count | Mean confidence | Observed accuracy |")
+              print("|---|---:|---:|---:|")
+              for row in table:
+                  low, high = row["bin_range"]
+                  confidence = f"{row['predicted_probability_midpoint']:.4f}" if row["count"] else "—"
+                  observed = f"{row['empirical_frequency']:.4f}" if row["count"] else "—"
+                  print(f"| [{low:.1f}, {high:.1f}) | {row['count']} | {confidence} | {observed} |")
+              print("")
 
           def print_metrics_table(title, metrics):
               print(f"**{title}** — rows={metrics['row_count']}")
@@ -415,6 +446,7 @@ jobs:
               print_metrics_table("De-vigged opening bookmaker odds", devig)
               print(f"- De-vigged opening odds: excluded {devig['excluded_row_count']} row(s) with no complete opening price set")
               print("")
+              print_reliability_table("Model", split_report["model_metrics"])
 
           rolling = report["rolling_settlement_observation"]
           print("### Rolling settlement observation — split_genuine_prospective_scoring (NOT a test, NOT prospective evaluation)")
@@ -426,6 +458,8 @@ jobs:
           devig = rolling["devigged_opening_odds_metrics"]
           print_metrics_table("De-vigged opening bookmaker odds", devig)
           print(f"- De-vigged opening odds: excluded {devig['excluded_row_count']} row(s) with no complete opening price set")
+          print("")
+          print_reliability_table("Model", rolling["model_metrics"])
           PY
 
       - uses: actions/upload-artifact@v4

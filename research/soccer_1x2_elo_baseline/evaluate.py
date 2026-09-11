@@ -56,6 +56,7 @@ if str(_SRC_DIR) not in sys.path:
 # the production adapter" (see this module's docstring).
 from pcbf_calculator.pricing.engine import PricingFailure, analyze_market
 
+from . import evidence
 from .model import CLASS_ORDER
 from .train import TrainingResult
 
@@ -284,12 +285,13 @@ def build_evaluation_report(training_result: TrainingResult) -> dict[str, Any]:
     names or text."""
 
     report: dict[str, Any] = {
-        "implementation_status": (
-            "IMPLEMENTATION-ONLY: built and tested exclusively against synthetic "
-            "fixtures in tests/fixtures/football_data/. Every metric below proves the "
-            "code behaves correctly; NONE of it is a real-data performance claim. "
-            "Real numbers are PENDING THE POST-MERGE LIVE GITHUB ACTIONS WORKFLOW RUN."
-        ),
+        # Derived ONLY from `evidence_class` — never from row counts or
+        # split status directly. See `evidence.py`'s docstring: a
+        # synthetic, hand-crafted fixture can report a nonzero row count
+        # and `status == "BUILT"` just as easily as a real download, so
+        # neither is a trustworthy signal on its own.
+        "evidence_class": training_result.evidence_class,
+        "implementation_status": evidence.describe_evidence_class(training_result.evidence_class),
         "frozen_hashes": training_result.frozen_hashes.to_dict(),
         "code_hash": training_result.code_hash,
         "artifact_hash": training_result.artifact_hash,
@@ -343,6 +345,31 @@ def _format_metrics_markdown(name: str, metrics: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _format_reliability_table_markdown(name: str, metrics: dict[str, Any]) -> list[str]:
+    """Render the pooled (H/D/A-combined) reliability table backing
+    `metrics['calibration_error']` — bin range, sample count, mean
+    predicted confidence, and observed (empirical) accuracy per bin.
+    Empty bins are still listed (count=0), never silently dropped, so a
+    reader can see which confidence ranges this split never predicted
+    into."""
+
+    table = metrics.get("reliability_table") or []
+    lines = [f"**{name} — reliability table**", ""]
+    if not table:
+        lines.append("(no rows)")
+        lines.append("")
+        return lines
+    lines.append("| Bin range | Count | Mean confidence | Observed accuracy |")
+    lines.append("|---|---:|---:|---:|")
+    for row in table:
+        low, high = row["bin_range"]
+        confidence = f"{row['predicted_probability_midpoint']:.4f}" if row["count"] else "—"
+        observed = f"{row['empirical_frequency']:.4f}" if row["count"] else "—"
+        lines.append(f"| [{low:.1f}, {high:.1f}) | {row['count']} | {confidence} | {observed} |")
+    lines.append("")
+    return lines
+
+
 def write_evaluation_report(
     report: dict[str, Any],
     json_path: Path,
@@ -352,6 +379,8 @@ def write_evaluation_report(
     json_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     lines = ["# Soccer 1X2 Elo baseline — evaluation report", ""]
+    lines.append(f"evidence_class: `{report['evidence_class']}`")
+    lines.append("")
     lines.append(f"> {report['implementation_status']}")
     lines.append("")
     lines.append("## Frozen model-development inputs")
@@ -382,6 +411,7 @@ def write_evaluation_report(
         lines.extend(_format_metrics_markdown("De-vigged opening odds", devig))
         lines.append(f"- De-vigged opening odds: excluded {devig['excluded_row_count']} row(s) with no complete opening price set")
         lines.append("")
+        lines.extend(_format_reliability_table_markdown("Model", split_report["model_metrics"]))
 
     rolling = report["rolling_settlement_observation"]
     lines.append("## Rolling settlement observation — split_genuine_prospective_scoring")
@@ -394,6 +424,7 @@ def write_evaluation_report(
     lines.extend(_format_metrics_markdown("De-vigged opening odds", devig))
     lines.append(f"- De-vigged opening odds: excluded {devig['excluded_row_count']} row(s) with no complete opening price set")
     lines.append("")
+    lines.extend(_format_reliability_table_markdown("Model", rolling["model_metrics"]))
 
     hash_provenance_report = report.get("hash_provenance")
     if hash_provenance_report is not None:
@@ -432,7 +463,7 @@ def main(
     """CLI entry point: run the full train+evaluate pipeline against
     whatever `data_pipeline/raw/` actually contains (real downloads in a
     live GitHub Actions run; nothing in this sandbox — see
-    `train.py`'s module docstring on IMPLEMENTATION STATUS), write the
+    `train.py`'s module docstring on EVIDENCE STATUS), write the
     evaluation report JSON/Markdown, and check the freshly computed frozen
     hashes against `expected_hashes.json` (see `hash_provenance.py`).
 
@@ -461,6 +492,7 @@ def main(
 
     from . import hash_provenance
     from .train import DEFAULT_RAW_DIR, run_twice_determinism_check
+    from .evidence import EVIDENCE_LIVE_SOURCE_VALIDATED
 
     effective_raw_dir = raw_dir if raw_dir is not None else DEFAULT_RAW_DIR
     is_identical, first_result, _second_result = run_twice_determinism_check(raw_dir=effective_raw_dir)
@@ -485,6 +517,7 @@ def main(
     artifact_path.write_text(json.dumps(result.model_artifact.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Wrote {artifact_path}")
 
+    print(f"evidence_class: {result.evidence_class}")
     print("Frozen-hash provenance check (against expected_hashes.json — never auto-updated):")
     for check in hash_report.split_checks:
         print(f"  {check.split_id}: status={check.status} expected={check.expected} computed={check.computed}")
@@ -499,14 +532,33 @@ def main(
         "wiring happens here or anywhere in this PR."
     )
 
-    if hash_report.has_mismatch:
+    # A pinned real hash is only ever expected to match a run whose evidence
+    # is CONFIRMED LIVE — comparing a pinned real hash against a fixture-
+    # only, missing, or unusable run's computed hash is an apples-to-
+    # oranges comparison by construction (that run never touched the real
+    # data the pinned hash describes), so it must never fail the run. Only
+    # a MISMATCH on a run whose own evidence_class is
+    # EVIDENCE_LIVE_SOURCE_VALIDATED means what the operator asked this
+    # check to mean: "the real, live frozen dataset itself has drifted
+    # since it was pinned."
+    if hash_report.has_mismatch and result.evidence_class == EVIDENCE_LIVE_SOURCE_VALIDATED:
         print(
             "FAILING: one or more frozen-split hashes no longer match the pinned "
-            "expected_hashes.json value. This is never auto-corrected — a human must "
-            "review why the frozen dataset changed and, if the new content is "
-            "correct, pin the new hash in its own small evidence PR."
+            "expected_hashes.json value, and this run's evidence_class is "
+            "LIVE_SOURCE_VALIDATED — the real frozen dataset has drifted since it "
+            "was pinned. This is never auto-corrected — a human must review why "
+            "and, if the new content is correct, pin the new hash in its own small "
+            "evidence PR."
         )
         sys.exit(1)
+    elif hash_report.has_mismatch:
+        print(
+            "NOTE: one or more computed hashes disagree with a pinned "
+            "expected_hashes.json value, but this run's evidence_class is "
+            f"{result.evidence_class} (not LIVE_SOURCE_VALIDATED) — a fixture, "
+            "missing, or unusable-source run was never expected to reproduce the "
+            "real, pinned hash, so this is not treated as a failure."
+        )
 
 
 if __name__ == "__main__":

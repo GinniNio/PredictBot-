@@ -1,17 +1,47 @@
 {
-  "schema_note": "Every hash value here is either the literal string UNFROZEN_PENDING_LIVE_RUN (no real Football-Data hash has been pinned yet) or a real SHA-256 hash PINNED BY A HUMAN, in a small, separate, reviewed evidence PR, after reading a real live-workflow run's output. This file is NEVER auto-updated by any workflow, training, or evaluation code -- hash_provenance.check_frozen_hashes() only ever READS it. A mismatch between a pinned value and a freshly computed one is reported as a failure (see check_frozen_hashes' has_mismatch), never silently corrected or overwritten. Pinning a real value must also fill in that split's own provenance_by_split entry (run_id, commit_sha, workflow_run_url, retrieved_at_utc) so every pinned hash's origin stays traceable.",
+  "schema_note": "Every hash value here is either the literal string UNFROZEN_PENDING_LIVE_RUN (no real Football-Data hash has been pinned yet) or a real SHA-256 hash PINNED BY A HUMAN, in a small, separate, reviewed evidence PR, after reading a real live-workflow run's output. This file is NEVER auto-updated by any workflow, training, or evaluation code -- hash_provenance.check_frozen_hashes() only ever READS it. A mismatch between a pinned value and a freshly computed one is reported as a failure ONLY when that run's own evidence_class is LIVE_SOURCE_VALIDATED (see evaluate.main()'s gate and evidence.py) -- never silently corrected or overwritten, and never enforced against a fixture, missing, or unusable-source run, which was never expected to reproduce a real, pinned hash in the first place. Pinning a real value must also fill in that split's own provenance_by_split entry (run_id, commit_sha, workflow_run_url, retrieved_at_utc, source_url_manifest_hash) so every pinned hash's origin stays traceable.",
   "split_hashes": {
-    "split_training": "UNFROZEN_PENDING_LIVE_RUN",
-    "split_calibration_validation": "UNFROZEN_PENDING_LIVE_RUN",
-    "split_locked_test": "UNFROZEN_PENDING_LIVE_RUN",
-    "split_out_of_time_retrospective_holdout": "UNFROZEN_PENDING_LIVE_RUN"
+    "split_training": "f6aaf11b324b33d35b437d64cb2238cc8cf44d6cad3696f6abd17349f539d59e",
+    "split_calibration_validation": "ef794716945f9eb37bb034a17e340140be4e3aa1d913aed1e8bd993369c395c7",
+    "split_locked_test": "6ca9ee18f3d538ad1eecb4ebf935a3448b08afd78e82604f66f3eb00b36961aa",
+    "split_out_of_time_retrospective_holdout": "499d5a6464bd62ab8edd6c428c43b1aa1600c214060f9553660b5364dbd612b7"
   },
-  "frozen_dataset_hash": "UNFROZEN_PENDING_LIVE_RUN",
+  "frozen_dataset_hash": "d251b3aeead34b3b1598dc3a63eb8cbb27fb9ffd443013e8b420002ef8e66b73",
   "provenance_by_split": {
-    "split_training": null,
-    "split_calibration_validation": null,
-    "split_locked_test": null,
-    "split_out_of_time_retrospective_holdout": null,
-    "frozen_dataset_hash": null
+    "split_training": {
+      "workflow_run_id": "34573053608",
+      "commit_sha": "14bf8abdb4446263b4ad9ade8d866bdfc91e7b0a",
+      "workflow_run_url": "https://github.com/GinniNio/PredictBot-/actions/runs/34573053608",
+      "retrieved_at_utc": "2026-09-11T07:16:17Z",
+      "source_url_manifest_hash": "3a7d2b6af71437fe1cbb20f154de6dcf3a8e76ae7834e60a40f53fd4ae6c86cd"
+    },
+    "split_calibration_validation": {
+      "workflow_run_id": "34573053608",
+      "commit_sha": "14bf8abdb4446263b4ad9ade8d866bdfc91e7b0a",
+      "workflow_run_url": "https://github.com/GinniNio/PredictBot-/actions/runs/34573053608",
+      "retrieved_at_utc": "2026-09-11T07:16:17Z",
+      "source_url_manifest_hash": "3a7d2b6af71437fe1cbb20f154de6dcf3a8e76ae7834e60a40f53fd4ae6c86cd"
+    },
+    "split_locked_test": {
+      "workflow_run_id": "34573053608",
+      "commit_sha": "14bf8abdb4446263b4ad9ade8d866bdfc91e7b0a",
+      "workflow_run_url": "https://github.com/GinniNio/PredictBot-/actions/runs/34573053608",
+      "retrieved_at_utc": "2026-09-11T07:16:17Z",
+      "source_url_manifest_hash": "3a7d2b6af71437fe1cbb20f154de6dcf3a8e76ae7834e60a40f53fd4ae6c86cd"
+    },
+    "split_out_of_time_retrospective_holdout": {
+      "workflow_run_id": "34573053608",
+      "commit_sha": "14bf8abdb4446263b4ad9ade8d866bdfc91e7b0a",
+      "workflow_run_url": "https://github.com/GinniNio/PredictBot-/actions/runs/34573053608",
+      "retrieved_at_utc": "2026-09-11T07:16:17Z",
+      "source_url_manifest_hash": "3a7d2b6af71437fe1cbb20f154de6dcf3a8e76ae7834e60a40f53fd4ae6c86cd"
+    },
+    "frozen_dataset_hash": {
+      "workflow_run_id": "34573053608",
+      "commit_sha": "14bf8abdb4446263b4ad9ade8d866bdfc91e7b0a",
+      "workflow_run_url": "https://github.com/GinniNio/PredictBot-/actions/runs/34573053608",
+      "retrieved_at_utc": "2026-09-11T07:16:17Z",
+      "source_url_manifest_hash": "3a7d2b6af71437fe1cbb20f154de6dcf3a8e76ae7834e60a40f53fd4ae6c86cd"
+    }
   }
 }

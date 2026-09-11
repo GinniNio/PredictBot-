@@ -1,16 +1,22 @@
 """Training orchestration for the Soccer 1X2 Elo baseline.
 
-IMPLEMENTATION STATUS: this module (and every number this repository's own
-test suite produces from it) is IMPLEMENTATION-ONLY, built and exercised
-exclusively against hand-crafted fixtures under
-`tests/fixtures/football_data/`. No real Football-Data content has ever
-been fitted on in this sandbox (no live network access here — see
-`data_pipeline/FEASIBILITY_DECISION.md`). Any Brier/log-loss/calibration/
-accuracy number this code can currently produce is fixture-derived PROOF
-THE CODE BEHAVES CORRECTLY, never a real-data performance claim. Real
-numbers are PENDING THE POST-MERGE LIVE GITHUB ACTIONS WORKFLOW RUN
-(`.github/workflows/football-data-feasibility.yml`), exactly like every
-prior PR in this project.
+EVIDENCE STATUS: this module's own test suite runs exclusively against
+hand-crafted fixtures under `tests/fixtures/football_data/` — never real
+Football-Data content (this sandbox has no live network access — see
+`data_pipeline/FEASIBILITY_DECISION.md`). Every number a LOCAL run of this
+code produces is therefore fixture-derived PROOF THE CODE BEHAVES
+CORRECTLY, never a real-data performance claim.
+
+The real, post-merge `.github/workflows/football-data-feasibility.yml`
+GitHub Actions run downloads and fits on genuine football-data.co.uk
+content instead. Whether a given `TrainingResult` reflects real,
+fixture, missing, or unusable source data is never inferred from row
+counts or split status (a synthetic fixture can report a nonzero row
+count and `status == "BUILT"` just as easily as a real download) — it is
+`TrainingResult.evidence_class`, computed by `evidence.classify_evidence`
+from `data_pipeline/retrieval_log.json`'s own record of which files were
+actually downloaded from football-data.co.uk. See `evidence.py`'s
+docstring for the full classification.
 
 Scope (deliberate — see the operator's own chronological training/
 calibration/locked-test/holdout/prospective evaluation table): this module
@@ -113,18 +119,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from data_pipeline.dataset_builder import DEFAULT_RAW_DIR, build_split, combined_snapshot_hash, load_contract_rows, sha256_bytes
+from data_pipeline.dataset_builder import LEAGUE_CODES, DEFAULT_RAW_DIR, build_split, combined_snapshot_hash, load_contract_rows, sha256_bytes
 
-from . import calibration, model
+from . import calibration, evidence, model
 from .elo import EloEngine
 from .features import FeatureBuildResult, SeasonStageTracker, build_dataset
-
-IMPLEMENTATION_STATUS_NOTE = (
-    "IMPLEMENTATION-ONLY: built and tested exclusively against synthetic fixtures "
-    "in tests/fixtures/football_data/. This proves the code behaves correctly; it "
-    "is NOT a real-data performance claim. Real numbers are PENDING THE POST-MERGE "
-    "LIVE GITHUB ACTIONS WORKFLOW RUN."
-)
 
 # The four FROZEN model-development inputs — fit/calibrate/final-eval/
 # one-time out-of-time confirmation. Order matters only for readability;
@@ -224,6 +223,7 @@ class TrainingResult:
     artifact_hash: str
     combined_hash: str
     prospective_stream: ProspectiveStreamObservation
+    evidence_class: str = evidence.EVIDENCE_SOURCE_UNAVAILABLE
     rows_by_split: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     exclusions: list[dict[str, Any]] = field(default_factory=list)
     split_statuses: dict[str, str] = field(default_factory=dict)
@@ -233,10 +233,17 @@ class TrainingResult:
         """Everything needed to reproduce/verify this run's evidence,
         JSON-serializable — includes the prospective stream's real
         `run_timestamp_utc`, so this dict is NOT itself appropriate for a
-        determinism byte-comparison (see `to_deterministic_dict`)."""
+        determinism byte-comparison (see `to_deterministic_dict`).
+
+        `implementation_status` is derived ONLY from `evidence_class` —
+        never from row counts or split status directly (an earlier version
+        of this code inferred "real data" from a nonzero row count plus a
+        `BUILT` split status, which a synthetic fixture satisfies just as
+        easily as a real download — see `evidence.py`'s own docstring)."""
 
         return {
-            "implementation_status": IMPLEMENTATION_STATUS_NOTE,
+            "implementation_status": evidence.describe_evidence_class(self.evidence_class),
+            "evidence_class": self.evidence_class,
             "model_artifact": self.model_artifact.to_dict(),
             "temperature": self.temperature,
             "frozen_hashes": self.frozen_hashes.to_dict(),
@@ -330,11 +337,13 @@ def train_pipeline(
 
     records_by_split: dict[str, list[dict[str, Any]]] = {}
     split_statuses: dict[str, str] = {}
+    season_codes_by_split: dict[str, list[str]] = {}
     all_records: list[dict[str, Any]] = []
     for split_id in TRAINING_SPLIT_IDS:
         split_result = build_split(split_id, raw_dir=raw_dir, contract_rows=contract_rows)
         split_statuses[split_id] = split_result["status"]
         records_by_split[split_id] = split_result["records"]
+        season_codes_by_split[split_id] = split_result["season_codes"]
         for record in split_result["records"]:
             tagged = dict(record)
             tagged["split_id"] = split_id
@@ -372,6 +381,13 @@ def train_pipeline(
     code_hash = compute_code_hash()
     combined_hash = compute_combined_hash(frozen_hashes.combined_hash, code_hash, artifact_hash)
 
+    evidence_class = evidence.classify_evidence(
+        raw_dir=raw_dir,
+        season_codes_by_frozen_split={split_id: season_codes_by_split[split_id] for split_id in FROZEN_SPLIT_IDS},
+        league_codes=LEAGUE_CODES,
+        frozen_row_count=sum(len(records_by_split[split_id]) for split_id in FROZEN_SPLIT_IDS),
+    )
+
     prospective_records = records_by_split[PROSPECTIVE_STREAM_SPLIT_ID]
     prospective_stream = ProspectiveStreamObservation(
         content_hash=compute_split_hash(prospective_records),
@@ -389,6 +405,7 @@ def train_pipeline(
         artifact_hash=artifact_hash,
         combined_hash=combined_hash,
         prospective_stream=prospective_stream,
+        evidence_class=evidence_class,
         rows_by_split=rows_by_split,
         exclusions=build_result.exclusions,
         split_statuses=split_statuses,
@@ -418,7 +435,8 @@ def run_twice_determinism_check(
 
 def main() -> None:
     result = train_pipeline()
-    print(IMPLEMENTATION_STATUS_NOTE)
+    print(f"evidence_class: {result.evidence_class}")
+    print(evidence.describe_evidence_class(result.evidence_class))
     print("Frozen model-development inputs (split_training, split_calibration_validation,")
     print("split_locked_test, split_out_of_time_retrospective_holdout):")
     for split_id, split_hash in result.frozen_hashes.split_hashes.items():
