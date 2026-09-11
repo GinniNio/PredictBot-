@@ -307,16 +307,18 @@ row mapping to exactly `1.14 / 7.30 / 12.25` on the correct participants.
   and the 1X2 odds list (`.sports-table__odds-item` with the outcome
   label embedded in each `<li>`'s own `id`, e.g. `..._market-1x2_sign-1`)
   all work against real markup.
-- **Date-heading grouping**: `.sports-head__date` elements are the
-  nearest preceding SIBLING of a `.sports-table` (confirmed via a real
-  downloaded capture, round 3 — an earlier assumption that it was nested
-  as a child inside the table was wrong: that real capture had 2
-  confirmed date sections but every fixture came back with
-  `date_heading_raw: null`). Every row in a table inherits that table's
-  own preceding heading. Recorded per fixture as `date_heading_raw` for
-  audit — deliberately never combined with the bare kickoff time into a
-  guessed `kickoff_utc`, since its exact date-string format is still
-  unconfirmed.
+- **Date-heading grouping**: `.sports-table` and a `.sports-head` wrapper
+  (itself containing `.sports-head__date`) are both children of a common
+  day-wrapper element — the heading is a sibling's descendant, not a
+  sibling itself and not a nested child. This took three rounds of real
+  captures to pin down: round 2 guessed nested-child (wrong — real
+  capture, `date_heading_raw: null` despite 2 confirmed sections), round 3
+  guessed preceding-sibling (also wrong — two more real captures,
+  Highlights and LaLiga, both still `null`), round 4 confirmed the actual
+  wrapper structure end to end. Every row in a table inherits that table's
+  own heading. Recorded per fixture as `date_heading_raw` for audit —
+  deliberately never combined with the bare kickoff time into a guessed
+  `kickoff_utc`, since its exact date-string format is still unconfirmed.
 - **The "1X2 1UP" second market never contaminates ordinary 1X2.** The
   real page carries a second `.sports-table__odds-list` per row for a
   "1X2 1UP" market; its odds-item `id`s use a distinct family segment

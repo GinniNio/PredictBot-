@@ -82,17 +82,18 @@
     // below); every one found is processed.
     root: '.sports-table',
     row: '.table-f',
-    // Round-2 real-capture correction: this is NOT nested inside `root`
-    // as a child interleaved with rows (an earlier assumption that a real
-    // capture proved wrong -- every fixture came back with
-    // date_heading_raw: null despite 2 confirmed date sections). It is
-    // the nearest preceding SIBLING of a `.sports-table`, applying to
-    // every row that table contains -- see findPrecedingDateHeading().
-    // The interleaved-child pattern is still checked too, as a harmless
-    // second signal, in case some page variant nests it that way instead.
+    // Round-4 real-capture correction (2 more real captures -- Highlights
+    // and LaLiga -- both still came back with date_heading_raw: null under
+    // the round-2/round-3 "preceding sibling of .sports-table" assumption,
+    // proving that wrong too). The real structure: `.sports-table` and a
+    // `.sports-head` wrapper (itself containing `.sports-head__date`) are
+    // both children of a common day-wrapper element -- i.e. the heading is
+    // a SIBLING'S DESCENDANT, not a sibling itself and not a child. See
+    // findPrecedingDateHeading(), which looks up via `table.parentElement`.
     // Never parsed into a timestamp -- its exact date-string format is
-    // unconfirmed, and guessing one would defeat the whole point of
+    // still unconfirmed, and guessing one would defeat the whole point of
     // resolveKickoff()'s honesty guarantee.
+    dateHeadingWrapper: '.sports-head',
     dateHeading: '.sports-head__date',
     // Round-2 real-capture correction: 12 of 30 `.table-f` elements on the
     // real page turned out to be structural/spacer/header rows with no
@@ -778,26 +779,19 @@
       const fallbackRegion = urlCompetitionInfo ? urlCompetitionInfo.countrySlug : null;
       const fallbackCompetition = urlCompetitionInfo ? urlCompetitionInfo.competitionSlug : null;
 
-      // A `.sports-table`'s date heading is its nearest preceding SIBLING
-      // element matching dateHeading -- round-2 real-capture correction
-      // (an earlier assumption that it was nested as a child inside the
-      // table was proven wrong: a real capture with 2 confirmed date
-      // sections came back with date_heading_raw: null on every fixture).
-      // Stops at the previous `.sports-table` (or the start of the
-      // sibling list) so one table's heading is never attributed to
-      // another's.
+      // A `.sports-table`'s date heading lives in a `.sports-head` wrapper
+      // that is a SIBLING of the table, both children of a common
+      // day-wrapper element -- confirmed only after two prior wrong
+      // guesses (nested child, then preceding sibling) both came back
+      // date_heading_raw: null against real captures. Scoped to `:scope >`
+      // so a heading from a different day-wrapper is never picked up.
       function findPrecedingDateHeading(table) {
-        let sibling = table.previousElementSibling;
-        while (sibling) {
-          if (sibling.matches(BET9JA_DESKTOP_SELECTORS.dateHeading)) {
-            return text(sibling);
-          }
-          if (sibling.matches(BET9JA_DESKTOP_SELECTORS.root)) {
-            return null;
-          }
-          sibling = sibling.previousElementSibling;
-        }
-        return null;
+        const wrapper = table.parentElement;
+        if (!wrapper) return null;
+        const headingEl = wrapper.querySelector(
+          `:scope > ${BET9JA_DESKTOP_SELECTORS.dateHeadingWrapper} ${BET9JA_DESKTOP_SELECTORS.dateHeading}`
+        );
+        return headingEl ? text(headingEl) : null;
       }
 
       // A row candidate must carry a real matchup cell -- see
@@ -818,20 +812,15 @@
       let recordsExpectedUnsupported = 0;
 
       desktopTables.forEach((table) => {
-        // Table-level date heading (the confirmed sibling pattern) seeds
-        // every row in this table; a `.sports-head__date` found as a
-        // direct CHILD (checked below, in case some page variant nests
-        // it that way instead) overrides it for the rows that follow.
-        let currentDateHeading = findPrecedingDateHeading(table);
-        let currentSectionIndex = -1; // -1 == no row counted under the current heading yet
+        // One date heading per table (see findPrecedingDateHeading), so
+        // every row in a table shares one section -- unlike the LEGACY
+        // profile's per-competition-group sections, there is no confirmed
+        // sub-grouping within one `.sports-table` to reset on.
+        const currentDateHeading = findPrecedingDateHeading(table);
+        let currentSectionIndex = -1; // -1 == no row counted under this table yet
         let recordIndexInSection = 0;
 
         Array.from(table.children).forEach((child) => {
-          if (child.matches(BET9JA_DESKTOP_SELECTORS.dateHeading)) {
-            currentDateHeading = text(child);
-            currentSectionIndex = -1; // the next row starts a fresh section under this heading
-            return;
-          }
           if (!isCandidateRow(child)) {
             return;
           }

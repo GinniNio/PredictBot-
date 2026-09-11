@@ -305,3 +305,78 @@ real captures requested next (see below).
 3. **Basketball competition page** — expect `sport_hint: "BASKETBALL"`
    (not `"UNKNOWN"`) and all rows counted under
    `records_expected_unsupported`, none under `records_unresolved`.
+
+## Round 4 — 2026-09-11 (four real captures against the merged PR #24 build)
+
+Four real downloaded captures supplied: Soccer Highlights (18 fixtures),
+Spain LaLiga (10 fixtures), a repeat Soccer Highlights capture 47 seconds
+later, and Baseball MLB (15 rows, all excluded).
+
+**Confirmed passing, all four captures:**
+
+- `CAPTURE_FAILED` gone everywhere; every capture satisfies
+  `records_seen = records_parsed + records_unresolved + records_expected_unsupported`.
+- Highlights: 18 seen, 18 parsed — the round-3 structural-row fix holds
+  (was 30 seen before that fix).
+- LaLiga: 10/10 parsed, `region: "spain"` / `competition: "laliga"`
+  correctly populated from the URL.
+- MLB: 15/15 rows correctly `UNSUPPORTED_SPORT` /
+  `records_expected_unsupported: 15`, `records_unresolved: 0` — the
+  round-3-amendment field is confirmed working end to end on a real,
+  different sport (baseball, not basketball this time — same
+  `parseBet9jaCompetitionUrl()` generic-sport-slug fix, different sport,
+  same correct result).
+- Real "1X2 1UP"/"1X2 2UP" markets confirmed still correctly separated
+  from ordinary 1X2 on both Soccer captures.
+- All 28 normalized Soccer fixtures (18 + 10) have complete H/D/A prices;
+  every fixture ID is unique within its own capture.
+- The two Highlights captures (14:23:20 and 14:24:47, 47 seconds apart)
+  share all 18 fixture IDs exactly — fixture identity survives a repeat
+  capture. No price changed between the two, so stability specifically
+  **after a genuine odds movement** is still **[UNVERIFIED]**.
+- No account, balance, authentication, or betslip data in any of the four
+  files.
+
+**One defect found and fixed in this round: date grouping still failed.**
+
+Both Soccer captures (18 + 10 fixtures, 2 and 4 confirmed sections
+respectively) came back with `date_heading_raw: null` on every single
+fixture — proving the round-3 "preceding sibling of `.sports-table`"
+assumption wrong too (it was itself a correction of round 2's wrong
+"nested child" assumption). Live DOM re-inspection found the actual
+structure: `.sports-table` and a `.sports-head` wrapper (containing
+`.sports-head__date`) are both children of a common day-wrapper element —
+the heading is a **sibling's descendant**, neither a sibling nor a nested
+child. Fixed via `findPrecedingDateHeading()`:
+
+```javascript
+const wrapper = table.parentElement;
+const headingEl = wrapper?.querySelector(':scope > .sports-head .sports-head__date');
+```
+
+Regression-tested by restructuring `bet9ja_desktop_date_headings_and_1up.html`
+to the confirmed wrapper shape (two day-wrappers, each with its own
+`.sports-head`/`.sports-table` pair) — the same test assertions
+(`date_heading_raw` per fixture, `sections_seen: 2`) now pass against the
+corrected structure. This is a narrow, single-purpose PR (#25) fixing only
+date association — no other selector, accounting, or scope changes.
+
+### Pass-criteria checklist update
+
+| Criterion | Status after round 4 | Notes |
+|---|---|---|
+| Date grouping (`date_heading_raw` populated) | ✅ Fixed and regression-tested (third attempt) | Sibling's-descendant wrapper lookup, confirmed against two real captures that falsified both prior guesses. |
+| Structural-row exclusion holds on a real capture | ✅ Confirmed | Highlights: 18 seen / 18 parsed, not 30. |
+| `region`/`competition` from a real competition-page download | ✅ Confirmed | LaLiga: `spain` / `laliga`. |
+| `records_expected_unsupported` on a real, different unsupported sport | ✅ Confirmed | MLB: 15/15, `records_unresolved: 0`. |
+| Fixture-ID stability across a repeat capture | ✅ Confirmed (no odds change) | 18/18 identical ids, 47 seconds apart. |
+| Fixture-ID stability **after a genuine odds change** | ❓ **[UNVERIFIED]** | No price differed between the two captures supplied. |
+| Live/Zoom/virtual events correctly marked | ❌ **Still the one open gap** | No real sample of any of these three states supplied yet. |
+
+### Recommendation
+
+Merge PR #25 (this date-association fix) once CI passes, then run one more
+Highlights capture to confirm `date_heading_raw` populates correctly
+end-to-end against the real page. Ticket capture should wait for that
+result. Fixture-ID stability after a genuine odds change and live/Zoom/
+virtual marking remain open items beyond this PR's narrow scope.
