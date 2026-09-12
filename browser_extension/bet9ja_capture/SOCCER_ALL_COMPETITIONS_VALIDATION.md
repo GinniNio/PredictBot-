@@ -516,7 +516,8 @@ this project's own discipline. Instead:
   real capture carrying `early_stop_diagnostics` would be exactly the
   kind of guess this project's discipline rules out.
 
-### Recommendation for Round 5
+### Recommendation for Round 5 (superseded -- a materially simpler page was
+found before this recommendation was acted on; see below)
 
 Re-run **Capture all Soccer fixtures** for real at least twice more,
 reading `early_stop_diagnostics` from any resulting `CAPTURE_PARTIAL`
@@ -525,3 +526,109 @@ envelope, and manually observe the live tab at the moment a return fails
 longer, or only after a manual reload?). That evidence -- not a guess --
 should decide between a longer wait and a `chrome.tabs.update`-based
 return.
+
+## Round 5 -- 2026-09-12 (a simpler page found by direct testing: batch
+competition selection replaces per-competition walking entirely)
+
+Before Round 5's own recommendation above was acted on, direct live
+testing found Bet9ja's own dedicated Competitions page at
+`/sportPage/1/competitions`: a country accordion with per-competition
+checkboxes, a "Show Leagues" button that renders every currently-checked
+competition's fixtures on ONE page without changing the URL, and a "Clear
+all" button. This removes the entire return-to-Coupons-between-every-
+competition failure surface Round 4's real capture hit -- there is no
+per-competition navigation left at all, so there is nothing to verify a
+return from.
+
+### What was tested directly (live DOM, real account)
+
+- Opened Nigeria's country accordion.
+- Selected competition checkbox `1209691` ("Professional Football
+  League").
+- Clicked "Show Leagues".
+- The URL stayed at `/sportPage/1/competitions`.
+- The page rendered that competition's fixture table, in the same
+  `.sports-table`/`.sports-table__matchup` structure `parser.js` already
+  supports.
+
+### What this round implements
+
+- `soccer_walker.js` fully rewritten: discovers every country/competition
+  on `/sportPage/1/competitions` (checkbox id = the competition's own
+  stable numeric id, no composite id-parsing needed), selects
+  competitions one at a time via each one's own `<label for="{id}">`
+  (the checkbox itself is `readonly`, matching the site's own UI
+  behaviour), and finalizes a batch (Show Leagues -> parse -> Clear all)
+  either when every remaining competition has been selected or when a
+  selection stops sticking / a "Maximum selection limit reached!" text
+  becomes visible -- discovered operationally, per the user's own
+  explicit instruction, rather than any fixed batch size being invented.
+- `popup.js`'s `ensureOnPopularCouponsRoute` replaced with
+  `ensureOnCompetitionsRoute`, navigating the active tab to
+  `/sportPage/1/competitions` via `chrome.tabs.update` before injection,
+  the same pattern as before just pointed at the new route.
+- Schema bumped to `bet9ja-soccer-all-competitions-capture.v3`. New
+  fields: `batch_results[]` (one entry per batch, including
+  `content_change_confirmed` -- see below) and, on `fixtures[]`/
+  `unparsed_records[]`, `source_batch_index`/
+  `source_competition_ids_in_batch`/`source_competitions_raw_in_batch`
+  replacing the old per-fixture `source_competition`/`source_group_id`
+  tagging (see the attribution caveat below for why).
+
+### What is explicitly flagged [UNVERIFIED] rather than guessed
+
+1. **Bet9ja's own maximum simultaneous-selection limit.** The "Maximum
+   selection limit reached!" notification was seen to exist, but neither
+   its exact wording nor its selector was captured. The walker matches
+   any visible text containing "maximum selection limit" (case
+   insensitive) rather than a guessed class name, and never hard-codes a
+   batch size.
+2. **Fixture-to-competition attribution on a multi-competition batch.**
+   This is the single most important open question, found by re-reading
+   `parser.js`'s own header comment rather than assumed away: it resolves
+   each row's sport either from an id-embedded `sport-N` segment on the
+   row itself (confirmed real on the Highlights page,
+   `home_highlights_sport-1_event-...`), or from the page's own URL
+   matching `/competition/{sport}/{country}/{competition}/` (confirmed
+   real on single-competition competition pages, whose row ids carry NO
+   `sport-N` segment at all, e.g. `prematch_event-...`). On
+   `/sportPage/1/competitions` the URL never changes, and it was **never
+   confirmed** which of these two row-id shapes (or a third, unseen one)
+   this specific page actually uses. If the real markup turns out to omit
+   `sport-N` entirely, every fixture will resolve to `UNSUPPORTED_SPORT`
+   / `records_unresolved` despite the underlying Soccer fixtures being
+   real and visible on screen -- an honest `CAPTURE_PARTIAL`/`FAILED`
+   result, never a false success, but a real gap that must be checked in
+   the very next real run before this becomes the primary capture method
+   in practice. Because this is unconfirmed, `soccer_walker.js` never
+   attributes one specific competition to one specific fixture within a
+   multi-competition batch -- see the attribution caveat in its own
+   header comment and in README.md.
+3. **Whether the fixture output re-renders detectably for a batch whose
+   result is empty or textually identical to a previous batch.**
+   `showLeaguesAndWait` treats a text-identical result as ambiguous
+   (`content_change_confirmed: false`) rather than a hard failure, UNLESS
+   there was never any `.sports-table` root present either before or
+   after the click at all. Whether the real page always inserts a fresh
+   DOM node per click (which would let a future round tighten this check)
+   is not confirmed either way.
+
+### Recommendation for Round 6
+
+Run **Capture all Soccer fixtures** for real, in this exact order of
+priority:
+1. Confirm whether `records_unresolved`/`UNSUPPORTED_SPORT` dominates the
+   result despite real Soccer fixtures being visible on screen (the
+   attribution risk above) -- if so, the fix belongs in `parser.js`'s own
+   sport-resolution logic for this specific route, not in
+   `soccer_walker.js`.
+2. Confirm the real "Maximum selection limit reached!" wording/selector
+   and roughly how many competitions can be selected at once.
+3. Confirm a real multi-batch run (i.e. enough competitions selected in
+   total to actually hit the limit at least once) correctly captures
+   competitions from BOTH batches, `Clear all` actually resets selections
+   between them, and `competitions_available` reconciles.
+4. Only once (1) is resolved with real evidence, and if unresolved sport
+   really is the dominant outcome, decide whether a per-competition-batch
+   heuristic (e.g. batches of size 1) or a `parser.js` fix is the right
+   next step from that evidence -- not guessed now.

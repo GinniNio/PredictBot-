@@ -37,14 +37,17 @@
   };
 
   // Third, independent entry point for the "Capture all Soccer fixtures"
-  // button -- injected alongside parser.js + soccer_walker.js only. Walks
-  // every discovered Soccer competition-menu link, capturing each one's
-  // fixtures via parser.js's own captureFromDocument (never re-parsed
-  // here) and combining them into one deduplicated envelope. Returns a
-  // Promise for the same reason __bet9jaTicketCaptureRun does -- see its
-  // own comment above. Exposes the same polling-based cancel surface as
-  // the settled-bets entry point below (a function reference cannot
-  // cross the chrome.scripting.executeScript() argument boundary).
+  // button -- injected alongside parser.js + soccer_walker.js only.
+  // Selects every discovered Soccer competition's checkbox on
+  // `/sportPage/1/competitions` in batches (Bet9ja's own selection limit
+  // is discovered operationally, never hard-coded), clicking "Show
+  // Leagues" once per batch and capturing that batch's combined fixtures
+  // via parser.js's own captureFromDocument (never re-parsed here),
+  // combined into one deduplicated envelope. Returns a Promise for the
+  // same reason __bet9jaTicketCaptureRun does -- see its own comment
+  // above. Exposes the same polling-based cancel surface as the
+  // settled-bets entry point below (a function reference cannot cross
+  // the chrome.scripting.executeScript() argument boundary).
   window.__bet9jaSoccerAllCompetitionsCaptureRun = function (sourceUrl, pageTitle, capturedAtUtc) {
     window.__bet9jaSoccerAllCancelRequested = false;
     return window.Bet9jaSoccerWalker.captureAllSoccerCompetitions(document, {

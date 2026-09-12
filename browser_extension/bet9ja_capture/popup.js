@@ -196,9 +196,9 @@ ticketButton.addEventListener('click', async () => {
 // --- Capture all Soccer fixtures ---------------------------------------
 // Same click-gated, no-storage discipline as the buttons above -- see
 // soccer_walker.js's own header comment for scope, the confirmed
-// pre-match Soccer accordion hierarchy, and the current real-capture
-// validation status (`CAPTURE_COMPLETE` is this module's own top status,
-// distinct from the other buttons' `CAPTURE_OK`).
+// `/sportPage/1/competitions` batch-selector contract (Round 5), and the
+// current real-capture validation status (`CAPTURE_COMPLETE` is this
+// module's own top status, distinct from the other buttons' `CAPTURE_OK`).
 const soccerAllButton = document.getElementById('soccer-all-capture-button');
 const soccerAllCancelButton = document.getElementById('soccer-all-cancel-button');
 const soccerAllStatusEl = document.getElementById('soccer-all-status');
@@ -209,9 +209,8 @@ function setSoccerAllStatus(cssClass, text) {
   soccerAllStatusEl.textContent = text;
 }
 
-const POPULAR_COUPONS_URL_PATTERN = /^https:\/\/sports\.bet9ja\.com\/popularCoupons\/1\/?(?:[?#].*)?$/;
-const LIVE_COMPETITIONS_URL_PATTERN = /^https:\/\/sports\.bet9ja\.com\/liveCompetitions\/?(?:[?#].*)?$/;
-const POPULAR_COUPONS_TARGET_URL = 'https://sports.bet9ja.com/popularCoupons/1';
+const COMPETITIONS_URL_PATTERN = /^https:\/\/sports\.bet9ja\.com\/sportPage\/1\/competitions\/?(?:[?#].*)?$/;
+const COMPETITIONS_TARGET_URL = 'https://sports.bet9ja.com/sportPage/1/competitions';
 const COUPONS_NAVIGATION_TIMEOUT_MS = 15000;
 const COUPONS_NAVIGATION_POLL_MS = 150;
 
@@ -224,8 +223,7 @@ function waitForTabUrlSettled(tabId, timeoutMs) {
           resolve(null);
           return;
         }
-        const settled =
-          t.status === 'complete' && (POPULAR_COUPONS_URL_PATTERN.test(t.url || '') || LIVE_COMPETITIONS_URL_PATTERN.test(t.url || ''));
+        const settled = t.status === 'complete' && COMPETITIONS_URL_PATTERN.test(t.url || '');
         if (settled || Date.now() > deadline) {
           resolve(t);
           return;
@@ -237,18 +235,18 @@ function waitForTabUrlSettled(tabId, timeoutMs) {
   });
 }
 
-// Reaching /popularCoupons/1 from an arbitrary starting page (the Sports
-// homepage, /liveCompetitions, or anywhere else) is this controller's job
-// via a real tab navigation -- never a DOM click soccer_walker.js guesses
-// at from inside an arbitrary page it doesn't control. activeTab already
-// grants chrome.tabs.update() for the current tab's URL, so no extra
-// manifest permission is needed.
-async function ensureOnPopularCouponsRoute(tab) {
-  if (POPULAR_COUPONS_URL_PATTERN.test(tab.url || '')) {
+// Reaching /sportPage/1/competitions from an arbitrary starting page (the
+// Sports homepage, a competition page, or anywhere else) is this
+// controller's job via a real tab navigation -- never a DOM click
+// soccer_walker.js guesses at from inside an arbitrary page it doesn't
+// control. activeTab already grants chrome.tabs.update() for the current
+// tab's URL, so no extra manifest permission is needed.
+async function ensureOnCompetitionsRoute(tab) {
+  if (COMPETITIONS_URL_PATTERN.test(tab.url || '')) {
     return tab;
   }
   await new Promise((resolve, reject) => {
-    chrome.tabs.update(tab.id, { url: POPULAR_COUPONS_TARGET_URL }, () => {
+    chrome.tabs.update(tab.id, { url: COMPETITIONS_TARGET_URL }, () => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
         return;
@@ -258,16 +256,11 @@ async function ensureOnPopularCouponsRoute(tab) {
   });
   const settledTab = await waitForTabUrlSettled(tab.id, COUPONS_NAVIGATION_TIMEOUT_MS);
   if (!settledTab) {
-    throw new Error('Could not confirm navigation to https://sports.bet9ja.com/popularCoupons/1 (tab lookup failed).');
+    throw new Error('Could not confirm navigation to https://sports.bet9ja.com/sportPage/1/competitions (tab lookup failed).');
   }
-  if (LIVE_COMPETITIONS_URL_PATTERN.test(settledTab.url || '')) {
+  if (!COMPETITIONS_URL_PATTERN.test(settledTab.url || '')) {
     throw new Error(
-      'Bet9ja redirected to the Live surface (/liveCompetitions) instead of the pre-match Coupons page. Please navigate to https://sports.bet9ja.com/popularCoupons/1 manually and try again.'
-    );
-  }
-  if (!POPULAR_COUPONS_URL_PATTERN.test(settledTab.url || '')) {
-    throw new Error(
-      `Could not reach https://sports.bet9ja.com/popularCoupons/1 (navigation timed out at "${settledTab.url || ''}"). Please open that page manually and try again.`
+      `Could not reach https://sports.bet9ja.com/sportPage/1/competitions (navigation timed out at "${settledTab.url || ''}"). Please open that page manually and try again.`
     );
   }
   return settledTab;
@@ -279,7 +272,7 @@ async function runSoccerAllCapture() {
     throw new Error('No active tab found.');
   }
 
-  const couponsTab = await ensureOnPopularCouponsRoute(tab);
+  const couponsTab = await ensureOnCompetitionsRoute(tab);
   const capturedAtUtc = new Date().toISOString();
 
   await chrome.scripting.executeScript({
@@ -320,7 +313,8 @@ soccerAllButton.addEventListener('click', async () => {
     const summary =
       `${envelope.capture_status}\n` +
       `Countries: ${envelope.countries_visited}/${envelope.countries_available} (failed: ${envelope.countries_failed})\n` +
-      `Competitions: ${envelope.competitions_visited}/${envelope.competitions_available} (empty: ${envelope.competitions_empty}, failed: ${envelope.competitions_failed})\n` +
+      `Competitions: ${envelope.competitions_captured}/${envelope.competitions_available} (empty: ${envelope.competitions_empty}, failed: ${envelope.competitions_failed})\n` +
+      `Batches: ${envelope.batch_results.length}\n` +
       `Fixtures captured: ${envelope.fixtures.length}\n` +
       `Duplicates skipped: ${envelope.duplicates_skipped}\n` +
       resumeLine +
