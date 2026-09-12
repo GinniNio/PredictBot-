@@ -906,7 +906,20 @@ actually observed to change, recorded honestly `false` when the result was
 textually identical to what was already on screen, e.g. a genuinely empty
 or duplicate batch, `table_attribution_summary[]` — one entry per rendered
 `.sports-table`, `{source_competition_id, resolved, row_count}`, straight
-from `parser.js`), and `competition_results[]` — one entry per
+from `parser.js`, `content_readiness_diagnostics` (Round 9 — on every
+batch result, success or failure: `loading_indicators_remaining`,
+`sports_tables_seen`, `matchup_rows_seen`, `empty_states_seen` (always
+`0` — no confirmed empty-state selector exists yet), `stable_poll_count`
+— so a real `SHOW_LEAGUES_CONTENT_TIMEOUT` is diagnosable from the
+envelope alone), and `sport_context_diagnostics` (Round 9 — non-null
+ONLY when `SPORT_CONTEXT_CONFLICT` fires: `failed_check` —
+`ROUTE_MISMATCH`/`CLAIM_INVALID`/`PAGE_HEADING_NOT_RESOLVED`/
+`BREADCRUMB_NOT_FOUND` — plus every candidate examined,
+`page_heading_candidates[]`/`resolved_page_heading`/
+`competition_heading_candidates[]`/`soccer_breadcrumb_count`, each a
+sanitized, length-capped selector name + text, never full HTML, so a real
+conflict never has to be diagnosed by guessing at a new selector blind),
+and `competition_results[]` — one entry per
 discovered competition (`country_name_raw`, `competition_name_raw`,
 `source_competition_id`, `batch_index`, `outcome` — one of
 `CAPTURED_IN_BATCH`, `BATCH_EMPTY`, `COMPETITION_ATTRIBUTION_UNRESOLVED`,

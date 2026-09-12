@@ -685,7 +685,7 @@ test('forced sport context: the claim itself naming a different sport id fails c
   assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
 });
 
-test('forced sport context: a missing visible sport heading fails closed', () => {
+test('forced sport context: a missing visible sport heading fails closed and carries sport_context_diagnostics naming PAGE_HEADING_NOT_RESOLVED', () => {
   const doc = sportPageCompetitionsDoc({ title: 'Bet9ja Sports' }); // no "Soccer" anywhere
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
@@ -695,9 +695,21 @@ test('forced sport context: a missing visible sport heading fails closed', () =>
   assert.equal(envelope.forced_sport_context_applied, false);
   assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
   assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+  const diag = envelope.sport_context_diagnostics;
+  assert.ok(diag, 'every SPORT_CONTEXT_CONFLICT must carry sport_context_diagnostics');
+  assert.equal(diag.failed_check, 'PAGE_HEADING_NOT_RESOLVED');
+  assert.equal(diag.route_check_passed, true);
+  assert.equal(diag.page_heading_check_passed, false);
+  // The default fixture's own breadcrumb IS present and valid here --
+  // proof the two checks are genuinely independent: the page-level
+  // heading check alone is what failed and named `failed_check`.
+  assert.equal(diag.breadcrumb_check_passed, true);
+  assert.equal(diag.resolved_page_heading, null);
+  assert.ok(diag.page_heading_candidates.some((c) => c.selector === 'document.title' && c.text === 'Bet9ja Sports'));
+  assert.equal(diag.pathname_actual, '/sportPage/1/competitions');
 });
 
-test('forced sport context: a conflicting heading (a different sport) fails closed', () => {
+test('forced sport context: a conflicting heading (a different sport) fails closed and carries diagnostics', () => {
   const doc = sportPageCompetitionsDoc({ title: 'Basketball - Competitions' });
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
@@ -707,6 +719,41 @@ test('forced sport context: a conflicting heading (a different sport) fails clos
   assert.equal(envelope.forced_sport_context_applied, false);
   assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
   assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+  assert.equal(envelope.sport_context_diagnostics.failed_check, 'PAGE_HEADING_NOT_RESOLVED');
+});
+
+test('forced sport context: a claim naming the wrong sport id fails closed with diagnostics naming CLAIM_INVALID', () => {
+  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: { ...VALID_FORCED_SPORT_CONTEXT, forced_sport_source_value: '2' },
+  });
+  assert.equal(envelope.sport_context_diagnostics.failed_check, 'CLAIM_INVALID');
+  assert.equal(envelope.sport_context_diagnostics.page_heading_candidates.length, 0);
+});
+
+test('forced sport context: a route mismatch fails closed with diagnostics naming ROUTE_MISMATCH', () => {
+  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/2/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+  });
+  assert.equal(envelope.sport_context_diagnostics.failed_check, 'ROUTE_MISMATCH');
+  assert.equal(envelope.sport_context_diagnostics.route_check_passed, false);
+  assert.equal(envelope.sport_context_diagnostics.pathname_actual, '/sportPage/2/competitions');
+});
+
+test('forced sport context: a successful validation never attaches sport_context_diagnostics', () => {
+  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions', breadcrumb: 'Soccer > Nigeria > Professional Football League' });
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+  });
+  assert.equal(envelope.forced_sport_context_applied, true);
+  assert.equal(envelope.sport_context_diagnostics, null);
 });
 
 test('forced sport context (Round 8 regression): a page-level "Soccer" heading plus a rendered "Soccer > Italy > Serie A" competition breadcrumb does NOT cause SPORT_CONTEXT_CONFLICT', () => {
@@ -727,7 +774,7 @@ test('forced sport context (Round 8 regression): a page-level "Soccer" heading p
   assert.equal(envelope.fixtures[0].sport, 'SOCCER');
 });
 
-test('forced sport context: a page-level "Soccer" heading with NO rendered competition breadcrumb at all still fails closed', () => {
+test('forced sport context: a page-level "Soccer" heading with NO rendered competition breadcrumb at all still fails closed, diagnostics naming BREADCRUMB_NOT_FOUND', () => {
   const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions', breadcrumb: null });
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
@@ -736,12 +783,20 @@ test('forced sport context: a page-level "Soccer" heading with NO rendered compe
   });
   assert.equal(envelope.forced_sport_context_applied, false);
   assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+  const diag = envelope.sport_context_diagnostics;
+  assert.equal(diag.failed_check, 'BREADCRUMB_NOT_FOUND');
+  assert.equal(diag.page_heading_check_passed, true);
+  assert.equal(diag.resolved_page_heading, 'Soccer - Competitions');
+  assert.equal(diag.breadcrumb_check_passed, false);
+  assert.equal(diag.soccer_breadcrumb_count, 0);
+  assert.deepEqual(diag.competition_heading_candidates, []);
 });
 
 test('forced sport context: ordinary captureFromDocument() calls (no forced_sport_context) are completely unaffected', () => {
   const { envelope } = capture('bet9ja_desktop_real_sample.html');
   assert.equal(envelope.forced_sport_context_applied, false);
   assert.ok(!envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+  assert.equal(envelope.sport_context_diagnostics, null);
   // Same real assertion as the pre-existing test for this fixture --
   // proof this feature changed nothing about an ordinary call's outcome.
   assert.equal(envelope.fixtures[0].offered_odds.H, 1.14);

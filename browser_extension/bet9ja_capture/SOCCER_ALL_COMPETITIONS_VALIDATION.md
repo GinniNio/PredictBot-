@@ -1091,7 +1091,7 @@ been exercised against the live account yet.
   evidence, but not yet exercised end-to-end through this module's own
   code against a real multi-competition run).
 
-### Recommendation for Round 9
+### Recommendation for Round 9 (superseded — see Round 9 below)
 
 Re-run **Capture all Soccer fixtures** for real. With batch size capped
 at 1, success now means: many small batches complete in sequence (not
@@ -1104,3 +1104,84 @@ once, capture the exact live DOM state at that moment (particularly
 whether any element matches `isLoadingIndicatorVisible`'s pattern, and
 the exact text of whatever page-level sport heading actually exists) so
 the next round corrects the right selector instead of guessing again.
+
+## Round 9 -- 2026-09-12 (Round 8's other fixes confirmed working for
+real; SPORT_CONTEXT_CONFLICT still fires; diagnostics added instead of
+another selector guess)
+
+A real run (`10:47:21Z`) confirmed most of Round 8's fixes work exactly
+as designed:
+
+| Check | Result |
+|---|---|
+| Correct route | Passed |
+| Country discovery | Passed: 102 |
+| Competition discovery | Passed: 362 |
+| One competition per batch | Passed |
+| Early-stop accounting | Passed: 1 failed + 361 unattempted = 362 |
+| Resume pointer | Passed: `last_completed_competition_id: null` (honest -- nothing was genuinely completed) |
+| Content readiness | Passed far enough to invoke parsing |
+| Soccer-context validation | **Failed** |
+| Fixtures captured | 0 |
+
+`competitions_available: 362 = competitions_captured(0) +
+competitions_empty(0) + competitions_failed(1) +
+competitions_skipped_by_safety_cap(0) +
+competitions_skipped_by_early_stop(361)` reconciles exactly -- discovery,
+batching, and accounting are all confirmed correct against the real
+account for the first time. The one real problem is isolated entirely to
+`SPORT_CONTEXT_CONFLICT` on the very first batch (Nigeria's Professional
+Football League), which stopped the run immediately with zero fixtures.
+
+### Why no new selector guess this round
+
+Round 8's own breadcrumb-prefix fix was ALSO a selector guess (the exact
+page-level heading selector was never confirmed, only inferred from a
+single real screenshot's evidence) -- and it evidently still isn't right,
+or the breadcrumb isn't rendered in the assumed position, or both. Rather
+than guess a THIRD selector blind, this round makes the gate's own
+evidence observable instead: `sport_context_diagnostics` (attached to
+`batch_results[]` only when `SPORT_CONTEXT_CONFLICT` fires) names exactly
+which check failed (`ROUTE_MISMATCH`/`CLAIM_INVALID`/
+`PAGE_HEADING_NOT_RESOLVED`/`BREADCRUMB_NOT_FOUND`) and lists every
+candidate examined (selector name + sanitized, length-capped text --
+never full HTML): `page_heading_candidates[]` (what `document.title` and
+any active/selected-tab-like element actually said), `resolved_page_heading`,
+`competition_heading_candidates[]` (every `.sports-table`'s own
+previous-sibling text), and `soccer_breadcrumb_count`. `content_readiness_diagnostics`
+(attached to every batch result, success or failure) similarly exposes
+`loading_indicators_remaining`, `sports_tables_seen`, `matchup_rows_seen`,
+`empty_states_seen` (always 0 -- no confirmed empty-state selector
+exists), and `stable_poll_count`, so a real `SHOW_LEAGUES_CONTENT_TIMEOUT`
+(or a suspiciously fast/slow success) is equally diagnosable without
+guessing.
+
+Both objects are `null` whenever they don't apply (an ordinary
+`captureFromDocument()` call with no `forced_sport_context`, or a batch
+that never reached `showLeaguesAndWait` at all) -- purely additive,
+changing no pass/fail behavior. Fail-closed behavior, one-competition-
+per-batch batching, and all of Round 8's accounting are unchanged.
+
+### PARSER_VERSION
+
+Unchanged from Round 8 (`bet9ja-soccer-walker@0.4.2-...`) -- this round
+adds diagnostics only, no behavior change, so no real capture has yet
+happened that this version string needs to reflect differently.
+
+### Recommendation for Round 10
+
+Re-run **Capture all Soccer fixtures** for real. This run WILL still
+likely fail with `SPORT_CONTEXT_CONFLICT` (nothing about the actual
+selectors changed this round) -- that is expected and fine. What matters
+is reading `batch_results[0].sport_context_diagnostics` from the
+resulting envelope: `failed_check` names exactly which of the two
+independent checks is wrong, and `page_heading_candidates`/
+`competition_heading_candidates` show what real text and selectors were
+actually found. That evidence, not another guess, should decide the next
+selector correction -- e.g. if `resolved_page_heading` comes back
+`null` with `page_heading_candidates` showing a real "Soccer" label
+under some other selector never checked, that pinpoints the exact fix; if
+`competition_heading_candidates` is empty even though the screenshot
+showed "Soccer > Nigeria > Professional Football League" rendered, that
+means the breadcrumb doesn't live at `.sports-table`'s own
+`previousElementSibling` and its real position needs identifying instead.

@@ -688,30 +688,59 @@
    * genuine bounded timeout without ever reaching that stable state is a
    * hard failure.
    */
+  /**
+   * Sanitized, bounded audit of the DOM state at the exact moment
+   * `showLeaguesAndWait` finishes (success or timeout) -- named fields
+   * only, never full HTML -- so a real `SHOW_LEAGUES_CONTENT_TIMEOUT` (or
+   * a suspiciously fast/slow success) never has to be diagnosed blind.
+   * `empty_states_seen` is always 0: no confirmed empty-state selector
+   * exists yet (`[UNVERIFIED]`), recorded honestly rather than guessed.
+   */
+  function buildReadinessDiagnostics(doc, stablePollCount) {
+    return {
+      loading_indicators_remaining: Array.from(
+        doc.querySelectorAll('[class*="loading" i], [class*="spinner" i], [class*="skeleton" i]')
+      ).filter((el) => !el.hidden).length,
+      sports_tables_seen: doc.querySelectorAll(SELECTORS.fixtureRoot).length,
+      matchup_rows_seen: doc.querySelectorAll(SELECTORS.matchup).length,
+      empty_states_seen: 0,
+      stable_poll_count: stablePollCount,
+    };
+  }
+
   async function showLeaguesAndWait(doc) {
     const button = doc.querySelector(SELECTORS.showLeaguesButton);
     if (!button) {
-      return { ok: false, reason: 'SHOW_LEAGUES_BUTTON_NOT_FOUND' };
+      return { ok: false, reason: 'SHOW_LEAGUES_BUTTON_NOT_FOUND', diagnostics: null };
     }
     const before = getFixtureFingerprint(doc);
     button.click();
 
     const deadline = Date.now() + SHOW_LEAGUES_CONTENT_TIMEOUT_MS;
     let previousCount = null;
+    let stablePollCount = 0;
     while (Date.now() < deadline) {
       if (isLoadingIndicatorVisible(doc)) {
         // Still loading -- any stability observed so far doesn't count.
         previousCount = null;
+        stablePollCount = 0;
       } else {
         const currentCount = doc.querySelectorAll(SELECTORS.matchup).length;
         if (previousCount !== null && currentCount === previousCount) {
-          return { ok: true, reason: null, contentChangeConfirmed: getFixtureFingerprint(doc) !== before };
+          stablePollCount += 1;
+          return {
+            ok: true,
+            reason: null,
+            contentChangeConfirmed: getFixtureFingerprint(doc) !== before,
+            diagnostics: buildReadinessDiagnostics(doc, stablePollCount),
+          };
         }
         previousCount = currentCount;
+        stablePollCount = 1;
       }
       await sleep(POLL_INTERVAL_MS);
     }
-    return { ok: false, reason: 'SHOW_LEAGUES_CONTENT_TIMEOUT' };
+    return { ok: false, reason: 'SHOW_LEAGUES_CONTENT_TIMEOUT', diagnostics: buildReadinessDiagnostics(doc, stablePollCount) };
   }
 
   /** Clicks "Clear all" and confirms every selection actually reset before the next batch. */
@@ -959,6 +988,7 @@
           records_parsed: 0,
           records_unresolved: 0,
           records_expected_unsupported: 0,
+          content_readiness_diagnostics: showResult.diagnostics || null,
         });
         earlyStopReason = showResult.reason;
         batchIndex += 1;
@@ -999,6 +1029,8 @@
           records_parsed: 0,
           records_unresolved: 0,
           records_expected_unsupported: 0,
+          content_readiness_diagnostics: showResult.diagnostics || null,
+          sport_context_diagnostics: subEnvelope.sport_context_diagnostics || null,
         });
         earlyStopReason = 'SPORT_CONTEXT_CONFLICT';
         batchIndex += 1;
@@ -1089,6 +1121,7 @@
         duplicate_fixtures_skipped: batchDuplicates,
         content_change_confirmed: !!showResult.contentChangeConfirmed,
         table_attribution_summary: subEnvelope.table_attribution_summary || [],
+        content_readiness_diagnostics: showResult.diagnostics || null,
       });
 
       const clearResult = await clearAllAndWait(doc, currentBatch.map((c) => c.checkboxId));

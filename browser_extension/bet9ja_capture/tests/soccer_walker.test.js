@@ -334,6 +334,9 @@ test('a single country, single competition, full batch capture reports CAPTURE_C
   assert.equal(envelope.competition_results.length, 1);
   assert.equal(envelope.competition_results[0].outcome, 'CAPTURED_IN_BATCH');
   assert.equal(envelope.competition_results[0].source_competition_id, '1209691');
+  assert.equal(envelope.batch_results[0].sport_context_diagnostics, undefined, 'a successful batch never carries sport_context_diagnostics');
+  assert.ok(envelope.batch_results[0].content_readiness_diagnostics, 'every batch carries content_readiness_diagnostics');
+  assert.ok(envelope.batch_results[0].content_readiness_diagnostics.matchup_rows_seen >= 1);
   // Requirements 1, 2, 3 from the real-structure regression fixture: the
   // outer Popular .competitions block (and its own decoy checkbox) is
   // never treated as a country or a competition; Nigeria IS discovered;
@@ -441,6 +444,14 @@ test('a page with no rendered Soccer breadcrumb heading at all fails the whole r
     const result = envelope.competition_results.find((r) => r.source_competition_id === id);
     assert.equal(result.outcome, 'NOT_ATTEMPTED_AFTER_EARLY_STOP');
   }
+  // Every SPORT_CONTEXT_CONFLICT batch must carry both diagnostics
+  // objects, so a real conflict is never diagnosed by guessing blind.
+  const failedBatch = envelope.batch_results.find((b) => b.failure_reason === 'SPORT_CONTEXT_CONFLICT');
+  assert.ok(failedBatch, 'expected one SPORT_CONTEXT_CONFLICT batch result');
+  assert.ok(failedBatch.sport_context_diagnostics, 'batch must carry sport_context_diagnostics');
+  assert.equal(failedBatch.sport_context_diagnostics.failed_check, 'BREADCRUMB_NOT_FOUND');
+  assert.ok(failedBatch.content_readiness_diagnostics, 'batch must carry content_readiness_diagnostics');
+  assert.equal(typeof failedBatch.content_readiness_diagnostics.stable_poll_count, 'number');
 });
 
 test('one competition whose own heading cannot be uniquely attributed is COMPETITION_ATTRIBUTION_UNRESOLVED, and does NOT invalidate a correctly attributed competition processed in a different batch', async () => {
@@ -501,6 +512,9 @@ test('Show Leagues never updating the fixture output is a safe stop, not a crash
   // module, even though there IS also a named early-stop reason.
   assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
   assert.ok(envelope.resume_metadata.can_resume);
+  const timedOutBatch = envelope.batch_results.find((b) => b.failure_reason === 'SHOW_LEAGUES_CONTENT_TIMEOUT');
+  assert.ok(timedOutBatch.content_readiness_diagnostics, 'a content timeout must carry readiness diagnostics');
+  assert.ok(timedOutBatch.content_readiness_diagnostics.loading_indicators_remaining >= 1);
 });
 
 test('a missing Show Leagues button fails the batch safely instead of throwing', async () => {

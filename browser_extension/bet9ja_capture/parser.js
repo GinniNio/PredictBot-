@@ -247,66 +247,153 @@
   // other).
   const SOCCER_BREADCRUMB_PREFIX_PATTERN = /^soccer\s*>/i;
 
-  function pageHasSoccerBreadcrumbHeading(doc) {
-    if (!doc) return false;
+  const HEADING_AUDIT_MAX_LEN = 120;
+  const HEADING_AUDIT_MAX_CANDIDATES = 10;
+
+  function truncateForAudit(value) {
+    const s = (value || '').trim();
+    return s.length > HEADING_AUDIT_MAX_LEN ? `${s.slice(0, HEADING_AUDIT_MAX_LEN)}…` : s;
+  }
+
+  // Which of resolveVisibleSportHeadingRaw's OWN candidate patterns an
+  // element matched -- a selector NAME for audit, never the element's own
+  // full class list or any other markup.
+  function pageHeadingSelectorLabel(el) {
+    if (el.getAttribute('aria-selected') === 'true') return '[aria-selected="true"]';
+    const className = typeof el.className === 'string' ? el.className : '';
+    if (/active/i.test(className)) return '[class*="active"]';
+    if (/selected/i.test(className)) return '[class*="selected"]';
+    return '[class*="active"], [aria-selected="true"], [class*="selected"]';
+  }
+
+  /**
+   * Mirrors `resolveVisibleSportHeadingRaw`'s own two signal sources but
+   * returns every candidate examined (selector name + sanitized,
+   * length-capped text -- never full HTML), so a real
+   * `SPORT_CONTEXT_CONFLICT` can be diagnosed from the envelope alone
+   * instead of guessing at a new selector blind.
+   */
+  function diagnosePageHeadingCandidates(doc) {
+    if (!doc) return [];
+    const candidates = [{ selector: 'document.title', text: truncateForAudit(doc.title || '') }];
+    const els = doc.querySelectorAll('[class*="active" i], [aria-selected="true"], [class*="selected" i]');
+    Array.from(els)
+      .slice(0, HEADING_AUDIT_MAX_CANDIDATES)
+      .forEach((el) => candidates.push({ selector: pageHeadingSelectorLabel(el), text: truncateForAudit(text(el)) }));
+    return candidates;
+  }
+
+  /** Same audit discipline as `diagnosePageHeadingCandidates`, for the per-table breadcrumb signal. */
+  function diagnoseCompetitionHeadingCandidates(doc) {
+    if (!doc) return [];
     const tables = doc.querySelectorAll(BET9JA_DESKTOP_SELECTORS.root);
-    for (const table of Array.from(tables)) {
-      const prev = table.previousElementSibling;
-      if (!prev) continue;
-      const direct = text(prev);
-      const candidateText = direct || (prev.firstElementChild ? text(prev.firstElementChild) : '');
-      if (SOCCER_BREADCRUMB_PREFIX_PATTERN.test(candidateText.trim())) return true;
-    }
-    return false;
+    const candidates = [];
+    Array.from(tables)
+      .slice(0, HEADING_AUDIT_MAX_CANDIDATES)
+      .forEach((table) => {
+        const prev = table.previousElementSibling;
+        if (!prev) return;
+        const direct = text(prev);
+        const candidateText = direct || (prev.firstElementChild ? text(prev.firstElementChild) : '');
+        candidates.push({ selector: '.sports-table:previousElementSibling', text: truncateForAudit(candidateText) });
+      });
+    return candidates;
   }
 
   /**
    * Returns `{active: false}` when the caller passed no
    * `forced_sport_context` at all (ordinary captureFromDocument calls are
-   * completely unaffected). Otherwise `{active: true, ok, sportHint}` --
-   * `ok` is only true when the caller's claim, the page's own URL, an
-   * independently-resolved page-level visible sport heading, AND at
-   * least one rendered competition heading beginning with "Soccer >" all
-   * agree; any disagreement is `{active: true, ok: false}`, the
-   * whole-capture `SPORT_CONTEXT_CONFLICT` gate. The page-level heading
-   * and the per-table breadcrumb are two INDEPENDENT signals -- neither
-   * substitutes for the other, and neither is ever used to attribute one
-   * specific competition (that stays entirely in
+   * completely unaffected). Otherwise `{active: true, ok, sportHint,
+   * diagnostics}` -- `ok` is only true when the caller's claim, the
+   * page's own URL, an independently-resolved page-level visible sport
+   * heading, AND at least one rendered competition heading beginning
+   * with "Soccer >" all agree; any disagreement is `{active: true, ok:
+   * false}` plus a non-null `diagnostics` object naming exactly which
+   * check failed and what was actually found on the page (sanitized,
+   * bounded audit text only -- never full HTML), so a real
+   * `SPORT_CONTEXT_CONFLICT` never has to be diagnosed by guessing at a
+   * new selector blind. The page-level heading and the per-table
+   * breadcrumb are two INDEPENDENT signals -- neither substitutes for
+   * the other, and neither is ever used to attribute one specific
+   * competition (that stays entirely in
    * `resolve_table_competition`/`table_attribution_summary`).
    */
   function validateForcedSportContext(doc, context) {
     const forced = context.forced_sport_context;
-    if (!forced) return { active: false, ok: false, sportHint: null };
-    if (
-      forced.forced_sport_hint !== 'SOCCER' ||
-      forced.forced_sport_source !== 'SPORTPAGE_ROUTE_ID' ||
-      forced.forced_sport_source_value !== FORCED_SPORT_CONTEXT_SPORT_ID ||
-      forced.capture_scope !== EXPECTED_FORCED_CAPTURE_SCOPE
-    ) {
-      return { active: true, ok: false, sportHint: null };
-    }
+    if (!forced) return { active: false, ok: false, sportHint: null, diagnostics: null };
+
     let pathname = '';
     try {
       pathname = new URL(context.sourceUrl).pathname;
     } catch (err) {
       pathname = '';
     }
-    if (!FORCED_SPORT_CONTEXT_ROUTE_PATTERN.test(pathname)) {
-      return { active: true, ok: false, sportHint: null };
+    const routeCheckPassed = FORCED_SPORT_CONTEXT_ROUTE_PATTERN.test(pathname);
+
+    const claimValid =
+      forced.forced_sport_hint === 'SOCCER' &&
+      forced.forced_sport_source === 'SPORTPAGE_ROUTE_ID' &&
+      forced.forced_sport_source_value === FORCED_SPORT_CONTEXT_SPORT_ID &&
+      forced.capture_scope === EXPECTED_FORCED_CAPTURE_SCOPE;
+
+    if (!claimValid) {
+      return {
+        active: true,
+        ok: false,
+        sportHint: null,
+        diagnostics: {
+          pathname_actual: pathname,
+          pathname_expected: FORCED_SPORT_CONTEXT_ROUTE_PATTERN.source,
+          forced_sport_hint: forced.forced_sport_hint || null,
+          page_heading_candidates: [],
+          resolved_page_heading: null,
+          competition_heading_candidates: [],
+          soccer_breadcrumb_count: 0,
+          route_check_passed: routeCheckPassed,
+          page_heading_check_passed: false,
+          breadcrumb_check_passed: false,
+          failed_check: 'CLAIM_INVALID',
+        },
+      };
     }
+
     // resolveVisibleSportHeadingRaw already applies its own matching rule
     // per signal (a loose "contains soccer" for the page title, an exact
     // "is soccer" for an active-tab-like element) -- any non-empty result
     // IS the confirming evidence; re-applying a different, stricter regex
     // here would reject its own valid title-based match.
-    const headingRaw = resolveVisibleSportHeadingRaw(doc);
-    if (!headingRaw) {
-      return { active: true, ok: false, sportHint: null };
+    const headingRaw = routeCheckPassed ? resolveVisibleSportHeadingRaw(doc) : '';
+    const pageHeadingCheckPassed = !!headingRaw;
+    const competitionHeadingCandidates = routeCheckPassed ? diagnoseCompetitionHeadingCandidates(doc) : [];
+    const soccerBreadcrumbCount = competitionHeadingCandidates.filter((c) => SOCCER_BREADCRUMB_PREFIX_PATTERN.test(c.text)).length;
+    const breadcrumbCheckPassed = soccerBreadcrumbCount > 0;
+
+    const ok = routeCheckPassed && pageHeadingCheckPassed && breadcrumbCheckPassed;
+    if (ok) {
+      return { active: true, ok: true, sportHint: forced.forced_sport_hint, diagnostics: null };
     }
-    if (!pageHasSoccerBreadcrumbHeading(doc)) {
-      return { active: true, ok: false, sportHint: null };
-    }
-    return { active: true, ok: true, sportHint: forced.forced_sport_hint };
+
+    let failedCheck = 'ROUTE_MISMATCH';
+    if (routeCheckPassed) failedCheck = pageHeadingCheckPassed ? 'BREADCRUMB_NOT_FOUND' : 'PAGE_HEADING_NOT_RESOLVED';
+
+    return {
+      active: true,
+      ok: false,
+      sportHint: null,
+      diagnostics: {
+        pathname_actual: pathname,
+        pathname_expected: FORCED_SPORT_CONTEXT_ROUTE_PATTERN.source,
+        forced_sport_hint: forced.forced_sport_hint,
+        page_heading_candidates: routeCheckPassed ? diagnosePageHeadingCandidates(doc) : [],
+        resolved_page_heading: headingRaw || null,
+        competition_heading_candidates: competitionHeadingCandidates,
+        soccer_breadcrumb_count: soccerBreadcrumbCount,
+        route_check_passed: routeCheckPassed,
+        page_heading_check_passed: pageHeadingCheckPassed,
+        breadcrumb_check_passed: breadcrumbCheckPassed,
+        failed_check: failedCheck,
+      },
+    };
   }
 
   // Defensive exclusion for the BET9JA_DESKTOP fallback profile only,
@@ -857,6 +944,7 @@
       fallbackProfileActive,
       zeroRecordsReason = 'NO_RECORDS_FOUND',
       tableAttributionSummary = null,
+      sportContextDiagnostics = null,
     }) {
       let captureStatus;
       const statusReasons = [];
@@ -916,6 +1004,12 @@
           // see that context option's own comment. One entry per
           // `.sports-table`: `{source_competition_id, resolved, row_count}`.
           table_attribution_summary: tableAttributionSummary,
+          // Non-null ONLY when a forced_sport_context claim was rejected
+          // -- names exactly which check failed (`failed_check`) and what
+          // was actually found on the page (sanitized, bounded audit
+          // text), so a real SPORT_CONTEXT_CONFLICT never has to be
+          // diagnosed by guessing at a new selector blind.
+          sport_context_diagnostics: sportContextDiagnostics,
           fixtures,
           unparsed_records: unparsedRecords,
         },
@@ -940,6 +1034,7 @@
         lazyLoadingDetected: false,
         fallbackProfileActive: false,
         zeroRecordsReason: 'SPORT_CONTEXT_CONFLICT',
+        sportContextDiagnostics: forcedSportContextResult.diagnostics,
       });
     }
 
