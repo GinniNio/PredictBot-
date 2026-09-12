@@ -197,7 +197,8 @@ observed.
 - **`settled_at_raw`/`settled_at_utc`** -- still no confirmed
   settlement-date selector distinct from `.mybets-date`.
 
-### Recommendation for Round 3
+### Recommendation for Round 2 follow-up (superseded by Round 3's own
+results below)
 
 Repeat one real capture. Closure criteria before the settled-bets ledger
 importer begins: 23 pages visited (or whatever the then-current date
@@ -205,3 +206,91 @@ range and account contain), tickets seen matching the account (subject to
 change), expansion timeouts eliminated or materially reduced by the
 retry, the four cancelled legs normalizing to `VOID`, and ticket/page
 reconciliation remaining exact.
+
+## Round 3 -- 2026-09-12 (pagination timing regression found and fixed)
+
+**Status: a real 12-page capture surfaced a genuine defect --
+`ROW_ACCOUNTING_INVARIANT_VIOLATED` -- traced to a pagination-timing race,
+not a settlement-parsing bug. Fixed; not yet re-run against the live
+account.**
+
+### Results
+
+The selected range contained 12 pages; capture stopped after page 2 with
+`CAPTURE_FAILED`:
+
+| Field | Value |
+| --- | ---: |
+| pages_available | 12 |
+| pages_visited | 2 |
+| tickets_seen | 10 |
+| tickets_parsed | 5 |
+| duplicate_tickets_skipped | 5 |
+| legs_seen | 56 |
+| legs_parsed | 28 |
+
+Page 2 returned the exact same five ticket IDs as page 1 (byte-identical
+`page_fingerprint`). The pagination walker correctly detected the repeat
+(`PAGINATION_STOPPED_PAGE_CONTENT_REPEATED`) and stopped, but the
+row-accounting invariant then incorrectly flagged the envelope as failed:
+the equation omitted `duplicate_tickets_skipped` entirely (`10 seen = 5
+parsed + 0 unresolved + 0 excluded` left 5 tickets unaccounted for, even
+though they were legitimately, deliberately skipped as duplicates).
+`legs_seen` (56) was also double what it should have been (28) --
+page 2's five duplicate tickets' legs were added to `legs_seen` a second
+time even though they contributed nothing to `legs_parsed`.
+
+### Root cause
+
+The `--current` pagination marker advanced to page 2 before page 2's own
+ticket content had actually re-rendered -- the DOM still showed page 1's
+five tickets verbatim when this module started parsing "page 2". This is
+a rendering-timing race, the pagination analog of Round 2's ticket-
+expansion timing defect.
+
+### Fixes
+
+1. **Content-fingerprint wait.** Before clicking the next page, this
+   module now records the current page's own collapsed-ticket text
+   (`getCollapsedPageFingerprint` -- no new selector, reuses the already-
+   confirmed ticket-container selector). After the `--current` marker
+   advances, it waits for that fingerprint to actually change too, with
+   one longer bounded retry before giving up and stopping safely
+   (`PAGE_CONTENT_DID_NOT_UPDATE`) -- never parsing a page whose content
+   hasn't genuinely arrived yet.
+2. **Row-accounting invariant corrected** to include
+   `duplicate_tickets_skipped` as its own valid, accounted-for outcome:
+   `tickets_seen = tickets_parsed + tickets_unresolved +
+   tickets_expected_excluded + duplicate_tickets_skipped`.
+3. **`legs_seen` no longer double-counts a duplicate ticket's legs** --
+   they are counted once, when the ticket is first seen, and tallied
+   separately in the new `duplicate_ticket_legs_skipped` coverage field
+   for diagnostic visibility.
+
+`PARSER_VERSION` bumped to
+`bet9ja-settled-bets-parser@0.4.0-round3-pagination-timing-fix`.
+
+### What is still NOT confirmed
+
+- **The pagination timing fix has not itself been re-run against the live
+  account.** Evidence-driven (the exact real 12-page failure reproduces
+  the fix's target scenario) but only unit-tested against synthetic
+  markup so far.
+- Everything named as unconfirmed in Round 2 (system-settlement
+  breakdown, date-range display control, outcomes beyond Won/Lost/
+  Cancelled, `settled_at_raw`/`settled_at_utc`) remains unconfirmed.
+- The Round 2 expansion-retry fix has similarly not yet been re-run
+  against the live account (this Round 3 capture stopped at page 2 before
+  reaching later pages that previously showed expansion timeouts, so
+  `Cancelled -> VOID` and the expansion retry were not re-exercised here).
+
+### Recommendation for Round 4
+
+Repeat one real capture covering the full selected 12-page range (or
+whatever the then-current range contains). Closure criteria before the
+settled-bets ledger importer begins: all pages in the selected range
+visited, no `ROW_ACCOUNTING_INVARIANT_VIOLATED`, `legs_seen ==
+legs_parsed` whenever `duplicate_tickets_skipped` and
+`tickets_unresolved` are both 0, and the earlier Round 2 closure criteria
+(expansion timeouts eliminated or materially reduced, `Cancelled -> VOID`
+still correct) reconfirmed on this larger run.

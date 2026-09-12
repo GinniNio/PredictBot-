@@ -887,6 +887,19 @@ complete history.
 
 ### Long pagination (real accounts can span many pages)
 
+A real 12-page capture (Round 3) found the `--current` pagination marker
+advancing before the page's own ticket content had actually re-rendered
+— page 2 was parsed as a byte-for-byte repeat of page 1, and the
+row-accounting invariant didn't account for the resulting duplicates,
+producing a false `ROW_ACCOUNTING_INVARIANT_VIOLATED`. Fixed: after the
+marker advances, this module now waits for the page's own collapsed
+ticket content to change too (one longer bounded retry before giving up
+and stopping safely via `PAGE_CONTENT_DID_NOT_UPDATE`), the invariant now
+counts `duplicate_tickets_skipped` as a valid outcome, and a duplicate
+ticket's legs are counted once (not once per page it reappears on,
+tallied separately in `duplicate_ticket_legs_skipped`). See
+`SETTLED_BETS_REAL_PAGE_VALIDATION.md` Round 3.
+
 - `context.onProgress(info)` fires once per page — the popup polls a
   small in-page progress object (`window.__bet9jaSettledBetsProgress`)
   once a second while the run is in flight and renders "Page N/M
@@ -908,7 +921,8 @@ complete history.
 `capture_status`, `capture_status_reasons`, `capture_scope`, `date_range`,
 `coverage` (`pages_available`/`pages_visited`, `tickets_seen`/
 `tickets_parsed`/`tickets_unresolved`/`tickets_expected_excluded`,
-`duplicate_tickets_skipped`, `legs_seen`/`legs_parsed`), `page_results[]`,
+`duplicate_tickets_skipped`, `duplicate_ticket_legs_skipped`,
+`legs_seen`/`legs_parsed`), `page_results[]`,
 `tickets[]`, `unresolved_tickets[]` (each carrying `readiness_diagnostics`
 when the failure was an expansion timeout), `excluded_tickets[]`, and
 `resume_metadata`. Each ticket carries `bet9ja_ticket_id`,
@@ -1087,11 +1101,18 @@ walk early with `resume_metadata` populated, a full run reporting
 first expansion attempt times out but whose one retry succeeds being
 parsed (not left unresolved), a ticket whose expansion never succeeds
 even after that retry staying unresolved with the exact
-`readiness_diagnostics` shape, and `capture_scope`/`date_range` being
+`readiness_diagnostics` shape, `capture_scope`/`date_range` being
 present (and honestly `null`-valued) on every envelope including a failed
-one. A dedicated "safety" test greps the compiled source to confirm
-`.click()` is only ever called on the confirmed tab control, accordion
-toggle, or a verified numbered pagination item.
+one, a page marker that advances before its content does being tolerated
+via the content-fingerprint retry, content that never updates being a
+safe stop (`PAGE_CONTENT_DID_NOT_UPDATE`) rather than a false duplicate
+parse, the row-accounting invariant correctly accounting for a legitimate
+cross-page duplicate ticket, and a duplicate ticket's legs being counted
+once in `legs_seen` (tallied separately in
+`duplicate_ticket_legs_skipped`). A dedicated "safety" test greps the
+compiled source to confirm `.click()` is only ever called on the
+confirmed tab control, accordion toggle, or a verified numbered
+pagination item.
 
 ## Boundaries (Release 1 fixtures / this release's tickets and settled bets)
 

@@ -544,6 +544,150 @@ test('a ticket whose expansion never succeeds even after the one retry stays unr
   });
 });
 
+// --- Round 3 real-capture correction: pagination timing regression -----
+// A real 12-page capture found the `--current` marker advancing before
+// page 2's own ticket content had actually re-rendered -- the DOM still
+// showed page 1's five tickets, parsed a second time as "page 2". This
+// harness separates the marker move from the content swap (via
+// setTimeout) to model that race for real, rather than the other
+// pagination tests' synchronous (marker + content together) swap.
+
+function settledPaginationHtmlWithDelayedContent({ pageTicketsHtmlList, contentDelayMs = 0, neverUpdateContent = false }) {
+  const totalPages = pageTicketsHtmlList.length;
+  const items = [];
+  for (let p = 1; p <= totalPages; p += 1) {
+    items.push(`<span class="pg-pagination__item${p === 1 ? ' pg-pagination__item--current' : ''}" data-page="${p}">${p}</span>`);
+  }
+  return `
+    <body>
+      <div class="mybets">
+        <div class="mybets__bets-item mybets__bets-item--current">Settled Bets</div>
+        <div id="ticket-list">${pageTicketsHtmlList[0]}</div>
+        <div class="pg-pagination">${items.join('')}</div>
+      </div>
+      <script>
+        const PAGES = ${JSON.stringify(pageTicketsHtmlList)};
+        const NEVER_UPDATE = ${JSON.stringify(neverUpdateContent)};
+        const DELAY_MS = ${JSON.stringify(contentDelayMs)};
+        const list = document.getElementById('ticket-list');
+        const pagination = document.querySelector('.pg-pagination');
+        function attachAccordionListeners() {
+          list.querySelectorAll('.accordion-item').forEach((item) => {
+            const toggle = item.querySelector('.accordion-toggle');
+            if (toggle) toggle.addEventListener('click', () => item.classList.toggle('accordion-item--open'));
+          });
+        }
+        attachAccordionListeners();
+        pagination.querySelectorAll('.pg-pagination__item').forEach((el) => {
+          const p = el.getAttribute('data-page');
+          if (!p) return;
+          el.addEventListener('click', () => {
+            const pageNum = parseInt(p, 10);
+            // The marker moves IMMEDIATELY -- the real defect this
+            // models -- while the ticket content only updates later (or
+            // never, for NEVER_UPDATE).
+            pagination.querySelectorAll('.pg-pagination__item').forEach((x) => x.classList.remove('pg-pagination__item--current'));
+            el.classList.add('pg-pagination__item--current');
+            if (!NEVER_UPDATE) {
+              setTimeout(() => {
+                list.innerHTML = PAGES[pageNum - 1];
+                attachAccordionListeners();
+              }, DELAY_MS);
+            }
+          });
+        });
+      </script>
+    </body>
+  `;
+}
+
+test('pagination: the page marker advancing before content updates is tolerated -- the content-fingerprint wait catches up', async () => {
+  const doc = docFromHtml(
+    settledPaginationHtmlWithDelayedContent({
+      pageTicketsHtmlList: [
+        settledTicket({ ticketId: '900000001', resultItem: 'Won 1.00' }),
+        settledTicket({ ticketId: '900000002', resultItem: 'Lost' }),
+      ],
+      contentDelayMs: 50,
+    })
+  );
+  const { envelope } = await settledParser.captureFromDocument(doc, SETTLED_CONTEXT);
+  assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
+  assert.equal(envelope.coverage.pages_visited, 2);
+  assert.equal(envelope.coverage.tickets_parsed, 2);
+  assert.equal(envelope.coverage.duplicate_tickets_skipped, 0);
+  assert.deepEqual(
+    envelope.tickets.map((t) => t.bet9ja_ticket_id).sort(),
+    ['900000001', '900000002']
+  );
+  // The exact real-capture defect this fixes: page 2 must never be
+  // parsed as a byte-for-byte repeat of page 1.
+  assert.equal(envelope.coverage.legs_seen, envelope.coverage.legs_parsed);
+});
+
+test('pagination: content that never updates after the marker moves is a safe stop, not a false duplicate-page parse', async () => {
+  const doc = docFromHtml(
+    settledPaginationHtmlWithDelayedContent({
+      pageTicketsHtmlList: [settledTicket({ ticketId: 'N1', resultItem: 'Won 1.00' }), settledTicket({ ticketId: 'N2', resultItem: 'Lost' })],
+      neverUpdateContent: true,
+    })
+  );
+  const { envelope } = await settledParser.captureFromDocument(doc, SETTLED_CONTEXT);
+  assert.equal(envelope.coverage.pages_visited, 1);
+  assert.equal(envelope.coverage.tickets_parsed, 1);
+  assert.ok(envelope.capture_status_reasons.includes('PAGINATION_STOPPED_PAGE_CONTENT_DID_NOT_UPDATE'));
+  assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL', 'a safe stop is never CAPTURE_FAILED');
+  assert.equal(envelope.resume_metadata.last_page_completed, 1);
+  assert.match(envelope.resume_metadata.resume_hint, /page 2/);
+});
+
+test('row-accounting invariant: a legitimate ticket repeated across pages (a genuine duplicate) never violates the invariant', async () => {
+  const doc = docFromHtml(
+    settledPaginationHtml({
+      pageTicketsHtmlList: [
+        settledTicket({ ticketId: 'R1', resultItem: 'Won 1.00' }) + settledTicket({ ticketId: 'R2', resultItem: 'Lost' }),
+        // Page 2 genuinely re-shows R1 (a real windowed-pagination
+        // overlap) alongside one truly new ticket.
+        settledTicket({ ticketId: 'R1', resultItem: 'Won 1.00' }) + settledTicket({ ticketId: 'R3', resultItem: 'Won 3.00' }),
+      ],
+    })
+  );
+  const { envelope } = await settledParser.captureFromDocument(doc, SETTLED_CONTEXT);
+  assert.ok(!envelope.capture_status_reasons.includes('ROW_ACCOUNTING_INVARIANT_VIOLATED'));
+  assert.equal(envelope.coverage.duplicate_tickets_skipped, 1);
+  assert.equal(
+    envelope.coverage.tickets_seen,
+    envelope.coverage.tickets_parsed + envelope.coverage.tickets_unresolved + envelope.coverage.tickets_expected_excluded + envelope.coverage.duplicate_tickets_skipped
+  );
+});
+
+test('a duplicate ticket\'s legs are counted once in legs_seen, not once per page, and are tallied in duplicate_ticket_legs_skipped', async () => {
+  const repeatedTicket = settledTicket({
+    ticketId: 'L1',
+    resultItem: 'Won 1.00',
+    legs: [settledLeg(), settledLeg({ selection: 'Away Win' })],
+  });
+  const doc = docFromHtml(
+    settledPaginationHtml({
+      pageTicketsHtmlList: [
+        repeatedTicket,
+        // Page 2 genuinely re-shows L1 (a real windowed-pagination
+        // overlap) ALONGSIDE one truly new, distinct ticket -- so the
+        // page's own collapsed content genuinely differs from page 1's
+        // (see the content-fingerprint wait above), letting this page
+        // actually get parsed rather than treated as an unchanged repeat.
+        repeatedTicket + settledTicket({ ticketId: 'L2', resultItem: 'Lost', legs: [settledLeg({ selection: 'Draw' })] }),
+      ],
+    })
+  );
+  const { envelope } = await settledParser.captureFromDocument(doc, SETTLED_CONTEXT);
+  assert.equal(envelope.coverage.duplicate_tickets_skipped, 1);
+  assert.equal(envelope.coverage.tickets_parsed, 2);
+  assert.equal(envelope.coverage.legs_seen, 3, 'the duplicate L1 (2 legs) must not be added to legs_seen a second time; only L2\'s 1 leg is new');
+  assert.equal(envelope.coverage.legs_parsed, 3);
+  assert.equal(envelope.coverage.duplicate_ticket_legs_skipped, 2);
+});
+
 test('capture_scope and date_range are present on every envelope, honestly null pending a confirmed date-range selector', async () => {
   const { envelope } = await captureSettled(settledTicket({ resultItem: 'Won 1.00' }));
   assert.equal(envelope.capture_scope, 'USER_SELECTED_DATE_RANGE');

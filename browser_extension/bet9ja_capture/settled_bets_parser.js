@@ -131,7 +131,7 @@
  * own `ticket_status`/`actual_payout`, read only from its own explicit
  * summary text, never derived from "did every leg win".
  *
- * LONG PAGINATION -- a real account can have 191+ pages. This module
+ * LONG PAGINATION -- a real account can have many pages. This module
  * supports: an optional `context.onProgress(info)` callback invoked after
  * every page (so the popup can render live progress), an optional
  * `context.shouldCancel()` predicate checked between pages (a user-
@@ -139,6 +139,24 @@
  * with everything captured so far, never discarded), and
  * `envelope.resume_metadata` recording the last page fully completed and
  * a plain-language hint for resuming a run that stopped early.
+ *
+ * PAGINATION TIMING -- Round 3 real-capture correction: a real 12-page
+ * capture found the `--current` marker advancing to page 2 before page
+ * 2's own tickets had actually re-rendered -- the DOM still showed page
+ * 1's five tickets verbatim, so those five were parsed a second time as
+ * "page 2" (duplicate ticket IDs, `legs_seen` double-counted relative to
+ * `legs_parsed`, and a broken row-accounting invariant that treated a
+ * legitimate duplicate as an unaccounted-for ticket). Fixed two ways:
+ * (1) after the page marker advances, this module now waits for the
+ * page's own COLLAPSED ticket content (`getCollapsedPageFingerprint`,
+ * reusing only the already-confirmed ticket-container selector -- no new
+ * selector needed) to actually change too, with one longer bounded retry
+ * before giving up and stopping safely
+ * (`PAGE_CONTENT_DID_NOT_UPDATE`); (2) the row-accounting invariant now
+ * counts `duplicate_tickets_skipped` as its own valid outcome (a
+ * legitimate repeat is not an accounting failure), and a duplicate
+ * ticket's legs are no longer added to `legs_seen` a second time (tallied
+ * separately in `duplicate_ticket_legs_skipped` instead).
  *
  * SAFETY: the ONLY elements this module ever calls .click() on are: the
  * confirmed "Settled Bets" `.mybets__bets-item`, `.accordion-toggle`, and
@@ -150,7 +168,7 @@
 (function (root) {
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.3.0-round2-expansion-retry-cancelled-void';
+  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.4.0-round3-pagination-timing-fix';
 
   // Confirmed via live authenticated inspection (Round 1). See the
   // REAL-DOM PROFILE header comment above for the full contract.
@@ -205,6 +223,17 @@
   const EXPAND_POLL_INTERVAL_MS = 25;
   const PAGE_CONTENT_TIMEOUT_MS = 3000;
   const PAGE_CONTENT_POLL_INTERVAL_MS = 25;
+  // Round 3 real-capture correction: a real 12-page capture found the
+  // pagination `--current` marker advancing to page 2 before page 2's own
+  // tickets had actually re-rendered -- the DOM still showed page 1's
+  // five tickets verbatim, so page 2 was parsed as five "new" tickets
+  // that were, byte-for-byte, page 1's own content (ROW_ACCOUNTING_
+  // INVARIANT_VIOLATED resulted from this, not from the accounting logic
+  // itself -- see the invariant fix below). This longer window is a
+  // single bounded RETRY of the same content-fingerprint wait
+  // (paginateAndCaptureAllPages), used only when the first, normal-length
+  // wait fails -- never a third attempt.
+  const PAGE_CONTENT_RETRY_TIMEOUT_MS = 6000;
   // Real evidence confirmed 191 pages in the inspected account; this cap
   // is kept well above that (not tightly at it) so a larger real account
   // is never truncated by an unrelated safety limit -- still a hard
@@ -670,6 +699,15 @@
    * across pages) with content that differs from the first-seen version
    * is fail-closed, per the explicit rule "two tickets expose the same ID
    * with conflicting content".
+   *
+   * Round 3 real-capture correction: `legs_seen` previously counted a
+   * duplicate ticket's legs a second time (once per page it appeared on),
+   * so a page that turned out to be an exact repeat of a previous page
+   * (see PAGE_CONTENT_RETRY_TIMEOUT_MS's own comment) doubled `legs_seen`
+   * relative to `legs_parsed` for no real reason. A duplicate ticket's
+   * legs are no longer added to `legs_seen` at all -- they are counted
+   * once, when the ticket was first seen -- and are separately tallied in
+   * `duplicate_ticket_legs_skipped` for diagnostic visibility.
    */
   async function processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTickets, aggregate, pageNumber) {
     const ticketEls = Array.from(mybetsRoot.querySelectorAll(SELECTORS.ticket));
@@ -696,11 +734,9 @@
         continue;
       }
 
-      const legsOnThisTicket = Array.from(ticketEl.querySelectorAll(SELECTORS.legRow)).filter(isCandidateMybetsLeg).length;
-      aggregate.legsSeen += legsOnThisTicket;
-      legsSeenThisPage += legsOnThisTicket;
-
+      const legsOnThisTicket = countLegCandidates(ticketEl);
       const { outcome, record } = processSettledTicket(ticketEl, index, capturedAtUtc);
+
       if (outcome === 'PARSED') {
         ticketIdsOnThisPage.push(record.bet9ja_ticket_id);
         ticketsParsedThisPage += 1;
@@ -709,11 +745,19 @@
         if (previouslySeen === undefined) {
           seenTickets.set(record.bet9ja_ticket_id, contentFingerprint);
           aggregate.tickets.push(record);
+          aggregate.legsSeen += legsOnThisTicket;
+          legsSeenThisPage += legsOnThisTicket;
           aggregate.legsParsed += record.legs.length;
           legsParsedThisPage += record.legs.length;
         } else if (previouslySeen === contentFingerprint) {
+          // A legitimate repeat (the same ticket reappearing across
+          // pages) -- its legs were already counted the first time, so
+          // they are deliberately NOT added to legs_seen again here.
           aggregate.duplicateTicketsSkipped += 1;
+          aggregate.duplicateTicketLegsSkipped += legsOnThisTicket;
         } else {
+          aggregate.legsSeen += legsOnThisTicket;
+          legsSeenThisPage += legsOnThisTicket;
           aggregate.unresolvedTickets.push(
             makeUnresolvedTicket({
               reason: 'CONFLICTING_DUPLICATE_ID',
@@ -726,9 +770,13 @@
           ticketsParsedThisPage -= 1;
         }
       } else if (outcome === 'EXCLUDED') {
+        aggregate.legsSeen += legsOnThisTicket;
+        legsSeenThisPage += legsOnThisTicket;
         aggregate.excludedTickets.push(record);
         ticketsExpectedExcludedThisPage += 1;
       } else {
+        aggregate.legsSeen += legsOnThisTicket;
+        legsSeenThisPage += legsOnThisTicket;
         aggregate.unresolvedTickets.push(record);
         ticketsUnresolvedThisPage += 1;
       }
@@ -751,6 +799,21 @@
     aggregate.pageResults.push(pageResult);
 
     return { ticketCount: ticketEls.length, fingerprint, pageResult };
+  }
+
+  /**
+   * A cheap, no-new-selector fingerprint of whatever the currently
+   * rendered (collapsed) ticket containers show BEFORE any of them are
+   * expanded -- used purely to detect that the page has genuinely
+   * re-rendered after a pagination click, never parsed for meaning. See
+   * PAGE_CONTENT_RETRY_TIMEOUT_MS's own comment for the real-capture
+   * defect this exists to catch: the `--current` marker can advance
+   * before the page's own ticket content has actually updated.
+   */
+  function getCollapsedPageFingerprint(mybetsRoot) {
+    return Array.from(mybetsRoot.querySelectorAll(SELECTORS.ticket))
+      .map((el) => text(el))
+      .join('|');
   }
 
   function getPageNumberText(el) {
@@ -803,6 +866,13 @@
     }
 
     let currentPage = initialPage;
+    // Tracks the last page whose tickets were ACTUALLY parsed -- distinct
+    // from `currentPage` (the pagination marker's own position), because
+    // the marker can advance before the page's own content has (see
+    // PAGE_CONTENT_RETRY_TIMEOUT_MS's own comment). resume_metadata must
+    // point at the last page genuinely captured, never a page whose
+    // content never arrived.
+    let lastPageCompleted = initialPage;
     const visitedPageNumbers = new Set([currentPage]);
     const pageFingerprints = new Set([firstPageResult.fingerprint]);
     let pagesVisited = 1;
@@ -843,6 +913,12 @@
         break;
       }
 
+      // Round 3 real-capture correction: store the CURRENT page's own
+      // collapsed-ticket fingerprint before clicking away from it, so the
+      // wait below can confirm the NEXT page's content is genuinely
+      // different -- not just that the `--current` marker moved.
+      const beforeContentFingerprint = getCollapsedPageFingerprint(mybetsRoot);
+
       nextItem.click();
       const advanced = await waitFor(
         () => {
@@ -859,18 +935,41 @@
 
       currentPage = nextPageNumber;
       visitedPageNumbers.add(currentPage);
-      pagesVisited += 1;
 
-      await waitFor(
-        () => mybetsRoot.querySelectorAll(SELECTORS.ticket).length > 0,
+      // Wait for the ticket CONTENT itself to change, not just the page
+      // marker -- one bounded retry with a longer window before giving
+      // up. If content still never changes, this is either a genuine
+      // last-page repeat or a real stall; either way, stop safely rather
+      // than parse stale content as if it were new (the exact real-
+      // capture defect this fixes).
+      let contentUpdated = await waitFor(
+        () => getCollapsedPageFingerprint(mybetsRoot) !== beforeContentFingerprint,
         PAGE_CONTENT_TIMEOUT_MS,
         PAGE_CONTENT_POLL_INTERVAL_MS
       );
+      if (!contentUpdated) {
+        contentUpdated = await waitFor(
+          () => getCollapsedPageFingerprint(mybetsRoot) !== beforeContentFingerprint,
+          PAGE_CONTENT_RETRY_TIMEOUT_MS,
+          PAGE_CONTENT_POLL_INTERVAL_MS
+        );
+      }
+      if (!contentUpdated) {
+        stoppedReason = 'PAGE_CONTENT_DID_NOT_UPDATE';
+        break;
+      }
 
+      pagesVisited += 1;
       const pageResult = await processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTickets, aggregate, currentPage);
+      lastPageCompleted = currentPage;
       if (onProgress) {
         onProgress({ pageNumber: currentPage, pagesVisited, pagesAvailable, pageResult: pageResult.pageResult });
       }
+      // Belt-and-suspenders: the content-fingerprint wait above should
+      // already prevent this, but a genuinely identical PARSED ticket set
+      // (as opposed to the raw collapsed markup) is kept as a defensive
+      // backstop against an unbounded loop, never relied on in the normal
+      // case.
       if (pageResult.fingerprint !== '' && pageFingerprints.has(pageResult.fingerprint)) {
         stoppedReason = 'PAGE_CONTENT_REPEATED';
         break;
@@ -884,7 +983,7 @@
       if (firstItem) firstItem.click();
     }
 
-    return { pagesAvailable, pagesVisited, lastPageCompleted: currentPage, stoppedReason };
+    return { pagesAvailable, pagesVisited, lastPageCompleted, stoppedReason };
   }
 
   function sanitizeSourceUrl(rawUrl) {
@@ -944,6 +1043,7 @@
       tickets_unresolved: 0,
       tickets_expected_excluded: 0,
       duplicate_tickets_skipped: 0,
+      duplicate_ticket_legs_skipped: 0,
       legs_seen: 0,
       legs_parsed: 0,
     };
@@ -1008,6 +1108,7 @@
       legsSeen: 0,
       legsParsed: 0,
       duplicateTicketsSkipped: 0,
+      duplicateTicketLegsSkipped: 0,
       pageResults: [],
     };
 
@@ -1027,10 +1128,17 @@
       legsSeen,
       legsParsed,
       duplicateTicketsSkipped,
+      duplicateTicketLegsSkipped,
       pageResults,
     } = aggregate;
 
-    const invariantHolds = ticketsSeen === tickets.length + unresolvedTickets.length + excludedTickets.length;
+    // Round 3 real-capture correction: a duplicate ticket (the SAME
+    // ticket legitimately reappearing across pages) is a real ticket
+    // container that was seen but deliberately not added to `tickets`,
+    // `unresolvedTickets`, or `excludedTickets` -- the invariant must
+    // count it as its own outcome, not treat its omission as a bug.
+    const invariantHolds =
+      ticketsSeen === tickets.length + unresolvedTickets.length + excludedTickets.length + duplicateTicketsSkipped;
 
     const statusReasons = [
       'SYSTEM_SETTLEMENT_BREAKDOWN_SELECTOR_UNVERIFIED',
@@ -1089,6 +1197,7 @@
           tickets_unresolved: unresolvedTickets.length,
           tickets_expected_excluded: excludedTickets.length,
           duplicate_tickets_skipped: duplicateTicketsSkipped,
+          duplicate_ticket_legs_skipped: duplicateTicketLegsSkipped,
           legs_seen: legsSeen,
           legs_parsed: legsParsed,
         },
