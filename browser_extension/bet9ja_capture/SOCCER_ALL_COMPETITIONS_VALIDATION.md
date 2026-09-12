@@ -1185,3 +1185,132 @@ under some other selector never checked, that pinpoints the exact fix; if
 showed "Soccer > Nigeria > Professional Football League" rendered, that
 means the breadcrumb doesn't live at `.sports-table`'s own
 `previousElementSibling` and its real position needs identifying instead.
+
+## Round 10 -- 2026-09-12 (the diagnostics pinpointed the exact root
+cause; both heading assumptions retired in favor of a machine-verifiable
+gate)
+
+A real diagnostic capture (`13:05:54`) supplied exactly the evidence
+Round 9's recommendation asked for, straight from
+`batch_results[0].sport_context_diagnostics` and
+`content_readiness_diagnostics`:
+
+| Check | Result |
+|---|---|
+| Correct route | Passed: `/sportPage/1/competitions` |
+| Nigeria competition selected | Passed: `1209691` |
+| Fixture tables rendered | 2 |
+| Matchup rows ready | 4 |
+| Loading indicators remaining | 0 |
+| Page-level "Soccer" heading | **Unresolved** (`resolved_page_heading: null`) |
+| `.sports-table.previousElementSibling` text | Date/market-column header text, e.g. `"Sat 12 Sep 1X2 1X 12 X2 Goals..."` -- never a competition breadcrumb |
+| `failed_check` | `PAGE_HEADING_NOT_RESOLVED` |
+| Fixtures captured | 0 |
+
+### Root cause
+
+Content readiness had already fully passed -- the real fixture rows were
+genuinely ready. The ONLY reason the run failed closed was that both
+heading-based checks Rounds 6 and 8 added were checking for content that
+does not exist in the assumed location on this specific page:
+
+- The page-level "visible sport heading" (Round 6) never resolves --
+  neither `document.title` nor any active/selected-tab-like element ever
+  carried an exact "Soccer" match on the real page.
+- The per-table "Soccer > Country > Competition" breadcrumb (Round 8)
+  was never rendered as `.sports-table`'s own `previousElementSibling`
+  either -- that element instead holds the table's own date/market-column
+  header row.
+
+Both were real-evidence-motivated fixes for real false-positive
+`SPORT_CONTEXT_CONFLICT`s in Rounds 6/8/9's own captures -- but each was
+still, ultimately, a guess about WHERE a heading would render, and this
+diagnostic capture proves the real page never renders either heading in
+the checked location at all. A third heading-selector guess would repeat
+the same mistake with no better odds of being right.
+
+### Fix -- replace both heading checks with a machine-verifiable gate
+
+`validateForcedSportContext` (`parser.js`) no longer reads any rendered
+heading, breadcrumb, `document.title`, or any DOM text at all. It now
+accepts the trusted Soccer context only when three conditions this module
+and `soccer_walker.js` can both verify without inspecting page content
+all hold:
+
+1. The page's own URL pathname exactly matches
+   `/sportPage/1/competitions`.
+2. `soccer_walker.js`'s own declared `capture_scope` equals
+   `SOCCER_ALL_PREMATCH_COMPETITIONS`.
+3. The claim carries a non-empty `selected_competition_ids` array --
+   `soccer_walker.js`'s own trusted record of which checkbox ids it
+   actually selected from the Soccer inventory for this batch (built
+   fresh per batch by the new `buildForcedSportContext`, since the id
+   list is batch-specific).
+
+Any disagreement among these three still fails the WHOLE capture closed
+with `SPORT_CONTEXT_CONFLICT` -- this narrows what the gate checks, it
+does not remove the fail-closed guarantee. `sport_context_diagnostics`
+is reshaped to match: `failed_check` is now only ever `ROUTE_MISMATCH` or
+`CLAIM_INVALID` (the `PAGE_HEADING_NOT_RESOLVED`/`BREADCRUMB_NOT_FOUND`
+values, and every heading-candidate field, are gone), replaced with
+`capture_scope_actual`/`capture_scope_expected`, `selected_competition_ids`,
+and `claim_check_passed`.
+
+Per-table attribution is simplified the same way. Since
+`MAX_COMPETITIONS_PER_BATCH = 1` means every batch that reaches
+`makeTableCompetitionResolver` contains EXACTLY one selected competition,
+there is no real ambiguity left for a heading to resolve: every rendered
+`.sports-table` in that batch's own captured document is now attributed
+to that one competition unconditionally, regardless of any heading's
+presence or content. This is honest specifically because only one
+competition was ever selected into the batch -- there is nothing else a
+rendered table in that batch's document could belong to. The earlier
+breadcrumb-based heading-matching logic (`resolveNearestCompetitionHeadingRaw`,
+`parseCompetitionBreadcrumb`, and the matching branch inside
+`makeTableCompetitionResolver`) is kept, byte-for-byte unchanged, as a
+DORMANT fallback for a hypothetical future `MAX_COMPETITIONS_PER_BATCH >
+1` -- unreachable in production today (verified unreachable by the
+`currentBatch.length === 1` guard at the top of the function), but still
+directly unit-tested so it is known to work if that cap is ever raised
+with its own real evidence.
+
+This correction is scoped exactly to the sport-context gate and
+attribution, per explicit instruction: `showLeaguesAndWait`,
+`isLoadingIndicatorVisible`, and every other content-readiness/discovery/
+batching/accounting mechanism confirmed working by the `10:47:21Z` and
+`13:05:54` real captures is untouched.
+
+### Tests
+
+205/205 JS tests pass. The heading/breadcrumb-specific tests from Rounds
+6/8/9 (`PAGE_HEADING_NOT_RESOLVED`/`BREADCRUMB_NOT_FOUND` diagnostics,
+the Round 8 breadcrumb-prefix regression test, the "no rendered
+breadcrumb heading" and "heading cannot be uniquely attributed" walker
+tests) were rewritten or replaced with tests proving: the gate accepts a
+page with NO heading or breadcrumb at all given a valid route/scope/
+selected-ids claim (the exact real-capture regression above); an empty
+`selected_competition_ids` and a mismatched `capture_scope` both fail
+closed as `CLAIM_INVALID`; a single-competition batch is attributed
+correctly even when its table's rendered heading names something
+entirely unrelated; and the dormant multi-competition heading-matching
+fallback still works exactly as before, exercised directly via a newly
+exported `makeTableCompetitionResolver`.
+
+### PARSER_VERSION
+
+Bumped to `bet9ja-soccer-walker@0.5.0-round10-sport-context-gate-and-attribution-fix-unverified`
+-- still `-unverified`: this round's fix has not yet been exercised
+against the live account.
+
+### Recommendation for Round 11
+
+Re-run **Capture all Soccer fixtures** for real. Content readiness and
+the sport-context gate should both now pass for the Nigeria batch (and
+every subsequent one), reaching real row parsing for the first time.
+Read `batch_results[]`' own `records_seen`/`records_parsed`/
+`records_unresolved`/`records_expected_unsupported` and `fixtures[]`
+directly: if fixtures come back with real, correctly-mapped odds, this
+is very likely the run PR #38 has been waiting for. If parsing surfaces a
+*further* issue (e.g. an unrecognized outcome label, an incomplete 1X2
+market, or something else entirely), that is real evidence for a Round 12
+correction -- not a reason to guess ahead of it now.

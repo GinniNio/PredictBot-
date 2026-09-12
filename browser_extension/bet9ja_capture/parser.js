@@ -194,12 +194,32 @@
   // selector). Rather than have the walker guess a row value, the caller
   // may pass a trusted CLAIM via `context.forced_sport_context`, and this
   // module independently verifies it against the page before ever trusting
-  // it -- the caller's claim alone is never sufficient. All three signals
-  // below must agree, or the whole capture fails closed with
-  // `SPORT_CONTEXT_CONFLICT` rather than silently falling back to
-  // per-row UNSUPPORTED_SPORT (a real capture would look identical to a
-  // parser bug) or silently trusting an unverified claim (which would
-  // defeat the whole point of fail-closed classification).
+  // it -- the caller's claim alone is never sufficient.
+  //
+  // ROUND 10 CORRECTION (real evidence: a 13:05:54 diagnostic capture):
+  // Rounds 6 and 8 both gated this on a rendered "visible sport heading"
+  // (an exact page-level "Soccer" match) and a per-table "Soccer > Country
+  // > Competition" breadcrumb (`.sports-table.previousElementSibling`).
+  // Neither ever existed on the real page -- the real diagnostic capture
+  // showed content readiness fully passing (two `.sports-table`s, four
+  // ready matchup rows, zero loading indicators) while BOTH heading checks
+  // failed, and `.sports-table.previousElementSibling` on the real page
+  // turned out to hold date/market-column header text (e.g. "Sat 12 Sep
+  // 1X2 1X 12 X2 Goals..."), never a competition breadcrumb. Guessing a
+  // third heading selector would repeat the same mistake, so this gate is
+  // rebuilt on three conditions this module (and soccer_walker.js's own
+  // caller) can verify without reading any rendered heading at all:
+  //   1. The page's own URL pathname exactly matches
+  //      `/sportPage/1/competitions` (routeCheckPassed below).
+  //   2. The caller's declared `capture_scope` matches
+  //      SOCCER_ALL_PREMATCH_COMPETITIONS (part of claimValid below).
+  //   3. The caller's claim carries a non-empty `selected_competition_ids`
+  //      array -- soccer_walker.js's own trusted record of which
+  //      checkbox ids it actually selected from the Soccer inventory
+  //      before calling Show Leagues (also part of claimValid below).
+  // Any disagreement still fails the WHOLE capture closed with
+  // `SPORT_CONTEXT_CONFLICT` -- this narrows what the gate checks, it does
+  // not remove the fail-closed guarantee itself.
   const FORCED_SPORT_CONTEXT_ROUTE_PATTERN = /^\/sportPage\/1\/competitions\/?$/;
   // Matches BET9JA_DESKTOP_SPORT_CODE_MAP's own confirmed `1 => SOCCER`
   // mapping (Highlights page row ids) -- the same sport id, on a
@@ -207,116 +227,19 @@
   const FORCED_SPORT_CONTEXT_SPORT_ID = '1';
   const EXPECTED_FORCED_CAPTURE_SCOPE = 'SOCCER_ALL_PREMATCH_COMPETITIONS';
 
-  // [UNVERIFIED] exact selector for a "visible sport heading" on
-  // `/sportPage/1/competitions` -- no such element was captured during
-  // live inspection. Two independent, low-false-positive-risk signals are
-  // checked instead of guessing one CSS class: the document's own
-  // `<title>` (always real, always present), and any element commonly
-  // used for an active/selected tab's state whose text is EXACTLY
-  // "Soccer" (not just contains it, to avoid a false match on something
-  // like "Soccer News"). Neither matching is an honest "unknown", and
-  // this function returns '' rather than assuming Soccer -- the caller
-  // treats '' as a failed condition, never a pass.
-  function resolveVisibleSportHeadingRaw(doc) {
-    const titleText = ((doc && doc.title) || '').trim();
-    if (/soccer/i.test(titleText)) return titleText;
-    const candidates = doc ? doc.querySelectorAll('[class*="active" i], [aria-selected="true"], [class*="selected" i]') : [];
-    for (const el of Array.from(candidates)) {
-      const t = text(el);
-      if (/^soccer$/i.test(t)) return t;
-    }
-    return '';
-  }
-
-  // ROUND 8 CORRECTION: a real capture hit `SPORT_CONTEXT_CONFLICT` on a
-  // page that WAS genuinely Soccer, because the only signal available was
-  // a rendered competition breadcrumb heading (e.g. "Soccer > Italy >
-  // Serie A") -- and this file's own page-level check requires an EXACT
-  // "soccer" match, which a breadcrumb (always carrying a country/
-  // competition suffix) can never satisfy. The fix is NOT to loosen that
-  // exact-match check into a substring match (that would risk accepting
-  // "Soccer News" or similar) -- it's to recognize the breadcrumb PREFIX
-  // shape as its own, separate, corroborating signal: a rendered heading
-  // that BEGINS WITH "Soccer >" is real evidence the page is genuinely
-  // showing Soccer competitions, checked independently of (and in
-  // addition to, never instead of) the page-level heading check above.
-  // This is deliberately a coarse PREFIX check only -- it never attempts
-  // to extract a country or competition name (that parsing is
-  // `soccer_walker.js`'s own per-table attribution logic, kept
-  // completely separate so a change to one can never silently affect the
-  // other).
-  const SOCCER_BREADCRUMB_PREFIX_PATTERN = /^soccer\s*>/i;
-
-  const HEADING_AUDIT_MAX_LEN = 120;
-  const HEADING_AUDIT_MAX_CANDIDATES = 10;
-
-  function truncateForAudit(value) {
-    const s = (value || '').trim();
-    return s.length > HEADING_AUDIT_MAX_LEN ? `${s.slice(0, HEADING_AUDIT_MAX_LEN)}…` : s;
-  }
-
-  // Which of resolveVisibleSportHeadingRaw's OWN candidate patterns an
-  // element matched -- a selector NAME for audit, never the element's own
-  // full class list or any other markup.
-  function pageHeadingSelectorLabel(el) {
-    if (el.getAttribute('aria-selected') === 'true') return '[aria-selected="true"]';
-    const className = typeof el.className === 'string' ? el.className : '';
-    if (/active/i.test(className)) return '[class*="active"]';
-    if (/selected/i.test(className)) return '[class*="selected"]';
-    return '[class*="active"], [aria-selected="true"], [class*="selected"]';
-  }
-
-  /**
-   * Mirrors `resolveVisibleSportHeadingRaw`'s own two signal sources but
-   * returns every candidate examined (selector name + sanitized,
-   * length-capped text -- never full HTML), so a real
-   * `SPORT_CONTEXT_CONFLICT` can be diagnosed from the envelope alone
-   * instead of guessing at a new selector blind.
-   */
-  function diagnosePageHeadingCandidates(doc) {
-    if (!doc) return [];
-    const candidates = [{ selector: 'document.title', text: truncateForAudit(doc.title || '') }];
-    const els = doc.querySelectorAll('[class*="active" i], [aria-selected="true"], [class*="selected" i]');
-    Array.from(els)
-      .slice(0, HEADING_AUDIT_MAX_CANDIDATES)
-      .forEach((el) => candidates.push({ selector: pageHeadingSelectorLabel(el), text: truncateForAudit(text(el)) }));
-    return candidates;
-  }
-
-  /** Same audit discipline as `diagnosePageHeadingCandidates`, for the per-table breadcrumb signal. */
-  function diagnoseCompetitionHeadingCandidates(doc) {
-    if (!doc) return [];
-    const tables = doc.querySelectorAll(BET9JA_DESKTOP_SELECTORS.root);
-    const candidates = [];
-    Array.from(tables)
-      .slice(0, HEADING_AUDIT_MAX_CANDIDATES)
-      .forEach((table) => {
-        const prev = table.previousElementSibling;
-        if (!prev) return;
-        const direct = text(prev);
-        const candidateText = direct || (prev.firstElementChild ? text(prev.firstElementChild) : '');
-        candidates.push({ selector: '.sports-table:previousElementSibling', text: truncateForAudit(candidateText) });
-      });
-    return candidates;
-  }
-
   /**
    * Returns `{active: false}` when the caller passed no
    * `forced_sport_context` at all (ordinary captureFromDocument calls are
    * completely unaffected). Otherwise `{active: true, ok, sportHint,
-   * diagnostics}` -- `ok` is only true when the caller's claim, the
-   * page's own URL, an independently-resolved page-level visible sport
-   * heading, AND at least one rendered competition heading beginning
-   * with "Soccer >" all agree; any disagreement is `{active: true, ok:
-   * false}` plus a non-null `diagnostics` object naming exactly which
-   * check failed and what was actually found on the page (sanitized,
-   * bounded audit text only -- never full HTML), so a real
+   * diagnostics}` -- `ok` is only true when all three machine-verifiable
+   * conditions documented above hold (route, declared capture_scope, and a
+   * non-empty selected_competition_ids claim); any disagreement is
+   * `{active: true, ok: false}` plus a non-null `diagnostics` object
+   * naming exactly which check failed (`ROUTE_MISMATCH` or
+   * `CLAIM_INVALID`) and the actual claim/route values examined, so a real
    * `SPORT_CONTEXT_CONFLICT` never has to be diagnosed by guessing at a
-   * new selector blind. The page-level heading and the per-table
-   * breadcrumb are two INDEPENDENT signals -- neither substitutes for
-   * the other, and neither is ever used to attribute one specific
-   * competition (that stays entirely in
-   * `resolve_table_competition`/`table_attribution_summary`).
+   * new selector blind. This never inspects any rendered heading or
+   * breadcrumb -- see the ROUND 10 CORRECTION comment above.
    */
   function validateForcedSportContext(doc, context) {
     const forced = context.forced_sport_context;
@@ -330,51 +253,18 @@
     }
     const routeCheckPassed = FORCED_SPORT_CONTEXT_ROUTE_PATTERN.test(pathname);
 
+    const selectedCompetitionIds = Array.isArray(forced.selected_competition_ids) ? forced.selected_competition_ids : [];
     const claimValid =
       forced.forced_sport_hint === 'SOCCER' &&
       forced.forced_sport_source === 'SPORTPAGE_ROUTE_ID' &&
       forced.forced_sport_source_value === FORCED_SPORT_CONTEXT_SPORT_ID &&
-      forced.capture_scope === EXPECTED_FORCED_CAPTURE_SCOPE;
+      forced.capture_scope === EXPECTED_FORCED_CAPTURE_SCOPE &&
+      selectedCompetitionIds.length > 0;
 
-    if (!claimValid) {
-      return {
-        active: true,
-        ok: false,
-        sportHint: null,
-        diagnostics: {
-          pathname_actual: pathname,
-          pathname_expected: FORCED_SPORT_CONTEXT_ROUTE_PATTERN.source,
-          forced_sport_hint: forced.forced_sport_hint || null,
-          page_heading_candidates: [],
-          resolved_page_heading: null,
-          competition_heading_candidates: [],
-          soccer_breadcrumb_count: 0,
-          route_check_passed: routeCheckPassed,
-          page_heading_check_passed: false,
-          breadcrumb_check_passed: false,
-          failed_check: 'CLAIM_INVALID',
-        },
-      };
-    }
-
-    // resolveVisibleSportHeadingRaw already applies its own matching rule
-    // per signal (a loose "contains soccer" for the page title, an exact
-    // "is soccer" for an active-tab-like element) -- any non-empty result
-    // IS the confirming evidence; re-applying a different, stricter regex
-    // here would reject its own valid title-based match.
-    const headingRaw = routeCheckPassed ? resolveVisibleSportHeadingRaw(doc) : '';
-    const pageHeadingCheckPassed = !!headingRaw;
-    const competitionHeadingCandidates = routeCheckPassed ? diagnoseCompetitionHeadingCandidates(doc) : [];
-    const soccerBreadcrumbCount = competitionHeadingCandidates.filter((c) => SOCCER_BREADCRUMB_PREFIX_PATTERN.test(c.text)).length;
-    const breadcrumbCheckPassed = soccerBreadcrumbCount > 0;
-
-    const ok = routeCheckPassed && pageHeadingCheckPassed && breadcrumbCheckPassed;
+    const ok = routeCheckPassed && claimValid;
     if (ok) {
       return { active: true, ok: true, sportHint: forced.forced_sport_hint, diagnostics: null };
     }
-
-    let failedCheck = 'ROUTE_MISMATCH';
-    if (routeCheckPassed) failedCheck = pageHeadingCheckPassed ? 'BREADCRUMB_NOT_FOUND' : 'PAGE_HEADING_NOT_RESOLVED';
 
     return {
       active: true,
@@ -383,15 +273,13 @@
       diagnostics: {
         pathname_actual: pathname,
         pathname_expected: FORCED_SPORT_CONTEXT_ROUTE_PATTERN.source,
-        forced_sport_hint: forced.forced_sport_hint,
-        page_heading_candidates: routeCheckPassed ? diagnosePageHeadingCandidates(doc) : [],
-        resolved_page_heading: headingRaw || null,
-        competition_heading_candidates: competitionHeadingCandidates,
-        soccer_breadcrumb_count: soccerBreadcrumbCount,
         route_check_passed: routeCheckPassed,
-        page_heading_check_passed: pageHeadingCheckPassed,
-        breadcrumb_check_passed: breadcrumbCheckPassed,
-        failed_check: failedCheck,
+        capture_scope_actual: forced.capture_scope || null,
+        capture_scope_expected: EXPECTED_FORCED_CAPTURE_SCOPE,
+        forced_sport_hint: forced.forced_sport_hint || null,
+        selected_competition_ids: selectedCompetitionIds,
+        claim_check_passed: claimValid,
+        failed_check: routeCheckPassed ? 'CLAIM_INVALID' : 'ROUTE_MISMATCH',
       },
     };
   }

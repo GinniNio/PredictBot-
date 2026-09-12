@@ -96,28 +96,38 @@
  * `/competition/{sport}/{country}/{competition}/` -- confirmed only for
  * single-competition competition pages, and neither is available on
  * `/sportPage/1/competitions`. This module passes a trusted
- * `forced_sport_context` claim that parser.js independently re-verifies
- * against the page's own route, a page-level visible sport heading, AND
- * (Round 8) at least one rendered competition heading beginning with
- * "Soccer >" -- a real capture hit a false `SPORT_CONTEXT_CONFLICT` when
- * the only available signal was a competition breadcrumb (e.g.
- * "Soccer > Italy > Serie A"), which can never equal "SOCCER" exactly;
- * the breadcrumb PREFIX is now its own separate corroborating signal,
- * kept deliberately apart from attribution (below) so a change to one
- * can never silently affect the other.
+ * `forced_sport_context` claim that parser.js independently re-verifies.
  *
- * ATTRIBUTION: each rendered competition's heading is a confirmed
- * "Soccer > {country} > {competition}" breadcrumb (live single- and
- * multi-league evidence). `makeTableCompetitionResolver` parses that
- * breadcrumb's own last segment and matches it exactly against the
- * batch's own known competition names, falling back to a substring
- * search over the whole heading text for resilience if a heading isn't
- * breadcrumb-shaped. A table that cannot be uniquely mapped is retained
- * as `COMPETITION_ATTRIBUTION_UNRESOLVED` (parser.js's own gate, ahead of
- * every other row classification) rather than guessed -- and, since
- * `MAX_COMPETITIONS_PER_BATCH` keeps every batch to exactly one
- * competition, this now means only THAT one competition is affected,
- * never a whole multi-competition batch. Every fixture still carries
+ * ROUND 10 CORRECTION (real evidence: a 13:05:54 diagnostic capture): a
+ * page-level visible sport heading (Round 6) and a rendered "Soccer >"
+ * competition breadcrumb (Round 8) were both used as gate signals, and
+ * both turned out not to exist in the assumed locations on the real page
+ * -- content readiness fully passed (two `.sports-table`s, four ready
+ * matchup rows, zero loading indicators) while the page-level heading was
+ * unresolved and `.sports-table.previousElementSibling` held date/
+ * market-column text, not a breadcrumb. The gate now checks three
+ * machine-verifiable conditions instead of any rendered heading: the
+ * page's own route, this module's own declared `capture_scope`, and this
+ * module's own trusted claim of which competition ids it selected
+ * (`selected_competition_ids`, built fresh per batch by
+ * `buildForcedSportContext`) -- see parser.js's own comment for the full
+ * detail. This narrows what the gate checks; it still fails the whole
+ * capture closed (`SPORT_CONTEXT_CONFLICT`) on a genuine mismatch.
+ *
+ * ATTRIBUTION: since `MAX_COMPETITIONS_PER_BATCH = 1` means every batch
+ * that reaches `makeTableCompetitionResolver` contains EXACTLY one
+ * selected competition, every rendered `.sports-table` in that batch is
+ * now attributed to that one competition unconditionally -- there is no
+ * real ambiguity to resolve via a heading when only one competition was
+ * ever selected. The earlier breadcrumb-based heading-matching logic
+ * (parses a confirmed "Soccer > {country} > {competition}" breadcrumb's
+ * own last segment, falling back to a substring search) is kept,
+ * unchanged, as a DORMANT fallback for a hypothetical future
+ * `MAX_COMPETITIONS_PER_BATCH > 1` -- it is unreachable in production
+ * today. A table that cannot be uniquely mapped (only possible on that
+ * dormant multi-competition path) is retained as
+ * `COMPETITION_ATTRIBUTION_UNRESOLVED` (parser.js's own gate, ahead of
+ * every other row classification) rather than guessed. Every fixture still carries
  * `source_batch_index` and `source_competition_ids_in_batch`/
  * `source_competitions_raw_in_batch` (single-element in the normal case);
  * `competition_results[]` classifies every discovered competition
@@ -143,19 +153,18 @@
   const Bet9jaCapture = typeof module !== 'undefined' && module.exports ? require('./parser.js') : root.Bet9jaCapture;
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  // NOT bumped to a non-"-unverified" tag yet: a real run got past
-  // country/competition discovery for the first time (Round 7's own fix
-  // confirmed working -- 102-103 countries, 368-374 competitions) but
-  // then hit three further real defects (all fixed this round -- see
-  // SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 8 section): every
-  // competition selected into one enormous batch, `.sports-table`
-  // existing while its rows were still loading, and a false
-  // `SPORT_CONTEXT_CONFLICT` from comparing a competition breadcrumb
-  // against an exact "SOCCER" match. This round's fixes have not yet
-  // been exercised against the live account. Per this project's
-  // evidence-only versioning discipline, the version string advances
-  // only after one real successful capture.
-  const PARSER_VERSION = 'bet9ja-soccer-walker@0.4.2-round8-batching-readiness-and-sport-context-fix-unverified';
+  // NOT bumped to a non-"-unverified" tag yet: real runs got past
+  // country/competition discovery, batching, and content readiness (all
+  // confirmed working by two real captures -- see
+  // SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 8/9 sections) but then
+  // hit `SPORT_CONTEXT_CONFLICT` on both, traced (Round 10, real
+  // diagnostic evidence) to two heading-based gate/attribution checks
+  // that assumed rendered content this page never has. This round
+  // replaces those checks with machine-verifiable conditions (see the
+  // header comment above) -- not yet exercised against the live account.
+  // Per this project's evidence-only versioning discipline, the version
+  // string advances only after one real successful capture.
+  const PARSER_VERSION = 'bet9ja-soccer-walker@0.5.0-round10-sport-context-gate-and-attribution-fix-unverified';
 
   const INVENTORY_PROFILE = 'BET9JA_SPORTPAGE_COMPETITIONS_SELECTOR';
   const START_ROUTE_PATTERN = /^\/sportPage\/1\/competitions\/?$/;
@@ -168,16 +177,26 @@
   // so a row with no id-embedded sport segment and no `/competition/...`
   // URL to fall back on (both are genuinely absent on this route) should
   // never be misclassified UNSUPPORTED_SPORT. This is only ever a CLAIM:
-  // parser.js independently re-verifies the route and a visible sport
-  // heading before ever trusting it, and fails the whole capture closed
-  // (`SPORT_CONTEXT_CONFLICT`) if they disagree -- this module never
-  // classifies a single row itself.
-  const FORCED_SPORT_CONTEXT = {
-    forced_sport_hint: 'SOCCER',
-    forced_sport_source: 'SPORTPAGE_ROUTE_ID',
-    forced_sport_source_value: '1',
-    capture_scope: CAPTURE_SCOPE,
-  };
+  // parser.js independently re-verifies it before ever trusting it, and
+  // fails the whole capture closed (`SPORT_CONTEXT_CONFLICT`) if it
+  // disagrees -- this module never classifies a single row itself.
+  //
+  // ROUND 10 CORRECTION: this claim now also carries
+  // `selected_competition_ids` -- this module's OWN trusted record of
+  // which checkbox ids it actually selected from the Soccer inventory for
+  // THIS batch, one of the three machine-verifiable conditions
+  // parser.js's gate now checks (see parser.js's own comment for why the
+  // two heading-based checks this replaced were retired). Built fresh per
+  // batch (never a static constant) since the id list is batch-specific.
+  function buildForcedSportContext(currentBatch) {
+    return {
+      forced_sport_hint: 'SOCCER',
+      forced_sport_source: 'SPORTPAGE_ROUTE_ID',
+      forced_sport_source_value: '1',
+      capture_scope: CAPTURE_SCOPE,
+      selected_competition_ids: currentBatch.map((c) => c.checkboxId),
+    };
+  }
 
   // Confirmed via live inspection, 2026-09-12. See the header comment
   // above for the full contract. Exported as a mutable object so a
@@ -454,17 +473,38 @@
   /**
    * Builds a `resolve_table_competition` function (parser.js's own
    * contract -- see its header comment) scoped to exactly the
-   * competitions selected in ONE batch. Tries the confirmed breadcrumb
-   * shape first (exact match against the breadcrumb's own last segment,
-   * the competition name) -- tighter than a substring search, since it
-   * isolates the competition name from Sport/Country noise. Falls back
-   * to substring-matching the WHOLE heading text against each
-   * candidate's own `competitionNameRaw` for resilience if the heading
-   * isn't breadcrumb-shaped. Either way, resolved only when EXACTLY ONE
-   * candidate matches; zero or multiple is an honest `{resolved: false}`,
-   * never a guess at which one is more likely.
+   * competitions selected in ONE batch.
+   *
+   * ROUND 10 CORRECTION (real evidence: 13:05:54 diagnostic capture):
+   * `MAX_COMPETITIONS_PER_BATCH = 1` means every batch that ever reaches
+   * this function today contains EXACTLY one selected competition -- so
+   * there is no real ambiguity a heading could ever resolve: every
+   * rendered `.sports-table` in that batch's own captured document
+   * necessarily belongs to that one competition, because it is the only
+   * competition Show Leagues was ever asked to render. The same real
+   * capture that motivated this also showed the heading-matching approach
+   * below could never have worked here anyway (`.sports-table`'s own
+   * previous sibling holds date/market-column text, not a competition
+   * breadcrumb) -- so for `currentBatch.length === 1` this function
+   * bypasses heading matching entirely and resolves unconditionally.
+   *
+   * The heading-matching logic (breadcrumb-exact-match, falling back to a
+   * substring search) is kept below, UNCHANGED, as a dormant fallback: it
+   * only runs if `MAX_COMPETITIONS_PER_BATCH` is ever raised above 1 in a
+   * future round with its own real evidence, at which point a genuinely
+   * ambiguous multi-competition batch would need it again.
    */
   function makeTableCompetitionResolver(currentBatch) {
+    if (currentBatch.length === 1) {
+      const only = currentBatch[0];
+      return () => ({
+        resolved: true,
+        sourceCompetitionId: only.checkboxId,
+        competitionNameRaw: only.competitionNameRaw,
+        countryNameRaw: only.countryNameRaw,
+      });
+    }
+
     function uniqueMatch(predicate) {
       const matches = currentBatch.filter(predicate);
       return matches.length === 1 ? matches[0] : null;
@@ -1000,7 +1040,7 @@
         pageTitle: context.pageTitle,
         capturedAtUtc,
         previousIndex: {},
-        forced_sport_context: FORCED_SPORT_CONTEXT,
+        forced_sport_context: buildForcedSportContext(currentBatch),
         resolve_table_competition: makeTableCompetitionResolver(currentBatch),
       });
 
@@ -1227,6 +1267,10 @@
     captureAllSoccerCompetitions,
     SELECTORS,
     PARSER_VERSION,
+    // Exported for direct unit testing of the single-competition-batch
+    // bypass and the dormant multi-competition heading-matching fallback
+    // (see this function's own comment) -- not used by any other module.
+    makeTableCompetitionResolver,
   };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

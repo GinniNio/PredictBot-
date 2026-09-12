@@ -423,52 +423,61 @@ test('multi-competition batch: each fixture is attributed to its OWN competition
   }
 });
 
-test('a page with no rendered Soccer breadcrumb heading at all fails the whole run closed with SPORT_CONTEXT_CONFLICT (the page-level gate), never a per-competition attribution failure', async () => {
-  // Omitting every heading removes parser.js's OWN page-level
-  // confirmation signal (a rendered heading beginning with "Soccer >"),
-  // which is a stricter, earlier gate than per-table attribution --
-  // this must fail the run at that gate, not be mistaken for a
-  // per-competition COMPETITION_ATTRIBUTION_UNRESOLVED case.
+test('ROUND 10 (real-capture regression): a page with no rendered Soccer heading or breadcrumb at all still succeeds -- the gate no longer requires either', async () => {
+  // This is the exact real-capture scenario (13:05:54 diagnostic
+  // capture): content readiness passed, but neither heading this gate
+  // used to require ever rendered. Rounds 6/8 would have failed this
+  // closed with SPORT_CONTEXT_CONFLICT; the corrected gate (route +
+  // capture_scope + selected_competition_ids, none of which depend on a
+  // rendered heading) must let every batch reach real row parsing.
   const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND], omitHeadings: true }));
   const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
-  assert.equal(envelope.fixtures.length, 0);
-  assert.equal(envelope.competitions_captured, 0);
-  assert.ok(envelope.capture_status_reasons.includes('STOPPED_EARLY_SPORT_CONTEXT_CONFLICT'));
-  const nigeria = envelope.competition_results.find((r) => r.source_competition_id === '1209691');
-  assert.equal(nigeria.outcome, 'BATCH_FAILED');
-  assert.equal(nigeria.failure_reason, 'SPORT_CONTEXT_CONFLICT');
-  // England's competitions were never even attempted once the run
-  // stopped closed -- honestly labeled, never silently absent and never
-  // counted as "failed".
-  for (const id of ['2000001', '2000002']) {
+  assert.ok(!envelope.capture_status_reasons.includes('STOPPED_EARLY_SPORT_CONTEXT_CONFLICT'));
+  assert.equal(envelope.competitions_captured, 3);
+  for (const id of ['1209691', '2000001', '2000002']) {
     const result = envelope.competition_results.find((r) => r.source_competition_id === id);
-    assert.equal(result.outcome, 'NOT_ATTEMPTED_AFTER_EARLY_STOP');
+    assert.equal(result.outcome, 'CAPTURED_IN_BATCH');
   }
-  // Every SPORT_CONTEXT_CONFLICT batch must carry both diagnostics
-  // objects, so a real conflict is never diagnosed by guessing blind.
-  const failedBatch = envelope.batch_results.find((b) => b.failure_reason === 'SPORT_CONTEXT_CONFLICT');
-  assert.ok(failedBatch, 'expected one SPORT_CONTEXT_CONFLICT batch result');
-  assert.ok(failedBatch.sport_context_diagnostics, 'batch must carry sport_context_diagnostics');
-  assert.equal(failedBatch.sport_context_diagnostics.failed_check, 'BREADCRUMB_NOT_FOUND');
-  assert.ok(failedBatch.content_readiness_diagnostics, 'batch must carry content_readiness_diagnostics');
-  assert.equal(typeof failedBatch.content_readiness_diagnostics.stable_poll_count, 'number');
+  assert.equal(envelope.fixtures.length, 3);
+  for (const fixture of envelope.fixtures) {
+    assert.equal(fixture.sport, 'SOCCER');
+  }
 });
 
-test('one competition whose own heading cannot be uniquely attributed is COMPETITION_ATTRIBUTION_UNRESOLVED, and does NOT invalidate a correctly attributed competition processed in a different batch', async () => {
-  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND], mismatchAttributionForIds: ['2000001'] }));
-  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
-  // Nigeria and Championship both resolve correctly and are captured.
-  assert.equal(envelope.competitions_captured, 2);
-  const nigeria = envelope.competition_results.find((r) => r.source_competition_id === '1209691');
-  const championship = envelope.competition_results.find((r) => r.source_competition_id === '2000002');
-  assert.equal(nigeria.outcome, 'CAPTURED_IN_BATCH');
-  assert.equal(championship.outcome, 'CAPTURED_IN_BATCH');
-  // Premier League's own heading was rendered with an unrelated name --
-  // its table cannot be uniquely mapped, so it alone is unresolved.
-  const premierLeague = envelope.competition_results.find((r) => r.source_competition_id === '2000001');
-  assert.equal(premierLeague.outcome, 'COMPETITION_ATTRIBUTION_UNRESOLVED');
-  assert.ok(!envelope.fixtures.some((f) => f.resolved_source_competition_id === '2000001'));
-  assert.ok(envelope.capture_status_reasons.includes('SOME_COMPETITIONS_ATTRIBUTION_UNRESOLVED'));
+test('ROUND 10: a single-competition batch is attributed to its one selected competition unconditionally, even when its rendered heading names something else entirely', () => {
+  // MAX_COMPETITIONS_PER_BATCH = 1 means every batch soccer_walker.js
+  // actually builds has exactly one selected competition -- there is no
+  // real ambiguity left for a heading to resolve, so
+  // makeTableCompetitionResolver bypasses heading matching entirely for
+  // this case (see its own comment). A heading naming an unrelated
+  // competition (as this test's fixture renders) must NOT cause
+  // COMPETITION_ATTRIBUTION_UNRESOLVED the way it would have under the
+  // pre-Round-10 heading-matching resolver.
+  const currentBatch = [{ checkboxId: '1209691', competitionNameRaw: 'Professional Football League', countryNameRaw: 'Nigeria' }];
+  const resolver = soccerWalker.makeTableCompetitionResolver(currentBatch);
+  const fakeTableWithWrongHeading = { previousElementSibling: { textContent: 'Soccer > Somewhere Else > Totally Unrelated League' } };
+  const result = resolver(fakeTableWithWrongHeading);
+  assert.equal(result.resolved, true);
+  assert.equal(result.sourceCompetitionId, '1209691');
+  assert.equal(result.competitionNameRaw, 'Professional Football League');
+  assert.equal(result.countryNameRaw, 'Nigeria');
+});
+
+test('ROUND 10: the heading-matching resolver logic is retained, dormant, for a hypothetical future multi-competition batch', () => {
+  // Exercises the fallback branch directly (currentBatch.length > 1) --
+  // MAX_COMPETITIONS_PER_BATCH keeps this unreachable in production
+  // today, but the logic itself must still work exactly as it did before
+  // Round 10, unchanged, so it's ready if that cap is ever raised with
+  // its own real evidence.
+  const currentBatch = [
+    { checkboxId: '1209691', competitionNameRaw: 'Professional Football League', countryNameRaw: 'Nigeria' },
+    { checkboxId: '2000001', competitionNameRaw: 'Premier League', countryNameRaw: 'England' },
+  ];
+  const resolver = soccerWalker.makeTableCompetitionResolver(currentBatch);
+  const nigeriaTable = { previousElementSibling: { textContent: 'Soccer > Nigeria > Professional Football League' } };
+  const unrelatedTable = { previousElementSibling: { textContent: 'Soccer > Somewhere Else > Totally Unrelated League' } };
+  assert.equal(resolver(nigeriaTable).sourceCompetitionId, '1209691');
+  assert.equal(resolver(unrelatedTable).resolved, false);
 });
 
 test('a competition with a missing label is SELECTION_FAILED and does not stop the run', async () => {

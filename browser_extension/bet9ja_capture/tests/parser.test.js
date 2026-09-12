@@ -627,6 +627,12 @@ function sportPageCompetitionsDoc({
   title = 'Soccer - Competitions',
   breadcrumb = 'Soccer > Nigeria > Professional Football League',
 } = {}) {
+  // ROUND 10: `breadcrumb` (and `title`) are retained as parameters purely
+  // so the existing helper signature keeps working for callers that still
+  // render a heading for OTHER reasons (e.g. attribution tests below,
+  // which exercise soccer_walker.js-shaped resolvers) -- the gate itself
+  // (validateForcedSportContext) no longer reads either of these; see
+  // parser.js's own comment for why.
   const heading = breadcrumb ? `<div class="heading">${breadcrumb}</div>` : '';
   return docFromHtml(
     `<html><head><title>${title}</title></head><body>${heading}<div class="sports-table">${forcedSportRowHtml({ eventId: '1', home: 'Enyimba', away: 'Rivers United' })}</div></body></html>`
@@ -638,10 +644,17 @@ const VALID_FORCED_SPORT_CONTEXT = {
   forced_sport_source: 'SPORTPAGE_ROUTE_ID',
   forced_sport_source_value: '1',
   capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS',
+  // ROUND 10: soccer_walker.js's own trusted record of which checkbox ids
+  // it selected for this batch -- required non-empty by the gate; see
+  // parser.js's own comment for why this replaced the two heading checks.
+  selected_competition_ids: ['1209691'],
 };
 
-test('forced sport context: /sportPage/1/competitions plus a visible "Soccer" heading permits the override', () => {
-  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+test('forced sport context: /sportPage/1/competitions plus a valid claim (route + scope + selected ids) permits the override, with NO rendered heading needed at all', () => {
+  // ROUND 10 real evidence: the real page never renders either heading
+  // this gate used to require -- proving the gate now passes without one
+  // is the whole point of this correction.
+  const doc = sportPageCompetitionsDoc({ title: 'Bet9ja Sports', breadcrumb: null });
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
     sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
@@ -658,8 +671,8 @@ test('forced sport context: /sportPage/1/competitions plus a visible "Soccer" he
   assert.ok(!envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
 });
 
-test('forced sport context: another sport-page id cannot claim Soccer -- route/id mismatch fails closed', () => {
-  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+test('forced sport context: another sport-page id cannot claim Soccer -- route mismatch fails closed', () => {
+  const doc = sportPageCompetitionsDoc();
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
     // A DIFFERENT sportPage id -- FORCED_SPORT_CONTEXT_ROUTE_PATTERN only
@@ -674,7 +687,7 @@ test('forced sport context: another sport-page id cannot claim Soccer -- route/i
 });
 
 test('forced sport context: the claim itself naming a different sport id fails closed even on the right route', () => {
-  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+  const doc = sportPageCompetitionsDoc();
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
     sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
@@ -685,56 +698,51 @@ test('forced sport context: the claim itself naming a different sport id fails c
   assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
 });
 
-test('forced sport context: a missing visible sport heading fails closed and carries sport_context_diagnostics naming PAGE_HEADING_NOT_RESOLVED', () => {
-  const doc = sportPageCompetitionsDoc({ title: 'Bet9ja Sports' }); // no "Soccer" anywhere
+test('forced sport context: an empty selected_competition_ids claim fails closed with diagnostics naming CLAIM_INVALID', () => {
+  // ROUND 10: this is the new third condition -- a walker that never
+  // actually selected any competition id has nothing genuine to attribute
+  // rows to, so an empty/missing list must never be silently accepted.
+  const doc = sportPageCompetitionsDoc();
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
     sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
-    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+    forced_sport_context: { ...VALID_FORCED_SPORT_CONTEXT, selected_competition_ids: [] },
   });
   assert.equal(envelope.forced_sport_context_applied, false);
   assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
   assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
   const diag = envelope.sport_context_diagnostics;
   assert.ok(diag, 'every SPORT_CONTEXT_CONFLICT must carry sport_context_diagnostics');
-  assert.equal(diag.failed_check, 'PAGE_HEADING_NOT_RESOLVED');
+  assert.equal(diag.failed_check, 'CLAIM_INVALID');
   assert.equal(diag.route_check_passed, true);
-  assert.equal(diag.page_heading_check_passed, false);
-  // The default fixture's own breadcrumb IS present and valid here --
-  // proof the two checks are genuinely independent: the page-level
-  // heading check alone is what failed and named `failed_check`.
-  assert.equal(diag.breadcrumb_check_passed, true);
-  assert.equal(diag.resolved_page_heading, null);
-  assert.ok(diag.page_heading_candidates.some((c) => c.selector === 'document.title' && c.text === 'Bet9ja Sports'));
-  assert.equal(diag.pathname_actual, '/sportPage/1/competitions');
+  assert.deepEqual(diag.selected_competition_ids, []);
+  assert.equal(diag.claim_check_passed, false);
 });
 
-test('forced sport context: a conflicting heading (a different sport) fails closed and carries diagnostics', () => {
-  const doc = sportPageCompetitionsDoc({ title: 'Basketball - Competitions' });
+test('forced sport context: a mismatched capture_scope fails closed with diagnostics naming CLAIM_INVALID', () => {
+  const doc = sportPageCompetitionsDoc();
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
     sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
-    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+    forced_sport_context: { ...VALID_FORCED_SPORT_CONTEXT, capture_scope: 'SOMETHING_ELSE' },
   });
-  assert.equal(envelope.forced_sport_context_applied, false);
-  assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
-  assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
-  assert.equal(envelope.sport_context_diagnostics.failed_check, 'PAGE_HEADING_NOT_RESOLVED');
+  assert.equal(envelope.sport_context_diagnostics.failed_check, 'CLAIM_INVALID');
+  assert.equal(envelope.sport_context_diagnostics.capture_scope_actual, 'SOMETHING_ELSE');
+  assert.equal(envelope.sport_context_diagnostics.capture_scope_expected, 'SOCCER_ALL_PREMATCH_COMPETITIONS');
 });
 
 test('forced sport context: a claim naming the wrong sport id fails closed with diagnostics naming CLAIM_INVALID', () => {
-  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+  const doc = sportPageCompetitionsDoc();
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
     sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
     forced_sport_context: { ...VALID_FORCED_SPORT_CONTEXT, forced_sport_source_value: '2' },
   });
   assert.equal(envelope.sport_context_diagnostics.failed_check, 'CLAIM_INVALID');
-  assert.equal(envelope.sport_context_diagnostics.page_heading_candidates.length, 0);
 });
 
 test('forced sport context: a route mismatch fails closed with diagnostics naming ROUTE_MISMATCH', () => {
-  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+  const doc = sportPageCompetitionsDoc();
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
     sourceUrl: 'https://sports.bet9ja.com/sportPage/2/competitions',
@@ -756,14 +764,12 @@ test('forced sport context: a successful validation never attaches sport_context
   assert.equal(envelope.sport_context_diagnostics, null);
 });
 
-test('forced sport context (Round 8 regression): a page-level "Soccer" heading plus a rendered "Soccer > Italy > Serie A" competition breadcrumb does NOT cause SPORT_CONTEXT_CONFLICT', () => {
-  // This is the exact real-capture defect: the page-level heading check
-  // requires an EXACT "soccer" match, which a competition breadcrumb
-  // (always carrying a country/competition suffix) can never satisfy on
-  // its own -- the fix recognizes the breadcrumb PREFIX as its own
-  // separate corroborating signal instead of comparing the full
-  // breadcrumb string against "SOCCER".
-  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions', breadcrumb: 'Soccer > Italy > Serie A' });
+test('forced sport context (Round 10 regression): a page with NO rendered sport heading and NO competition breadcrumb at all still passes, given a valid route/scope/selected-ids claim', () => {
+  // This is the exact real-capture defect (13:05:54 diagnostic capture):
+  // neither heading this gate used to require ever existed on the real
+  // page, even though the page was genuinely, verifiably Soccer. The fix
+  // stops requiring either heading at all.
+  const doc = sportPageCompetitionsDoc({ title: 'Bet9ja Sports', breadcrumb: null });
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
     sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
@@ -772,24 +778,6 @@ test('forced sport context (Round 8 regression): a page-level "Soccer" heading p
   assert.equal(envelope.forced_sport_context_applied, true);
   assert.ok(!envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
   assert.equal(envelope.fixtures[0].sport, 'SOCCER');
-});
-
-test('forced sport context: a page-level "Soccer" heading with NO rendered competition breadcrumb at all still fails closed, diagnostics naming BREADCRUMB_NOT_FOUND', () => {
-  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions', breadcrumb: null });
-  const { envelope } = parser.captureFromDocument(doc, {
-    ...BASE_CONTEXT,
-    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
-    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
-  });
-  assert.equal(envelope.forced_sport_context_applied, false);
-  assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
-  const diag = envelope.sport_context_diagnostics;
-  assert.equal(diag.failed_check, 'BREADCRUMB_NOT_FOUND');
-  assert.equal(diag.page_heading_check_passed, true);
-  assert.equal(diag.resolved_page_heading, 'Soccer - Competitions');
-  assert.equal(diag.breadcrumb_check_passed, false);
-  assert.equal(diag.soccer_breadcrumb_count, 0);
-  assert.deepEqual(diag.competition_heading_candidates, []);
 });
 
 test('forced sport context: ordinary captureFromDocument() calls (no forced_sport_context) are completely unaffected', () => {
