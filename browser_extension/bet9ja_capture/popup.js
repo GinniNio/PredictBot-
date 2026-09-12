@@ -200,6 +200,7 @@ ticketButton.addEventListener('click', async () => {
 // validation status (`CAPTURE_COMPLETE` is this module's own top status,
 // distinct from the other buttons' `CAPTURE_OK`).
 const soccerAllButton = document.getElementById('soccer-all-capture-button');
+const soccerAllCancelButton = document.getElementById('soccer-all-cancel-button');
 const soccerAllStatusEl = document.getElementById('soccer-all-status');
 let soccerAllCaptureInFlight = false;
 
@@ -208,31 +209,96 @@ function setSoccerAllStatus(cssClass, text) {
   soccerAllStatusEl.textContent = text;
 }
 
+const POPULAR_COUPONS_URL_PATTERN = /^https:\/\/sports\.bet9ja\.com\/popularCoupons\/1\/?(?:[?#].*)?$/;
+const LIVE_COMPETITIONS_URL_PATTERN = /^https:\/\/sports\.bet9ja\.com\/liveCompetitions\/?(?:[?#].*)?$/;
+const POPULAR_COUPONS_TARGET_URL = 'https://sports.bet9ja.com/popularCoupons/1';
+const COUPONS_NAVIGATION_TIMEOUT_MS = 15000;
+const COUPONS_NAVIGATION_POLL_MS = 150;
+
+function waitForTabUrlSettled(tabId, timeoutMs) {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + timeoutMs;
+    function poll() {
+      chrome.tabs.get(tabId, (t) => {
+        if (chrome.runtime.lastError || !t) {
+          resolve(null);
+          return;
+        }
+        const settled =
+          t.status === 'complete' && (POPULAR_COUPONS_URL_PATTERN.test(t.url || '') || LIVE_COMPETITIONS_URL_PATTERN.test(t.url || ''));
+        if (settled || Date.now() > deadline) {
+          resolve(t);
+          return;
+        }
+        setTimeout(poll, COUPONS_NAVIGATION_POLL_MS);
+      });
+    }
+    poll();
+  });
+}
+
+// Reaching /popularCoupons/1 from an arbitrary starting page (the Sports
+// homepage, /liveCompetitions, or anywhere else) is this controller's job
+// via a real tab navigation -- never a DOM click soccer_walker.js guesses
+// at from inside an arbitrary page it doesn't control. activeTab already
+// grants chrome.tabs.update() for the current tab's URL, so no extra
+// manifest permission is needed.
+async function ensureOnPopularCouponsRoute(tab) {
+  if (POPULAR_COUPONS_URL_PATTERN.test(tab.url || '')) {
+    return tab;
+  }
+  await new Promise((resolve, reject) => {
+    chrome.tabs.update(tab.id, { url: POPULAR_COUPONS_TARGET_URL }, () => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve();
+    });
+  });
+  const settledTab = await waitForTabUrlSettled(tab.id, COUPONS_NAVIGATION_TIMEOUT_MS);
+  if (!settledTab) {
+    throw new Error('Could not confirm navigation to https://sports.bet9ja.com/popularCoupons/1 (tab lookup failed).');
+  }
+  if (LIVE_COMPETITIONS_URL_PATTERN.test(settledTab.url || '')) {
+    throw new Error(
+      'Bet9ja redirected to the Live surface (/liveCompetitions) instead of the pre-match Coupons page. Please navigate to https://sports.bet9ja.com/popularCoupons/1 manually and try again.'
+    );
+  }
+  if (!POPULAR_COUPONS_URL_PATTERN.test(settledTab.url || '')) {
+    throw new Error(
+      `Could not reach https://sports.bet9ja.com/popularCoupons/1 (navigation timed out at "${settledTab.url || ''}"). Please open that page manually and try again.`
+    );
+  }
+  return settledTab;
+}
+
 async function runSoccerAllCapture() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) {
     throw new Error('No active tab found.');
   }
 
+  const couponsTab = await ensureOnPopularCouponsRoute(tab);
   const capturedAtUtc = new Date().toISOString();
 
   await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
+    target: { tabId: couponsTab.id },
     files: ['ids.js', 'parser.js', 'soccer_walker.js', 'content.js'],
   });
 
   const injectionResults = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
+    target: { tabId: couponsTab.id },
     func: (sourceUrl, pageTitle, capturedAtUtcArg) =>
       window.__bet9jaSoccerAllCompetitionsCaptureRun(sourceUrl, pageTitle, capturedAtUtcArg),
-    args: [tab.url || '', tab.title || '', capturedAtUtc],
+    args: [couponsTab.url || '', couponsTab.title || '', capturedAtUtc],
   });
 
   const result = injectionResults && injectionResults[0] && injectionResults[0].result;
   if (!result || !result.envelope) {
     throw new Error('Soccer capture produced no result (page may block script injection).');
   }
-  return result;
+  return { ...result, tabId: couponsTab.id };
 }
 
 soccerAllButton.addEventListener('click', async () => {
@@ -241,6 +307,7 @@ soccerAllButton.addEventListener('click', async () => {
   }
   soccerAllCaptureInFlight = true;
   soccerAllButton.disabled = true;
+  soccerAllCancelButton.hidden = false;
   setSoccerAllStatus('ok', 'Capturing all Soccer competitions...');
   try {
     const { envelope } = await runSoccerAllCapture();
@@ -248,12 +315,15 @@ soccerAllButton.addEventListener('click', async () => {
     const filename = `bet9ja-soccer-all-${timestampForFilename(envelope.captured_at_utc)}.json`;
     await triggerDownload(filename, JSON.stringify(envelope, null, 2));
 
+    const resumeLine =
+      envelope.resume_metadata && envelope.resume_metadata.can_resume ? `Resume: ${envelope.resume_metadata.resume_hint}\n` : '';
     const summary =
       `${envelope.capture_status}\n` +
       `Countries: ${envelope.countries_visited}/${envelope.countries_available} (failed: ${envelope.countries_failed})\n` +
       `Competitions: ${envelope.competitions_visited}/${envelope.competitions_available} (empty: ${envelope.competitions_empty}, failed: ${envelope.competitions_failed})\n` +
       `Fixtures captured: ${envelope.fixtures.length}\n` +
       `Duplicates skipped: ${envelope.duplicates_skipped}\n` +
+      resumeLine +
       `Reasons: ${envelope.capture_status_reasons.join(', ')}\n` +
       `Saved: ${filename}`;
 
@@ -268,7 +338,26 @@ soccerAllButton.addEventListener('click', async () => {
     setSoccerAllStatus('error', `Soccer capture failed to run: ${err && err.message ? err.message : String(err)}`);
   } finally {
     soccerAllButton.disabled = false;
+    soccerAllCancelButton.hidden = true;
     soccerAllCaptureInFlight = false;
+  }
+});
+
+soccerAllCancelButton.addEventListener('click', async () => {
+  if (!soccerAllCaptureInFlight) {
+    return;
+  }
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => (window.__bet9jaSoccerAllRequestCancel ? window.__bet9jaSoccerAllRequestCancel() : false),
+    });
+    soccerAllCancelButton.disabled = true;
+    soccerAllCancelButton.textContent = 'Cancelling...';
+  } catch (err) {
+    // Best-effort -- if this fails, the capture simply runs to completion.
   }
 });
 

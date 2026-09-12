@@ -728,7 +728,12 @@ Sports (/) → pre-match Soccer accordion → Coupons
 - Entry surface: `#coupons_sport-1_soccer` resolves to
   `/popularCoupons/1` — resolving instead to `/liveCompetitions` is an
   immediate, named failure (`WRONG_SURFACE_LIVE_COMPETITIONS`), never
-  silently accepted.
+  silently accepted. Clicking that control is **popup.js's job**, via a
+  real `chrome.tabs.update` navigation of the active tab (`activeTab`
+  already grants this), run BEFORE `soccer_walker.js` is even injected —
+  `soccer_walker.js` itself only ever checks the current route, it never
+  clicks anything to try to reach it, since it only ever holds a
+  `Document` already on the confirmed page.
 - Pre-match Soccer accordion root:
   `#left_prematch_sport-1_soccer_label-toggle` — its owning
   `.accordion-item` is the ONLY boundary this module ever searches
@@ -753,6 +758,23 @@ rediscovered fresh by its own stable ID before each use — never a cached
 element reference or list position — since Bet9ja renders accordion
 content asynchronously and a competition page is not confirmed to keep
 the inventory's DOM nodes around.
+
+**Post-review correction (same day): verified return between EVERY
+competition, not just once at the end.** The first Round 2 cut selected
+every competition in a country back-to-back with no return to Coupons in
+between — since a competition page isn't confirmed to keep the
+inventory's accordion DOM around, this would silently fail to rediscover
+every competition after the first in any country with 2+ competitions.
+Fixed: `returnToCouponsAndReopen` runs (and its outcome is fully
+VERIFIED — the resolved pathname, the reopened Soccer accordion, and the
+reopened country's own competition list are all re-checked) after every
+single competition attempt, success or failure. The old end-of-run
+`history.back()` cleanup call (unverified, fire-and-forget) is removed
+entirely — every return this module performs now is verified before the
+walk continues, and a return that fails is a safe, named stop
+(`COULD_NOT_RETURN_TO_COUPONS`/`COULD_NOT_REOPEN_SOCCER_ACCORDION`/a
+country-expansion reason) that preserves everything already captured,
+never a crash.
 
 **Never guessing a click's destination.** Every competition control's
 `href` is confirmed `javascript:;`. This module never reads that value,
@@ -784,16 +806,29 @@ captured twice.
 `inventory_source_url`, `inventory_profile`, `soccer_accordion_found`,
 `coupons_route_confirmed`, `country_inventory_expanded` (+
 `country_inventory_expansion_reason` when `false` — e.g.
-`SHOW_MORE_CONTROL_ABSENT`), `countries_available`/`countries_visited`/
-`countries_failed`, `competitions_available`/`competitions_visited`/
-`competitions_empty`/`competitions_failed`, `duplicates_skipped`, and
+`SHOW_MORE_CONTROL_ABSENT` — and `country_inventory_growth_observed`:
+whether the country count was actually seen to grow after clicking "show
+more", recorded honestly either way since neither expansion mechanism —
+new DOM nodes vs. revealing hidden ones — is confirmed),
+`countries_available`/`countries_visited`/`countries_failed`/
+`countries_skipped_by_safety_cap`/`countries_skipped_by_early_stop`,
+`competitions_available`/`competitions_visited`/`competitions_empty`/
+`competitions_failed`/`competitions_skipped_by_safety_cap`/
+`competitions_skipped_by_early_stop`, `duplicates_skipped`,
+`resume_metadata` (`can_resume`, `last_completed_country_id`,
+`last_completed_competition_id`, `resume_hint` — populated whenever the
+walk stops early, whether by cancellation or a failed return), and
 `competition_results[]` — one entry per attempted competition
 (`country_name_raw`, `competition_name_raw`, `source_group_id`,
 `source_competition_id`, `competition_control_id`, `resolved_url`,
 `route_confirmed`, `records_seen`/`records_parsed`/`records_unresolved`/
-`records_expected_unsupported`, `failure_reason` — one of
-`COUNTRY_CONTROL_NOT_FOUND_ON_REDISCOVERY`, `COUNTRY_EXPANSION_TIMEOUT`,
-`COUNTRY_COMPETITION_LIST_EMPTY`,
+`records_expected_unsupported`/`duplicate_fixtures_skipped` — a
+cross-competition duplicate fixture is recorded on the SPECIFIC
+competition it was skipped from, not only in the global
+`duplicates_skipped` tally, so a legitimate duplicate can never look like
+unexplained row loss on that competition's own reconciliation —
+`failure_reason` — one of `COUNTRY_CONTROL_NOT_FOUND_ON_REDISCOVERY`,
+`COUNTRY_EXPANSION_TIMEOUT`, `COUNTRY_COMPETITION_LIST_EMPTY`,
 `COMPETITION_CONTROL_NOT_FOUND_ON_REDISCOVERY`,
 `COMPETITION_ROUTE_TIMEOUT`, `COMPETITION_ROUTE_NOT_SOCCER`,
 `COMPETITION_CONTENT_TIMEOUT`, `WRONG_SURFACE_LIVE_COMPETITIONS`, or
@@ -801,27 +836,48 @@ captured twice.
 `parser.js` field plus `source_country`/`source_competition`/
 `source_group_id`/`source_competition_id`.
 
+Full reconciliation is enforced at every level, each as its own
+`*_ACCOUNTING_INVARIANT_VIOLATED` status reason if it ever fails:
+`countries_available = countries_visited + countries_failed +
+countries_skipped_by_safety_cap + countries_skipped_by_early_stop`;
+the same shape for competitions; and per-competition, `records_seen =
+records_parsed + records_unresolved + records_expected_unsupported +
+duplicate_fixtures_skipped`.
+
 **`capture_status` is `CAPTURE_COMPLETE`, `CAPTURE_PARTIAL`, or
 `CAPTURE_FAILED`** — this module's own top status name deliberately
 differs from the other three buttons' `CAPTURE_OK`, per this round's
 explicit reconciliation rules. `CAPTURE_COMPLETE` requires: the Coupons
 route confirmed, the Soccer accordion found, the full country inventory
-expanded, every discovered country/competition visited or confirmed
-empty, zero failures, and the country-accounting invariant
-(`countries_available = countries_visited + countries_failed`) holding.
+expanded WITH growth actually observed, every discovered
+country/competition visited or confirmed empty, zero failures, zero
+safety-cap skips, no early stop, and both the country- and
+competition-accounting invariants holding.
 `PARSER_VERSION` is deliberately NOT bumped past
 `-unverified` yet — this hierarchy is confirmed by DOM inspection, not
 yet by one real click-through succeeding end-to-end against the live
 account (see `SOCCER_ALL_COMPETITIONS_VALIDATION.md`).
 
+### Cancellation
+
+An optional `context.shouldCancel()` predicate (same pattern as
+`settled_bets_parser.js`'s long-pagination support) is checked between
+competitions and between countries. A **Cancel** button in the popup sets
+`window.__bet9jaSoccerAllCancelRequested`; cancelling is a safe stop, not
+a failure, and produces `resume_metadata` naming the next
+country/competition to resume from.
+
 ### Safety
 
-The only elements this module ever calls `.click()` on are: the confirmed
-Coupons entry control, the Soccer accordion toggle, a confirmed country
-toggle, a confirmed competition control, and (best effort, only to
-collapse a country this module itself opened) that same country's toggle
-again — never a price, selection, Cashout, Live Betting, or betslip
-control, and never the global `.menu-list.mt30` shortcuts menu. A
+The only elements this module ever calls `.click()` on are: the Soccer
+accordion toggle, a confirmed country toggle, a confirmed competition
+control, and (best effort, only to collapse a country this module itself
+opened) that same country's toggle again — never a price, selection,
+Cashout, Live Betting, or betslip control, never the global
+`.menu-list.mt30` shortcuts menu, and never the Coupons entry control
+(`#coupons_sport-1_soccer`) — reaching `/popularCoupons/1` from an
+arbitrary starting page is popup.js's job, via a real tab navigation, not
+a DOM click this module performs. A
 dedicated "safety" test greps the compiled source for all of these
 guarantees, plus confirming `location.href` is never assigned and
 `window.open()` is never called.
@@ -1079,33 +1135,35 @@ synthetic HTML:
   accordion toggle or a verified numbered pagination item.
 
 `tests/soccer_walker.test.js` runs `soccer_walker.js` against a synthetic
-jsdom harness modeling the Round 2 confirmed pre-match Soccer accordion
-hierarchy (`#left_prematch_sport-1_soccer_label-toggle`, `_sg-..._label-
-toggle` country controls, `_sg-..._g-...` competition controls), plus a
-decoy `.menu-list.mt30` sidebar (mixing other sports, exactly like the
-real Round 1 defect) that must never be searched: `/popularCoupons/1`
-accepted directly as the starting route, a page with neither that route
-nor a coupons-entry control failing closed, landing on
-`/liveCompetitions` being an immediate named failure never treated as
-success, the coupons-entry control successfully resolving from elsewhere,
-no Soccer accordion found failing closed rather than falling back to the
-shortcuts menu, the global `.menu-list.mt30` sidebar never contributing
-discovered competitions, walking every country/competition and tagging
-fixtures with real identity fields (`source_group_id`/
-`source_competition_id`), "show more" clicked by stable ID suffix (never
-its changing visible text) revealing additional countries, an absent
-"show more" control not failing the capture but capping it below
-`CAPTURE_COMPLETE`, a country with zero competitions failing closed
-(`COUNTRY_COMPETITION_LIST_EMPTY`) without stopping remaining countries,
-a competition whose click never navigates being reported
-`COMPETITION_ROUTE_TIMEOUT` without blocking later competitions, a
-competition confirmed to have zero fixtures being recorded as
-`competitions_empty` (not a failure), a fixture reachable from more than
-one competition being deduplicated, a full clean multi-country run
-reporting `CAPTURE_COMPLETE`, the country-accounting invariant, and a
-safety test confirming the only raw `.click()` call site is inside the
-CSP-safe `clickSafely()` helper, that `location.href` is never assigned,
-`window.open()` is never called, and `.menu-list` is never referenced.
+jsdom harness modeling the confirmed pre-match Soccer accordion hierarchy
+(`#left_prematch_sport-1_soccer_label-toggle`, `_sg-..._label-toggle`
+country controls, `_sg-..._g-...` competition controls) where selecting a
+competition genuinely REMOVES the accordion from the DOM (only
+`history.back()` via a real `popstate` listener brings it back) — the
+exact worst case needed to prove the post-review return-and-reopen fix,
+plus a decoy `.menu-list.mt30` sidebar that must never be searched:
+`/popularCoupons/1` accepted directly, a document not on that route or on
+`/liveCompetitions` failing closed immediately with no click attempted,
+no Soccer accordion found failing closed, the decoy sidebar never
+contributing, **a country with TWO competitions both being visited** (the
+regression test for Round 2's own bug), walking every country/competition
+with real identity fields, "show more" clicked by stable ID suffix
+revealing additional countries with growth genuinely observed, an absent
+"show more" control capping the result below `CAPTURE_COMPLETE`, a "show
+more" click that reveals nothing new being recorded honestly rather than
+assumed successful, a country with zero competitions failing closed
+without stopping remaining countries, a stuck competition click failing
+closed without blocking later ones, a confirmed-empty competition, a
+cross-competition duplicate fixture recorded on the SPECIFIC competition
+it was skipped from, a full clean multi-country run reporting
+`CAPTURE_COMPLETE`, both the country- and competition-accounting
+invariants, cancellation between competitions being a safe stop with
+`resume_metadata`, a return-to-Coupons that never confirms being a safe
+stop rather than a crash, and a safety test confirming the only raw
+`.click()` call site is inside `clickSafely()`, that `location.href` is
+never assigned, `window.open()` is never called, `.menu-list` is never
+referenced, and the Coupons entry control is never clicked by this
+module.
 
 `tests/settled_bets_parser.test.js` runs `settled_bets_parser.js` against
 a synthetic jsdom harness modeling the Round 1/Round 2 confirmed

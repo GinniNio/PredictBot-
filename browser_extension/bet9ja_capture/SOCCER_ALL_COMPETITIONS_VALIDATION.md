@@ -290,7 +290,8 @@ from the confirmed shapes above)
 - The exact number and identity of discoverable countries/competitions in
   a real session.
 
-### Recommendation for Round 3
+### Recommendation for Round 3 (partially superseded — a code review
+caught a further gap before any real run happened; see below)
 
 Run **Capture all Soccer fixtures** from `https://sports.bet9ja.com/popularCoupons/1`
 against the real, authenticated account and report
@@ -298,6 +299,101 @@ against the real, authenticated account and report
 `countries_failed`, `competitions_available`/`competitions_visited`/
 `competitions_empty`/`competitions_failed`, and any
 `competition_results[].failure_reason` values. If a real run completes
+with `competitions_visited > 0`, no unexplained failures, and (ideally)
+`capture_status: 'CAPTURE_COMPLETE'`, `PARSER_VERSION` can finally drop
+its `-unverified` tag.
+
+## Round 3 — 2026-09-12 (post-review correction, before any real run)
+
+**Status: a code review of the merged Round 2 module found a real
+correctness gap and a contradiction with its own PR description, both
+before a real capture was ever attempted. Fixed; still unit-tested
+against synthetic markup only.**
+
+### What the review found
+
+- **The PR description said `history.back()` was removed. It wasn't.**
+  An unverified, fire-and-forget `history.back()` call remained at the
+  very end of the whole walk.
+- **The real bug: no return between competitions within a country.**
+  Round 2's loop selected every competition in a country back-to-back
+  with NO return to Coupons in between. Since a competition page is not
+  confirmed to keep the inventory's accordion DOM around, this would
+  silently fail to rediscover every competition after the first in any
+  country with 2+ competitions (`COMPETITION_CONTROL_NOT_FOUND_ON_REDISCOVERY`
+  on the second competition onward) -- the synthetic tests never caught
+  this because the test harness never actually removed the accordion
+  from the DOM on a competition click.
+- **Starting from an arbitrary page (e.g. `/liveCompetitions`) simply
+  failed** rather than reaching `/popularCoupons/1` -- correct as a
+  fail-closed behavior, but not the intended one-click experience.
+- **"Show more" expansion was never actually verified** -- clicked, then
+  a fixed sleep, regardless of whether anything changed.
+- Missing accounting: only the country-level equation was checked; no
+  competition-level equation, no per-competition duplicate-fixture
+  accounting, and safety-cap omissions were silently dropped rather than
+  named.
+- No cancellation support, no `resume_metadata`.
+
+### Fixes
+
+- `returnToCouponsAndReopen` now runs (and its outcome is fully VERIFIED
+  -- the resolved pathname, the reopened Soccer accordion, and the
+  reopened country's own competition list are all re-checked) after
+  EVERY competition attempt, success or failure. The old end-of-run
+  `history.back()` cleanup is removed entirely.
+- Reaching `/popularCoupons/1` from an arbitrary starting page is now
+  popup.js's job: `ensureOnPopularCouponsRoute` performs a real
+  `chrome.tabs.update` navigation of the active tab BEFORE
+  `soccer_walker.js` is even injected, and rejects a redirect to
+  `/liveCompetitions` immediately. `soccer_walker.js` itself no longer
+  clicks a Coupons-entry control at all -- it only ever checks the
+  current route.
+- "Show more" now waits a bounded window for the country count to
+  actually grow and records `country_inventory_growth_observed`
+  (`true`/`false`) honestly either way, since neither expansion mechanism
+  (new DOM nodes vs. revealing hidden ones) is confirmed.
+- Full reconciliation: `countries_available`/`competitions_available`
+  each account for visited + failed + skipped-by-safety-cap +
+  skipped-by-early-stop; each `competition_results[]` entry now carries
+  `duplicate_fixtures_skipped` so a cross-competition duplicate is never
+  mistaken for unexplained row loss on that specific competition.
+- `context.shouldCancel()` (same pattern as `settled_bets_parser.js`) is
+  checked between competitions and countries; a cancellation (or any
+  other early stop) produces `resume_metadata`.
+
+### What is still NOT confirmed
+
+- **Everything from Round 2 remains unconfirmed** -- this correction has
+  not itself been run against the live account; only unit-tested against
+  synthetic markup (now specifically modeling a competition page that
+  removes the accordion from the DOM, the exact case Round 2's bug
+  needed).
+- Whether `history.back()` (still the only available primitive for
+  "undo this module's own `pushState` navigation") reliably restores the
+  Soccer accordion's DOM at all, or whether Bet9ja tears it down and
+  rebuilds it differently -- `returnToCouponsAndReopen`'s own
+  verification is designed to catch either case as a safe stop, but which
+  is actually true has not been observed.
+- Whether `chrome.tabs.update` to `/popularCoupons/1` from
+  `/liveCompetitions` (or elsewhere) behaves as a same-document SPA
+  navigation or a full page reload in the real browser -- popup.js polls
+  `chrome.tabs.get` for `status: 'complete'` either way, but has not been
+  exercised against the real site.
+
+### Recommendation for Round 4
+
+Run **Capture all Soccer fixtures** starting from a page OTHER than
+`/popularCoupons/1` (e.g. the Sports homepage or `/liveCompetitions`)
+against the real, authenticated account, confirming popup.js's own
+navigation reaches the Coupons route first. Report
+`coupons_route_confirmed`, `countries_available`/`countries_visited`/
+`countries_failed`, `competitions_available`/`competitions_visited`/
+`competitions_empty`/`competitions_failed`, `country_inventory_expanded`/
+`country_inventory_growth_observed`, and any
+`competition_results[].failure_reason` values -- especially checking
+whether a country with 2+ competitions gets ALL of them, not just the
+first (the exact Round 2 bug this round fixed). If a real run completes
 with `competitions_visited > 0`, no unexplained failures, and (ideally)
 `capture_status: 'CAPTURE_COMPLETE'`, `PARSER_VERSION` can finally drop
 its `-unverified` tag.

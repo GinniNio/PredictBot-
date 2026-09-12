@@ -42,13 +42,22 @@
   // fixtures via parser.js's own captureFromDocument (never re-parsed
   // here) and combining them into one deduplicated envelope. Returns a
   // Promise for the same reason __bet9jaTicketCaptureRun does -- see its
-  // own comment above.
+  // own comment above. Exposes the same polling-based cancel surface as
+  // the settled-bets entry point below (a function reference cannot
+  // cross the chrome.scripting.executeScript() argument boundary).
   window.__bet9jaSoccerAllCompetitionsCaptureRun = function (sourceUrl, pageTitle, capturedAtUtc) {
+    window.__bet9jaSoccerAllCancelRequested = false;
     return window.Bet9jaSoccerWalker.captureAllSoccerCompetitions(document, {
       sourceUrl,
       pageTitle,
       capturedAtUtc,
+      shouldCancel: () => window.__bet9jaSoccerAllCancelRequested === true,
     });
+  };
+
+  window.__bet9jaSoccerAllRequestCancel = function () {
+    window.__bet9jaSoccerAllCancelRequested = true;
+    return true;
   };
 
   // Fourth, independent entry point for the "Capture settled bets" button --

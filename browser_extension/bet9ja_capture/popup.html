@@ -30,7 +30,8 @@
       #settled-capture-button {
         margin-top: 8px;
       }
-      #settled-cancel-button {
+      #settled-cancel-button,
+      #soccer-all-cancel-button {
         margin-top: 6px;
         background: #fdecea;
       }
@@ -107,11 +108,13 @@
     </p>
     <hr />
     <button id="soccer-all-capture-button" type="button">Capture all Soccer fixtures</button>
+    <button id="soccer-all-cancel-button" type="button" hidden>Cancel</button>
     <div id="soccer-all-status"></div>
     <p class="note">
-      Walks every discoverable Soccer competition (pre-match, ordinary 1X2 only) into one combined
-      file. The competition-menu scoping selector is an unverified placeholder pending real-page
-      validation; see SOCCER_ALL_COMPETITIONS_VALIDATION.md.
+      Navigates the tab to sports.bet9ja.com/popularCoupons/1 if not already there, then walks
+      every country and competition in the pre-match Soccer accordion (ordinary 1X2 only) into one
+      combined file. Real hierarchy confirmed; pending one real end-to-end run — see
+      SOCCER_ALL_COMPETITIONS_VALIDATION.md.
     </p>
     <hr />
     <button id="settled-capture-button" type="button">Capture settled bets</button>
