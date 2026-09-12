@@ -58,12 +58,21 @@ function countryAccordionHtml({ countrySlug, label, competitions }) {
  * `maxSimultaneousSelectable` models Bet9ja's own unconfirmed selection
  * limit -- `Infinity` (default) means "never observed in this test".
  */
-function pageHtml({ countries, maxSimultaneousSelectable = Infinity, showLeaguesMissing = false, clearAllMissing = false, contentNeverUpdates = false }) {
+function pageHtml({
+  countries,
+  maxSimultaneousSelectable = Infinity,
+  showLeaguesMissing = false,
+  clearAllMissing = false,
+  contentNeverUpdates = false,
+  omitHeadings = false,
+}) {
   const countriesHtml = countries.map((c) => countryAccordionHtml(c)).join('');
   const rowsById = {};
+  const labelsById = {};
   for (const c of countries) {
     for (const comp of c.competitions) {
       rowsById[comp.checkboxId] = comp.rows || [];
+      labelsById[comp.checkboxId] = comp.label;
     }
   }
   const showLeaguesBtn = showLeaguesMissing
@@ -74,6 +83,7 @@ function pageHtml({ countries, maxSimultaneousSelectable = Infinity, showLeagues
     : `<button type="button" class="competitions__filter-btn clear-all">Clear all</button>`;
 
   return `
+    <head><title>Soccer - Competitions</title></head>
     <body>
       <div class="competitions">
         ${countriesHtml}
@@ -84,8 +94,10 @@ function pageHtml({ countries, maxSimultaneousSelectable = Infinity, showLeagues
       <div id="limit-notice" hidden></div>
       <script>
         const ROWS_BY_ID = ${JSON.stringify(rowsById)};
+        const LABELS_BY_ID = ${JSON.stringify(labelsById)};
         const MAX_SELECTABLE = ${JSON.stringify(maxSimultaneousSelectable === Infinity ? null : maxSimultaneousSelectable)};
         const CONTENT_NEVER_UPDATES = ${JSON.stringify(contentNeverUpdates)};
+        const OMIT_HEADINGS = ${JSON.stringify(omitHeadings)};
         const results = document.getElementById('results');
         const limitNotice = document.getElementById('limit-notice');
 
@@ -114,8 +126,18 @@ function pageHtml({ countries, maxSimultaneousSelectable = Infinity, showLeagues
           showLeaguesBtn.addEventListener('click', () => {
             if (CONTENT_NEVER_UPDATES) return;
             const checked = Array.from(document.querySelectorAll('.sportpage__cb-input:checked'));
-            const rowsHtml = checked.map((cb) => (ROWS_BY_ID[cb.id] || []).join('')).join('');
-            results.innerHTML = '<div class="sports-table">' + rowsHtml + '</div>';
+            // Real evidence: the rendered content includes the
+            // competition heading IMMEDIATELY BEFORE its own fixture
+            // table -- one .sports-table PER selected competition, each
+            // preceded by a heading naming it (never one combined table).
+            const html = checked
+              .map((cb) => {
+                const heading = OMIT_HEADINGS ? '' : '<div class="heading">' + (LABELS_BY_ID[cb.id] || '') + '</div>';
+                const rowsHtml = (ROWS_BY_ID[cb.id] || []).join('');
+                return heading + '<div class="sports-table">' + rowsHtml + '</div>';
+              })
+              .join('');
+            results.innerHTML = html;
           });
         }
 
@@ -190,6 +212,10 @@ test('a single country, single competition, full batch capture reports CAPTURE_C
   assert.equal(envelope.fixtures.length, 1);
   assert.equal(envelope.fixtures[0].source_batch_index, 0);
   assert.deepEqual(envelope.fixtures[0].source_competition_ids_in_batch, ['1209691']);
+  // Confirms the real single-league evidence: the heading-based resolver
+  // actually mapped this fixture to its own competition, not merely the
+  // (identical, for a batch of one) whole-batch fallback list.
+  assert.equal(envelope.fixtures[0].resolved_source_competition_id, '1209691');
   assert.equal(envelope.batch_results.length, 1);
   assert.equal(envelope.competition_results.length, 1);
   assert.equal(envelope.competition_results[0].outcome, 'CAPTURED_IN_BATCH');
@@ -219,14 +245,55 @@ test('a selection limit reached mid-run splits the run into two batches, both ca
   assert.equal(envelope.batch_results.length, 2);
   assert.equal(envelope.batch_results[0].competition_ids.length, 2);
   assert.equal(envelope.batch_results[1].competition_ids.length, 2);
-  // Every fixture in batch 2 must be tagged with batch 2's own
-  // competitions, never batch 1's leftover selection -- proof Clear all
-  // actually ran and was verified between batches.
+  // Every fixture in batch 2 must be precisely attributed to ONE of
+  // batch 2's own competitions (via the resolved per-table heading),
+  // never batch 1's leftover selection -- proof Clear all actually ran
+  // and was verified between batches, AND proof attribution is precise
+  // rather than "every competition in this batch".
   const batch2Fixtures = envelope.fixtures.filter((f) => f.source_batch_index === 1);
   assert.equal(batch2Fixtures.length, 2);
   for (const f of batch2Fixtures) {
-    assert.deepEqual(f.source_competition_ids_in_batch, envelope.batch_results[1].competition_ids);
+    assert.equal(f.source_competition_ids_in_batch.length, 1);
+    assert.ok(envelope.batch_results[1].competition_ids.includes(f.source_competition_ids_in_batch[0]));
+    assert.equal(f.resolved_source_competition_id, f.source_competition_ids_in_batch[0]);
   }
+  // No competition in this run was left attribution-unresolved -- the
+  // heading-based resolver mapped every table to exactly one competition.
+  assert.ok(!envelope.capture_status_reasons.includes('SOME_COMPETITIONS_ATTRIBUTION_UNRESOLVED'));
+});
+
+test('multi-competition batch: each fixture is attributed to its OWN competition via the nearest heading, never to every competition in the batch', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.capture_status, 'CAPTURE_COMPLETE');
+  assert.equal(envelope.fixtures.length, 3);
+  const byHome = Object.fromEntries(envelope.fixtures.map((f) => [f.participants.home, f]));
+  assert.equal(byHome.Enyimba.resolved_source_competition_id, '1209691');
+  assert.equal(byHome.Enyimba.competition, 'Professional Football League');
+  assert.equal(byHome.Enyimba.region, 'Nigeria');
+  assert.equal(byHome.Arsenal.resolved_source_competition_id, '2000001');
+  assert.equal(byHome.Arsenal.competition, 'Premier League');
+  assert.equal(byHome.Leeds.resolved_source_competition_id, '2000002');
+  assert.equal(byHome.Leeds.competition, 'Championship');
+  // Every competition classified individually, never lumped together.
+  for (const id of ['1209691', '2000001', '2000002']) {
+    const result = envelope.competition_results.find((r) => r.source_competition_id === id);
+    assert.equal(result.outcome, 'CAPTURED_IN_BATCH');
+  }
+});
+
+test('a batch whose fixture tables render with no heading at all is COMPETITION_ATTRIBUTION_UNRESOLVED for every competition in it, never guessed as captured', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND], omitHeadings: true }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.fixtures.length, 0);
+  assert.equal(envelope.competitions_captured, 0);
+  assert.ok(envelope.capture_status_reasons.includes('SOME_COMPETITIONS_ATTRIBUTION_UNRESOLVED'));
+  for (const id of ['1209691', '2000001', '2000002']) {
+    const result = envelope.competition_results.find((r) => r.source_competition_id === id);
+    assert.equal(result.outcome, 'COMPETITION_ATTRIBUTION_UNRESOLVED');
+    assert.equal(result.failure_reason, 'COMPETITION_ATTRIBUTION_UNRESOLVED');
+  }
+  assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
 });
 
 test('a competition with a missing label is SELECTION_FAILED and does not stop the run', async () => {

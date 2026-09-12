@@ -109,6 +109,25 @@
 
   const INVENTORY_PROFILE = 'BET9JA_SPORTPAGE_COMPETITIONS_SELECTOR';
   const START_ROUTE_PATTERN = /^\/sportPage\/1\/competitions\/?$/;
+  const CAPTURE_SCOPE = 'SOCCER_ALL_PREMATCH_COMPETITIONS';
+
+  // Trusted capture-context claim passed to parser.js's own
+  // `validateForcedSportContext` -- `/sportPage/1/competitions` is
+  // explicitly Bet9ja's OWN Soccer competitions surface (sport id `1`,
+  // the same id already confirmed as SOCCER elsewhere in this codebase),
+  // so a row with no id-embedded sport segment and no `/competition/...`
+  // URL to fall back on (both are genuinely absent on this route) should
+  // never be misclassified UNSUPPORTED_SPORT. This is only ever a CLAIM:
+  // parser.js independently re-verifies the route and a visible sport
+  // heading before ever trusting it, and fails the whole capture closed
+  // (`SPORT_CONTEXT_CONFLICT`) if they disagree -- this module never
+  // classifies a single row itself.
+  const FORCED_SPORT_CONTEXT = {
+    forced_sport_hint: 'SOCCER',
+    forced_sport_source: 'SPORTPAGE_ROUTE_ID',
+    forced_sport_source_value: '1',
+    capture_scope: CAPTURE_SCOPE,
+  };
 
   // Confirmed via live inspection, 2026-09-12. See the header comment
   // above for the full contract. Exported as a mutable object so a
@@ -213,6 +232,60 @@
     // No confirmed selector for the notification element -- matched by
     // visible text anywhere in the body instead of guessing a class.
     return MAX_LIMIT_TEXT_PATTERN.test(text(doc.body));
+  }
+
+  function normalizeForMatch(value) {
+    return (value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  /**
+   * The live single-league test confirmed the rendered content includes
+   * the competition heading IMMEDIATELY BEFORE its fixture table -- the
+   * one piece of confirmed structural evidence this function relies on.
+   * The exact heading element/selector itself is [UNVERIFIED] (never
+   * captured), so this checks the table's own previous sibling's text,
+   * then that sibling's own text content one level down, rather than
+   * guessing a class name. Returns '' (never guessed) if neither yields
+   * text.
+   */
+  function resolveNearestCompetitionHeadingRaw(tableEl) {
+    const prev = tableEl.previousElementSibling;
+    if (!prev) return '';
+    const direct = text(prev);
+    if (direct) return direct;
+    const nested = prev.firstElementChild ? text(prev.firstElementChild) : '';
+    return nested;
+  }
+
+  /**
+   * Builds a `resolve_table_competition` function (parser.js's own
+   * contract -- see its header comment) scoped to exactly the
+   * competitions selected in ONE batch. A table's heading is matched
+   * against each candidate's own `competitionNameRaw` (never the other
+   * way around, since the heading's exact format is unconfirmed but a
+   * competition's own display name is known verbatim from discovery) --
+   * resolved only when EXACTLY ONE candidate's name appears in the
+   * heading text; zero or multiple matches is an honest
+   * `{resolved: false}`, never a guess at which one is more likely.
+   */
+  function makeTableCompetitionResolver(currentBatch) {
+    return (tableEl) => {
+      const headingRaw = resolveNearestCompetitionHeadingRaw(tableEl);
+      if (!headingRaw) return { resolved: false };
+      const normalizedHeading = normalizeForMatch(headingRaw);
+      const matches = currentBatch.filter((c) => {
+        const normalizedName = normalizeForMatch(c.competitionNameRaw);
+        return normalizedName && normalizedHeading.includes(normalizedName);
+      });
+      if (matches.length !== 1) return { resolved: false };
+      const match = matches[0];
+      return {
+        resolved: true,
+        sourceCompetitionId: match.checkboxId,
+        competitionNameRaw: match.competitionNameRaw,
+        countryNameRaw: match.countryNameRaw,
+      };
+    };
   }
 
   /**
@@ -396,7 +469,7 @@
       schema_version: 'bet9ja-soccer-all-competitions-capture.v3',
       capture_id: Bet9jaIds.captureId(capturedAtUtc),
       captured_at_utc: capturedAtUtc,
-      capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS',
+      capture_scope: CAPTURE_SCOPE,
       source_url: Bet9jaCapture.sanitizeSourceUrl(context.sourceUrl),
       inventory_profile: INVENTORY_PROFILE,
       parser_version: PARSER_VERSION,
@@ -597,7 +670,40 @@
         pageTitle: context.pageTitle,
         capturedAtUtc,
         previousIndex: {},
+        forced_sport_context: FORCED_SPORT_CONTEXT,
+        resolve_table_competition: makeTableCompetitionResolver(currentBatch),
       });
+
+      if (subEnvelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT')) {
+        // parser.js's own independent check of the route/heading
+        // disagreed with this module's trusted claim -- never guess past
+        // this, fail the batch (and the whole run) closed rather than
+        // risk mislabeling every fixture in it.
+        competitionsFailed += currentBatch.length;
+        for (const comp of currentBatch) {
+          competitionResults.push({
+            country_name_raw: comp.countryNameRaw || null,
+            competition_name_raw: comp.competitionNameRaw || null,
+            source_competition_id: comp.checkboxId || null,
+            batch_index: batchIndex,
+            outcome: 'BATCH_FAILED',
+            failure_reason: 'SPORT_CONTEXT_CONFLICT',
+          });
+        }
+        batchResults.push({
+          batch_index: batchIndex,
+          competition_ids: currentBatch.map((c) => c.checkboxId),
+          ok: false,
+          failure_reason: 'SPORT_CONTEXT_CONFLICT',
+          records_seen: 0,
+          records_parsed: 0,
+          records_unresolved: 0,
+          records_expected_unsupported: 0,
+        });
+        earlyStopReason = 'SPORT_CONTEXT_CONFLICT';
+        batchIndex += 1;
+        break;
+      }
 
       let batchDuplicates = 0;
       for (const fixture of subEnvelope.fixtures) {
@@ -607,23 +713,51 @@
           continue;
         }
         seenFixtureIds.add(fixture.fixture_id);
+        // Precise attribution when parser.js's own per-table resolver
+        // uniquely mapped this fixture's table (the expected, common
+        // case for this batch selector); the batch-wide list is kept only
+        // as a defensive fallback for the (should-never-happen) case of a
+        // fixture with no resolved id at all despite an active resolver.
+        const resolvedId = fixture.resolved_source_competition_id;
+        const resolvedComp = resolvedId ? currentBatch.find((c) => c.checkboxId === resolvedId) : null;
         fixtures.push({
           ...fixture,
           source_batch_index: batchIndex,
-          source_competition_ids_in_batch: currentBatch.map((c) => c.checkboxId),
-          source_competitions_raw_in_batch: currentBatch.map((c) => c.competitionNameRaw),
+          source_competition_ids_in_batch: resolvedComp ? [resolvedComp.checkboxId] : currentBatch.map((c) => c.checkboxId),
+          source_competitions_raw_in_batch: resolvedComp
+            ? [resolvedComp.competitionNameRaw]
+            : currentBatch.map((c) => c.competitionNameRaw),
         });
       }
       for (const record of subEnvelope.unparsed_records) {
         unparsedRecords.push({ ...record, source_batch_index: batchIndex });
       }
 
-      const batchRecordsSeen = subEnvelope.coverage.records_seen;
-      const batchOutcome = batchRecordsSeen === 0 ? 'BATCH_EMPTY' : 'CAPTURED_IN_BATCH';
+      // Per-competition classification from parser.js's own
+      // table_attribution_summary -- never assumed captured merely
+      // because the batch as a whole produced some fixtures. A
+      // competition is CAPTURED_IN_BATCH only if its own table resolved
+      // AND had at least one row; BATCH_EMPTY only if its own table
+      // resolved with zero rows (a confirmed, audited empty result); any
+      // competition whose table never resolved at all is
+      // COMPETITION_ATTRIBUTION_UNRESOLVED -- an honest "don't know",
+      // never silently folded into either of the other two outcomes.
+      const attributionByCompetitionId = new Map(
+        (subEnvelope.table_attribution_summary || [])
+          .filter((t) => t.resolved && t.source_competition_id)
+          .map((t) => [t.source_competition_id, t])
+      );
       for (const comp of currentBatch) {
-        if (batchOutcome === 'BATCH_EMPTY') {
+        const attribution = attributionByCompetitionId.get(comp.checkboxId);
+        let outcome;
+        if (!attribution) {
+          outcome = 'COMPETITION_ATTRIBUTION_UNRESOLVED';
+          competitionsFailed += 1;
+        } else if (attribution.row_count === 0) {
+          outcome = 'BATCH_EMPTY';
           competitionsEmpty += 1;
         } else {
+          outcome = 'CAPTURED_IN_BATCH';
           competitionsCaptured += 1;
         }
         competitionResults.push({
@@ -631,8 +765,8 @@
           competition_name_raw: comp.competitionNameRaw || null,
           source_competition_id: comp.checkboxId || null,
           batch_index: batchIndex,
-          outcome: batchOutcome,
-          failure_reason: null,
+          outcome,
+          failure_reason: outcome === 'COMPETITION_ATTRIBUTION_UNRESOLVED' ? 'COMPETITION_ATTRIBUTION_UNRESOLVED' : null,
         });
       }
       batchResults.push({
@@ -640,12 +774,13 @@
         competition_ids: currentBatch.map((c) => c.checkboxId),
         ok: true,
         failure_reason: null,
-        records_seen: batchRecordsSeen,
+        records_seen: subEnvelope.coverage.records_seen,
         records_parsed: subEnvelope.coverage.records_parsed,
         records_unresolved: subEnvelope.coverage.records_unresolved,
         records_expected_unsupported: subEnvelope.coverage.records_expected_unsupported,
         duplicate_fixtures_skipped: batchDuplicates,
         content_change_confirmed: !!showResult.contentChangeConfirmed,
+        table_attribution_summary: subEnvelope.table_attribution_summary || [],
       });
 
       const clearResult = await clearAllAndWait(doc, currentBatch.map((c) => c.checkboxId));
@@ -669,6 +804,9 @@
 
     const statusReasons = [];
     if (competitionsFailed > 0) statusReasons.push('SOME_COMPETITIONS_FAILED');
+    if (competitionResults.some((r) => r.outcome === 'COMPETITION_ATTRIBUTION_UNRESOLVED')) {
+      statusReasons.push('SOME_COMPETITIONS_ATTRIBUTION_UNRESOLVED');
+    }
     if (competitionsSkippedBySafetyCap > 0) statusReasons.push('COMPETITIONS_SKIPPED_BY_SAFETY_CAP');
     if (countriesFailed > 0) statusReasons.push('SOME_COUNTRIES_FAILED');
     if (earlyStopReason) statusReasons.push(`STOPPED_EARLY_${earlyStopReason}`);

@@ -632,3 +632,144 @@ priority:
    really is the dominant outcome, decide whether a per-competition-batch
    heuristic (e.g. batches of size 1) or a `parser.js` fix is the right
    next step from that evidence -- not guessed now.
+
+## Round 6 -- 2026-09-12 (a review before any real batch capture: two
+architectural gaps closed with evidence-checked code, not yet real-run
+validated)
+
+Before Round 6 was acted on, a review of Round 5's design (against
+`parser.js`'s own already-confirmed sport-resolution contract, and
+against the one real single-league DOM inspection this whole rewrite is
+built on) found two real gaps that had to close before a real batch
+capture was attempted, not after:
+
+1. **Round 5's own attribution risk (flagged in its own recommendation
+   above) needed a real fix, not just a flag.** Re-reading `parser.js`'s
+   own header comment confirmed the risk was real: neither of its two
+   existing sport-resolution tiers (an id-embedded `sport-N` segment, or
+   the page's own `/competition/{sport}/{country}/{competition}/` URL)
+   can ever fire on `/sportPage/1/competitions`, since its URL never
+   changes and its row-id shape was never inspected.
+2. **Batch-level competition classification could not tell three
+   genuinely different outcomes apart.** A batch of five competitions
+   producing some fixtures does not mean all five were captured -- one
+   could have real fixtures, one could be genuinely empty, and one could
+   have failed to render at all, and Round 5's `competition_results[]`
+   classified every competition in a batch identically regardless.
+
+### Fixes (this round)
+
+**1. Trusted forced-sport context, independently re-verified.**
+`soccer_walker.js` now passes `context.forced_sport_context` on every
+`captureFromDocument` call: `{forced_sport_hint: 'SOCCER',
+forced_sport_source: 'SPORTPAGE_ROUTE_ID', forced_sport_source_value: '1',
+capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS'}`. `parser.js` never
+trusts this claim on its own -- `validateForcedSportContext` independently
+re-derives the pathname from `context.sourceUrl` (must match
+`/^\/sportPage\/1\/competitions\/?$/`) and calls its own
+`resolveVisibleSportHeadingRaw(doc)`, which checks two low-false-positive
+signals never previously captured in this file: the document's own
+`<title>` (loose "contains soccer" match) and any element carrying an
+active/selected-tab-like class or `aria-selected="true"` (strict "is
+exactly Soccer" match) -- **both are [UNVERIFIED] exact selectors**, since
+no confirmed markup for a "visible sport heading" on this page exists yet.
+Any disagreement among route, heading, and the claim's own internal
+consistency fails the WHOLE capture closed with `capture_status_reasons:
+['SPORT_CONTEXT_CONFLICT']` (soccer_walker.js also treats this as an
+early-stop, not a silently-skipped batch). A row that already resolved
+its own sport via an id-embedded segment (even one this file has no
+mapping for) is never overridden by the forced hint -- only a row with NO
+id-embedded sport signal at all is eligible. Ordinary
+`captureFromDocument()` calls with no `forced_sport_context` are
+completely unaffected -- 6 new tests in `tests/parser.test.js` confirm
+this explicitly, including one asserting the never-override rule.
+
+**2. Per-table competition attribution via the nearest heading.** The one
+real single-league test this whole rewrite is built on confirmed the
+rendered content includes the competition heading IMMEDIATELY BEFORE its
+fixture table -- `soccer_walker.js` now builds a
+`resolve_table_competition` resolver, scoped to exactly the current
+batch's own selected competitions, and passes it into every
+`captureFromDocument` call. For each `.sports-table`, `parser.js` calls
+this resolver ONCE (never per row) and, when it uniquely resolves,
+attaches `resolved_source_competition_id` to every fixture that table
+produces and uses the resolved country/competition names for that table's
+`region`/`competition` fields (all previously page-wide from
+`fallbackRegion`/`fallbackCompetition`, now per-table). A table the
+resolver cannot uniquely map keeps ALL its rows out of `fixtures[]`
+entirely, retained instead as `unparsed_records` with reason
+`COMPETITION_ATTRIBUTION_UNRESOLVED` -- this check runs BEFORE every
+other row classification (home/away, status, sport, markets), so
+attribution failure always wins over an otherwise-parseable row. The
+resolver itself (`resolveNearestCompetitionHeadingRaw` in
+`soccer_walker.js`) reads a table's own `previousElementSibling`'s text
+(falling back one level to that sibling's own first child) -- **the exact
+heading element/selector itself is [UNVERIFIED]**, only its POSITION
+(immediately preceding the table) is confirmed real evidence. A heading
+is matched against a batch's own competitions by checking whether the
+heading text CONTAINS a candidate's own `competitionNameRaw` -- resolved
+only when EXACTLY ONE candidate matches; zero or multiple matches is an
+honest `{resolved: false}`.
+
+This directly fixes the classification gap: `parser.js` now exposes
+`table_attribution_summary[]` (`{source_competition_id, resolved,
+row_count}`, one entry per table), and `soccer_walker.js` uses it to
+classify each of the batch's own selected competitions individually --
+`CAPTURED_IN_BATCH` (resolved, >=1 row), `BATCH_EMPTY` (resolved, 0
+rows -- a confirmed empty result, not a failure), or
+`COMPETITION_ATTRIBUTION_UNRESOLVED` (never resolved at all -- an honest
+"don't know", never folded into either of the other two). 6 new tests in
+`tests/parser.test.js` and 2 new tests in `tests/soccer_walker.test.js`
+cover both the resolved-multi-table and the unresolved-no-heading cases.
+
+### What is still [UNVERIFIED] -- this round fixes the ARCHITECTURE, not
+the evidence gap itself
+
+Both fixes above are internally consistent and fully unit-tested against
+synthetic markup, but neither has been checked against the real page yet:
+
+- The exact selector/wording for a "visible sport heading" that
+  `resolveVisibleSportHeadingRaw` needs -- if the real page has neither a
+  `<title>` containing "Soccer" nor an active-tab element whose text is
+  exactly "Soccer", `SPORT_CONTEXT_CONFLICT` will fire on every real
+  capture attempt, a fail-closed outcome that is correct behavior but
+  would need this function corrected before any real fixture is ever
+  captured from this route.
+- Whether a competition heading's exact real text actually CONTAINS the
+  competition's own display name verbatim (e.g. does the heading literally
+  say "Professional Football League", or an abbreviated/formatted
+  variant that the substring match would miss?) -- only confirmed for
+  ONE real competition (Nigeria's), never for two rendered side by side.
+- Whether `previousElementSibling` (or one level into its first child) is
+  really where the heading lives, or whether real multi-competition
+  output nests headings differently than a single-competition render did.
+
+### Recommended PR status
+
+Per explicit review guidance: commit this round's fixes and open the PR,
+but HOLD it (do not merge) until a real capture run confirms the
+table-heading relationship for a genuine multi-competition, multi-country
+batch. The architecture itself does not need another redesign -- Round 5
+already removed the main source of complexity (per-competition
+navigation); what remains is real-world confirmation of this round's two
+narrow, already-implemented additions.
+
+### Required real validation before merge
+
+Run one real capture with: at least two competitions selected, from
+different countries, one competition with multiple real fixtures, and
+enough selections attempted to confirm the next checkbox either sticks or
+triggers the limit indication. Check, from the resulting envelope alone:
+fixtures parsed as `SOCCER` (not `UNSUPPORTED_SPORT`); ordinary 1X2 prices
+retained; each fixture mapped to one competition via
+`resolved_source_competition_id` wherever the DOM evidence supports it (an
+honest `COMPETITION_ATTRIBUTION_UNRESOLVED` is an acceptable, correct
+outcome for a table the heading-matcher genuinely could not resolve -- it
+is NOT itself a bug, though a real run reporting it for EVERY competition
+would mean the heading-position assumption above needs correcting);
+`SPORT_CONTEXT_CONFLICT` never appears; `competitions_captured` +
+`competitions_empty` + `competitions_failed` (including any
+`COMPETITION_ATTRIBUTION_UNRESOLVED`) reconciles against
+`competitions_available`; `Clear all` actually resets every checkbox
+between batches; no competition is processed twice; and one combined JSON
+downloads at the end.

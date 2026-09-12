@@ -609,3 +609,240 @@ test('BET9JA_DESKTOP: basketball rows count entirely as records_expected_unsuppo
   assert.equal(envelope.coverage.records_unresolved, 0);
   assert.equal(envelope.coverage.records_expected_unsupported, 1);
 });
+
+// --- Trusted forced-sport context (soccer_walker.js's
+// /sportPage/1/competitions batch selector) --------------------------------
+
+function forcedSportRowHtml({ eventId, home, away }) {
+  // No "sport-N" id segment (matches the confirmed competition-page row
+  // shape, e.g. "prematch_event-..."), and the sourceUrl used below never
+  // matches COMPETITION_URL_PATTERN either -- both of this file's
+  // ordinary sport-resolution tiers come back empty by construction, so
+  // only the forced-context tier can classify these rows as Soccer.
+  const idBase = `prematch_event-${eventId}`;
+  return `<div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>19:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="${idBase}"><div class="sports-table__home txt-cut">${home}</div><div class="sports-table__away txt-cut">${away}</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-1">1.95</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-X">3.40</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-2">4.20</li></ul></div></div>`;
+}
+
+function sportPageCompetitionsDoc({ title = 'Soccer - Competitions' } = {}) {
+  return docFromHtml(
+    `<html><head><title>${title}</title></head><body><div class="sports-table">${forcedSportRowHtml({ eventId: '1', home: 'Enyimba', away: 'Rivers United' })}</div></body></html>`
+  );
+}
+
+const VALID_FORCED_SPORT_CONTEXT = {
+  forced_sport_hint: 'SOCCER',
+  forced_sport_source: 'SPORTPAGE_ROUTE_ID',
+  forced_sport_source_value: '1',
+  capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS',
+};
+
+test('forced sport context: /sportPage/1/competitions plus a visible "Soccer" heading permits the override', () => {
+  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+  });
+  assert.equal(envelope.forced_sport_context_applied, true);
+  // BET9JA_DESKTOP is always CAPTURE_PARTIAL at best (unverified
+  // full-page coverage, same as every other test against this fallback
+  // profile) -- the point here is that it's PARTIAL, not FAILED, and
+  // carries no SPORT_CONTEXT_CONFLICT.
+  assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
+  assert.equal(envelope.fixtures.length, 1);
+  assert.equal(envelope.fixtures[0].sport, 'SOCCER');
+  assert.ok(!envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+});
+
+test('forced sport context: another sport-page id cannot claim Soccer -- route/id mismatch fails closed', () => {
+  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    // A DIFFERENT sportPage id -- FORCED_SPORT_CONTEXT_ROUTE_PATTERN only
+    // matches /sportPage/1/competitions, never /sportPage/2/....
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/2/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+  });
+  assert.equal(envelope.forced_sport_context_applied, false);
+  assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
+  assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+  assert.equal(envelope.fixtures.length, 0);
+});
+
+test('forced sport context: the claim itself naming a different sport id fails closed even on the right route', () => {
+  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions' });
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: { ...VALID_FORCED_SPORT_CONTEXT, forced_sport_source_value: '2' },
+  });
+  assert.equal(envelope.forced_sport_context_applied, false);
+  assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
+  assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+});
+
+test('forced sport context: a missing visible sport heading fails closed', () => {
+  const doc = sportPageCompetitionsDoc({ title: 'Bet9ja Sports' }); // no "Soccer" anywhere
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+  });
+  assert.equal(envelope.forced_sport_context_applied, false);
+  assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
+  assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+});
+
+test('forced sport context: a conflicting heading (a different sport) fails closed', () => {
+  const doc = sportPageCompetitionsDoc({ title: 'Basketball - Competitions' });
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+  });
+  assert.equal(envelope.forced_sport_context_applied, false);
+  assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
+  assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+});
+
+test('forced sport context: ordinary captureFromDocument() calls (no forced_sport_context) are completely unaffected', () => {
+  const { envelope } = capture('bet9ja_desktop_real_sample.html');
+  assert.equal(envelope.forced_sport_context_applied, false);
+  assert.ok(!envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+  // Same real assertion as the pre-existing test for this fixture --
+  // proof this feature changed nothing about an ordinary call's outcome.
+  assert.equal(envelope.fixtures[0].offered_odds.H, 1.14);
+});
+
+test('forced sport context: never overrides a row that already resolved its own sport (id-embedded segment wins)', () => {
+  // Highlights-style row: DOES carry its own "sport-N" segment (here,
+  // sport-2, a non-Soccer id) -- even under an active forced Soccer
+  // context, this row's own resolved sport must never be silently
+  // replaced.
+  const idBase = 'home_highlights_sport-2_event-1';
+  const html = `<html><head><title>Soccer - Competitions</title></head><body><div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>19:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="${idBase}"><div class="sports-table__home txt-cut">Team A</div><div class="sports-table__away txt-cut">Team B</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-1">1.95</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-X">3.40</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-2">4.20</li></ul></div></div></div></body></html>`;
+  const doc = docFromHtml(html);
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+  });
+  assert.equal(envelope.forced_sport_context_applied, true);
+  assert.equal(envelope.fixtures.length, 0);
+  assert.ok(envelope.unparsed_records.some((r) => r.reason === 'UNSUPPORTED_SPORT'));
+});
+
+// --- Per-table competition attribution (soccer_walker.js's batch
+// selector, which can render more than one competition's fixtures on one
+// page) ----------------------------------------------------------------
+
+function twoTablePage() {
+  const tableA = `<div class="sports-table" data-table="A">${forcedSportRowHtml({ eventId: 'a1', home: 'Enyimba', away: 'Rivers United' })}</div>`;
+  const tableB = `<div class="sports-table" data-table="B">${forcedSportRowHtml({ eventId: 'b1', home: 'Arsenal', away: 'Chelsea' })}</div>`;
+  return docFromHtml(`<html><head><title>Soccer - Competitions</title></head><body>${tableA}${tableB}</body></html>`);
+}
+
+test('per-table attribution: a resolver that uniquely maps each table tags its fixtures with that table\'s own competition, never the other table\'s', () => {
+  const doc = twoTablePage();
+  const resolver = (table) => {
+    const which = table.getAttribute('data-table');
+    return which === 'A'
+      ? { resolved: true, sourceCompetitionId: '1209691', competitionNameRaw: 'Professional Football League', countryNameRaw: 'Nigeria' }
+      : { resolved: true, sourceCompetitionId: '2000001', competitionNameRaw: 'Premier League', countryNameRaw: 'England' };
+  };
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+    resolve_table_competition: resolver,
+  });
+  assert.equal(envelope.fixtures.length, 2);
+  const nigeria = envelope.fixtures.find((f) => f.participants.home === 'Enyimba');
+  const england = envelope.fixtures.find((f) => f.participants.home === 'Arsenal');
+  assert.equal(nigeria.resolved_source_competition_id, '1209691');
+  assert.equal(nigeria.region, 'Nigeria');
+  assert.equal(nigeria.competition, 'Professional Football League');
+  assert.equal(england.resolved_source_competition_id, '2000001');
+  assert.equal(england.region, 'England');
+  assert.equal(england.competition, 'Premier League');
+});
+
+test('per-table attribution: a table the resolver cannot uniquely map is retained as COMPETITION_ATTRIBUTION_UNRESOLVED, never guessed into a fixture', () => {
+  const doc = twoTablePage();
+  const resolver = (table) => {
+    const which = table.getAttribute('data-table');
+    return which === 'A'
+      ? { resolved: true, sourceCompetitionId: '1209691', competitionNameRaw: 'Professional Football League', countryNameRaw: 'Nigeria' }
+      : { resolved: false };
+  };
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+    resolve_table_competition: resolver,
+  });
+  assert.equal(envelope.fixtures.length, 1);
+  assert.equal(envelope.fixtures[0].participants.home, 'Enyimba');
+  assert.equal(envelope.coverage.records_seen, 2);
+  assert.equal(envelope.coverage.records_parsed, 1);
+  assert.equal(envelope.coverage.records_unresolved, 1);
+  const unresolved = envelope.unparsed_records.find((r) => r.reason === 'COMPETITION_ATTRIBUTION_UNRESOLVED');
+  assert.ok(unresolved);
+  assert.equal(unresolved.raw.home, 'Arsenal');
+});
+
+test('per-table attribution: attribution failure overrides an otherwise-valid row -- never both a fixture AND an unresolved record for the same row', () => {
+  const doc = docFromHtml(
+    `<html><head><title>Soccer - Competitions</title></head><body><div class="sports-table">${forcedSportRowHtml({ eventId: '1', home: 'Enyimba', away: 'Rivers United' })}</div></body></html>`
+  );
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+    resolve_table_competition: () => ({ resolved: false }),
+  });
+  assert.equal(envelope.fixtures.length, 0);
+  assert.equal(envelope.unparsed_records.length, 1);
+  assert.equal(envelope.unparsed_records[0].reason, 'COMPETITION_ATTRIBUTION_UNRESOLVED');
+  assert.equal(envelope.unparsed_records[0].expected_unsupported, false);
+});
+
+test('per-table attribution: no resolver supplied leaves every fixture\'s resolved_source_competition_id null (ordinary calls unaffected)', () => {
+  const { envelope } = capture('bet9ja_desktop_real_sample.html');
+  assert.ok(envelope.fixtures.length > 0);
+  for (const fixture of envelope.fixtures) {
+    assert.equal(fixture.resolved_source_competition_id, null);
+  }
+});
+
+test('per-table attribution: table_attribution_summary exposes one entry per table, including a resolved-but-empty table', () => {
+  const emptyTableHtml = `<div class="sports-table" data-table="C"></div>`;
+  const resolvedTableHtml = `<div class="sports-table" data-table="A">${forcedSportRowHtml({ eventId: 'a1', home: 'Enyimba', away: 'Rivers United' })}</div>`;
+  const doc = docFromHtml(
+    `<html><head><title>Soccer - Competitions</title></head><body>${resolvedTableHtml}${emptyTableHtml}</body></html>`
+  );
+  const resolver = (table) => {
+    const which = table.getAttribute('data-table');
+    if (which === 'A') return { resolved: true, sourceCompetitionId: '1209691', competitionNameRaw: 'Professional Football League', countryNameRaw: 'Nigeria' };
+    if (which === 'C') return { resolved: true, sourceCompetitionId: '9999999', competitionNameRaw: 'Off Season League', countryNameRaw: 'Nowhere' };
+    return { resolved: false };
+  };
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+    resolve_table_competition: resolver,
+  });
+  assert.equal(envelope.table_attribution_summary.length, 2);
+  const nigeria = envelope.table_attribution_summary.find((t) => t.source_competition_id === '1209691');
+  const nowhere = envelope.table_attribution_summary.find((t) => t.source_competition_id === '9999999');
+  assert.equal(nigeria.resolved, true);
+  assert.equal(nigeria.row_count, 1);
+  assert.equal(nowhere.resolved, true);
+  assert.equal(nowhere.row_count, 0);
+});
+
+test('per-table attribution: table_attribution_summary is null on an ordinary call with no resolver', () => {
+  const { envelope } = capture('bet9ja_desktop_real_sample.html');
+  assert.equal(envelope.table_attribution_summary, null);
+});

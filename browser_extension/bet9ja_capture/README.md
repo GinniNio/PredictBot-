@@ -758,20 +758,50 @@ limit-notification wording as "this batch is full" — finalizing (Show
 Leagues) the current batch and deferring that competition to the next
 one.
 
-**Attribution caveat.** `parser.js` resolves each row's sport either from
-an id-embedded `sport-N` segment on the row itself, or from the page's
-own URL matching `/competition/{sport}/{country}/{competition}/` —
-confirmed only for single-competition competition pages. On this combined
-page the URL never changes, and it is **not yet confirmed** whether
-Bet9ja repeats the `sport-N` id segment on every row here too, nor
-whether multiple selected competitions' fixtures render as
-distinguishable groups at all. Rather than guess a row-to-competition
-mapping, this module never attributes an individual fixture to one
-specific competition when a batch contains more than one: every fixture
-instead carries `source_batch_index` and the full list of that batch's
-`source_competition_ids_in_batch`/`source_competitions_raw_in_batch`.
-Each competition is still classified (captured/empty/failed/deferred) at
-the batch level.
+**Trusted Soccer classification (Round 6).** `parser.js` resolves each
+row's sport either from an id-embedded `sport-N` segment on the row
+itself, or from the page's own URL matching
+`/competition/{sport}/{country}/{competition}/` — confirmed only for
+single-competition competition pages, and neither is confirmed for
+`/sportPage/1/competitions`. Rather than let real Soccer fixtures fall
+through to `UNSUPPORTED_SPORT` on this route, `soccer_walker.js` passes a
+trusted CLAIM — `forced_sport_context: {forced_sport_hint: 'SOCCER',
+forced_sport_source: 'SPORTPAGE_ROUTE_ID', forced_sport_source_value:
+'1', capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS'}` — that `parser.js`
+independently re-verifies (the URL really is
+`/sportPage/1/competitions`, a visible "Soccer" signal really is on the
+page, and the claim's own fields are internally consistent) before ever
+trusting it. Any disagreement fails the WHOLE capture closed with
+`SPORT_CONTEXT_CONFLICT` rather than silently guessing; a row that
+already resolved its own sport (an id-embedded segment, even one this
+file has no mapping for) is never overridden by the forced hint. See
+`SPORT_CONTEXT_CONFLICT`-related tests in `tests/parser.test.js`.
+
+**Per-table competition attribution (Round 6).** A batch containing more
+than one competition renders more than one `.sports-table` on the same
+page, and live testing confirmed each table's own competition heading
+renders IMMEDIATELY BEFORE its table. `soccer_walker.js` builds a
+resolver, scoped to exactly the batch's own selected competitions, that
+matches each table's nearest-preceding-element text against each
+candidate's own known `competitionNameRaw`; `parser.js` calls it once per
+table and only trusts a match when EXACTLY ONE candidate's name appears
+in that heading. A table that cannot be uniquely mapped keeps its rows
+OUT of `fixtures[]` entirely — they are retained as
+`unparsed_records` with reason `COMPETITION_ATTRIBUTION_UNRESOLVED`,
+overriding even an otherwise-valid row, so a fixture is never mislabeled
+under the wrong competition. This is the reason **every discovered
+competition is classified individually** (`competition_results[].outcome`
+— see below), never assumed captured merely because the batch as a whole
+produced some fixtures: a resolved table with rows is
+`CAPTURED_IN_BATCH`, a resolved table with zero rows is a confirmed
+`BATCH_EMPTY`, and a competition whose table never resolved at all is
+`COMPETITION_ATTRIBUTION_UNRESOLVED` — three genuinely different, honestly
+distinguished outcomes a batch-wide classification could never tell
+apart. Every fixture that IS captured carries a single, confirmed
+`resolved_source_competition_id` (never a batch-wide list) — see
+`SOCCER_ALL_COMPETITIONS_VALIDATION.md`'s Round 6 section for exactly what
+real evidence this heading-matching heuristic still needs before it can be
+trusted at scale.
 
 Every fixture is captured by the exact same `parser.js` engine **Capture
 fixtures** uses (never re-implemented here) — the same
@@ -795,13 +825,21 @@ duplicated across batches is deduplicated, not captured twice.
 `content_change_confirmed` — whether Show Leagues' own fixture output was
 actually observed to change, recorded honestly `false` when the result was
 textually identical to what was already on screen, e.g. a genuinely empty
-or duplicate batch), and `competition_results[]` — one entry per
+or duplicate batch, `table_attribution_summary[]` — one entry per rendered
+`.sports-table`, `{source_competition_id, resolved, row_count}`, straight
+from `parser.js`), and `competition_results[]` — one entry per
 discovered competition (`country_name_raw`, `competition_name_raw`,
 `source_competition_id`, `batch_index`, `outcome` — one of
-`CAPTURED_IN_BATCH`, `BATCH_EMPTY`, `BATCH_FAILED`, `SELECTION_FAILED` —
-`failure_reason`). `fixtures[]` and `unparsed_records[]` carry every
-normalized `parser.js` field plus `source_batch_index`/
-`source_competition_ids_in_batch`/`source_competitions_raw_in_batch`.
+`CAPTURED_IN_BATCH`, `BATCH_EMPTY`, `COMPETITION_ATTRIBUTION_UNRESOLVED`,
+`BATCH_FAILED`, `SELECTION_FAILED` — `failure_reason`). `fixtures[]` and
+`unparsed_records[]` carry every normalized `parser.js` field (including
+`forced_sport_context_applied` and, on `fixtures[]` only,
+`resolved_source_competition_id`) plus `source_batch_index`/
+`source_competition_ids_in_batch`/`source_competitions_raw_in_batch` — the
+latter two are single-element arrays whenever attribution resolved (the
+expected case), and only fall back to the whole batch's list in the
+defensive, should-never-happen case of a resolved fixture with no id at
+all.
 
 Full reconciliation is enforced, as its own
 `COMPETITION_ACCOUNTING_INVARIANT_VIOLATED` status reason if it ever
@@ -1117,11 +1155,31 @@ second batch being a safe stop with `resume_metadata`, the
 competition-accounting invariant, a competition with zero configured
 fixture rows being a confirmed `BATCH_EMPTY` outcome rather than a
 failure, cross-batch duplicate fixtures deduplicated by `fixture_id` and
-counted (never double-counted), and a safety test (comments stripped
-first) confirming every `.click()` call site is a country toggle, a
-competition's own label, or the Show Leagues/Clear all buttons — never
-the checkbox itself, never a raw `location.href`/`window.open()`
-navigation.
+counted (never double-counted), a multi-competition batch where each
+fixture is attributed to its OWN competition via the nearest heading
+(never to every competition in the batch), a batch whose tables render
+with no heading at all being `COMPETITION_ATTRIBUTION_UNRESOLVED` for
+every competition in it rather than guessed captured, and a safety test
+(comments stripped first) confirming every `.click()` call site is a
+country toggle, a competition's own label, or the Show Leagues/Clear all
+buttons — never the checkbox itself, never a raw
+`location.href`/`window.open()` navigation.
+
+`tests/parser.test.js` additionally covers the trusted forced-sport
+context and per-table attribution added in Round 6:
+`/sportPage/1/competitions` plus a visible "Soccer" heading permitting the
+override, a mismatched sportPage id and a mismatched claim both failing
+closed, a missing or conflicting visible heading failing closed, an
+ordinary `captureFromDocument()` call being completely unaffected
+(`forced_sport_context_applied: false`, no `SPORT_CONTEXT_CONFLICT`), a
+row that already resolved its own sport never being overridden by the
+forced hint, a resolver that uniquely maps two different tables tagging
+each fixture with its own competition, a table the resolver cannot
+uniquely map being retained as `COMPETITION_ATTRIBUTION_UNRESOLVED`
+rather than guessed, attribution failure overriding an otherwise-valid
+row (never both a fixture AND an unresolved record for the same row),
+and `table_attribution_summary` exposing one entry per table (including a
+resolved-but-empty one) or `null` on an ordinary call.
 
 `tests/settled_bets_parser.test.js` runs `settled_bets_parser.js` against
 a synthetic jsdom harness modeling the Round 1/Round 2 confirmed
