@@ -851,17 +851,25 @@ result is accepted as a confirmed-empty outcome (there is no confirmed
 empty-state element to check for instead); only a genuine bounded timeout
 without ever reaching that stable state is `SHOW_LEAGUES_CONTENT_TIMEOUT`.
 
-**Inventory stabilization, twice over (Round 8).** Two real runs
-discovered different totals (102 countries/368 competitions, then
-103/374) even though Round 7's own country-root stabilization had
-already "succeeded" — asynchronous rendering evidently also happens one
-level down, per country. `expandCountryAccordion` now waits for a
-country's OWN competition count to stop changing (not merely become
-non-zero), and the ENTIRE discovery pass (every country re-expanded,
-every competition re-enumerated) is repeated until two CONSECUTIVE full
-passes agree on BOTH the country count and the total competition count
-(`SOCCER_COMPETITION_INVENTORY_UNSTABLE` if it never settles within a
-bounded number of attempts).
+**Inventory stabilization within one capture, twice over (Round 8,
+corrected).** `expandCountryAccordion` waits for a country's OWN
+competition count to stop changing (not merely become non-zero) across
+consecutive polls, and the ENTIRE discovery pass (every country
+re-expanded, every competition re-enumerated) is repeated until two
+CONSECUTIVE full passes agree on BOTH the country count and the total
+competition count (`SOCCER_COMPETITION_INVENTORY_UNSTABLE` if it never
+settles within a bounded number of attempts) — all WITHIN this one
+capture's own short discovery window, the same asynchronous-rendering
+concern Round 7 already confirmed for the country root itself, one level
+down. **This is never a cross-capture check.** Two separate real
+captures did discover different totals (102 countries/368 competitions,
+then 103/374) — but that reflects Bet9ja's own inventory changing
+between them (a league's round starting or finishing, a fixture window
+opening), not an unstable discovery within either run; comparing counts
+against an earlier capture, or expecting a fixed total across days, is
+never a valid signal. Every capture freezes and reconciles only the
+inventory actually visible during its own run, timestamped by the
+envelope's own `captured_at_utc`.
 
 **Failure and resume accounting (Round 8).** `resume_metadata.
 last_completed_competition_id` previously updated on a mere successful

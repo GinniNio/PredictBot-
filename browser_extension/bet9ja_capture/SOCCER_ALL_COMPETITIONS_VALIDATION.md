@@ -994,7 +994,40 @@ competition name) before falling back to the old whole-text substring
 search, tightening attribution precision now that real breadcrumb text
 is confirmed.
 
-### Fix 4: failure and resume accounting
+### Fix 4: inventory stabilization within one capture (corrected)
+
+`expandCountryAccordion` now waits for a country's OWN competition count
+to stop changing (not merely become non-zero) across consecutive polls,
+and the ENTIRE discovery pass (every country re-expanded, every
+competition re-enumerated) is repeated until two CONSECUTIVE full passes
+agree on BOTH the country count and the total competition count
+(`SOCCER_COMPETITION_INVENTORY_UNSTABLE` if it never settles within a
+bounded number of attempts) -- the same asynchronous-rendering concern
+Round 7 already confirmed for the country root itself (0 elements
+immediately after `DOMContentLoaded`, the full list only ~1.8s later),
+applied one level down.
+
+**Correction, same day:** this was originally motivated by citing two
+real captures (at different times) that discovered different totals --
+102 countries/368 competitions, then 103/374 -- as if that difference
+were itself evidence of an incomplete, unstable discovery. It is not.
+Those two numbers came from two SEPARATE captures; Bet9ja's own
+competition inventory genuinely changes over time (a league's round
+starting or finishing, a fixture window opening), exactly like any other
+sportsbook's, and comparing counts across captures -- or expecting a
+fixed total across days -- is never a valid signal of a discovery
+defect. The stabilization logic above is still correct and worth
+keeping (the SAME-run asynchronous-rendering risk it guards against is
+real, by direct analogy to Round 7's own confirmed country-root
+evidence), but its scope is intentionally narrow: it only ever requires
+stability WITHIN one capture's own short discovery window, never across
+captures. Every capture discovers, freezes, and reconciles only the
+inventory actually visible during its own run, timestamped by the
+envelope's own `captured_at_utc` -- a competition appearing or
+disappearing on a different day is normal Bet9ja inventory change, not a
+bug.
+
+### Fix 5: failure and resume accounting
 
 `resume_metadata.last_completed_competition_id` previously updated on
 ANY successful checkbox selection (`SELECTED` outcome) -- meaning a

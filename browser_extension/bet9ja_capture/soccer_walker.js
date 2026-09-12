@@ -236,11 +236,24 @@
   // the real page, not as two independently-invented timeouts.
   const SOCCER_COMPETITIONS_ROOT_TIMEOUT_MS = 10000;
   const SOCCER_COMPETITIONS_ROOT_POLL_MS = 100;
-  // Real evidence: two consecutive real runs discovered different totals
-  // (102/368, then 103/374) even after the country root itself had
-  // already stabilized -- a bounded number of full re-discovery passes,
-  // not a single snapshot, is what `discoverStableInventory` uses to
-  // confirm both totals actually stopped changing.
+  // CORRECTION: two real captures at different times DID discover
+  // different totals (102 countries/368 competitions, then 103/374) --
+  // but that difference is NOT evidence of same-run instability. Bet9ja's
+  // own competition inventory changes over time (a league starting or
+  // finishing its round, a fixture window opening) exactly like any
+  // other sportsbook's -- comparing counts ACROSS two separate captures,
+  // or expecting a fixed total across days, is never a valid basis for
+  // detecting an incomplete discovery. What IS real evidence (confirmed
+  // the same way the country root itself was in Round 7: 0 elements
+  // immediately after DOMContentLoaded, the full list only ~1.8s later)
+  // is that a SINGLE capture's own discovery can start reading a country
+  // or competition list before Bet9ja finishes rendering it. This module
+  // only ever freezes and reconciles the inventory actually visible
+  // DURING one capture (see `captured_at_utc` on the envelope) -- a
+  // bounded number of full re-discovery passes, not a single snapshot,
+  // is what `discoverStableInventory` uses to confirm THIS run's own
+  // totals stopped changing within its own short discovery window, never
+  // to chase a fixed total across separate captures.
   const INVENTORY_STABILIZATION_MAX_PASSES = 5;
   // Real evidence: 100+ countries and (per the retired per-competition
   // walker's own real capture) dozens of competitions per country are
@@ -502,12 +515,15 @@
   /**
    * Expands one country's accordion (if not already open) and waits for
    * its OWN competition COUNT to stop changing across two consecutive
-   * polls -- not merely become non-zero. ROUND 8 CORRECTION: two real
-   * captures against the same live account discovered different totals
-   * (102 countries / 368 competitions, then 103 / 374) -- a `> 0` check
-   * on the country root already made this mistake once (Round 7); the
-   * same asynchronous-rendering behavior evidently also applies one
-   * level down, per country.
+   * polls -- not merely become non-zero, within THIS capture's own short
+   * discovery window. A `> 0` check on the country root already made
+   * this same mistake once (Round 7's own fix); the same
+   * asynchronous-rendering behavior plausibly applies one level down,
+   * per country, too. This is never a check against any OTHER capture's
+   * own totals -- two separate real captures discovering different
+   * totals (102 countries/368 competitions, then 103/374) reflects
+   * Bet9ja's real inventory changing between them, not an unstable
+   * discovery within either one.
    */
   async function expandCountryAccordion(countryItem) {
     const toggle = countryItem.querySelector(SELECTORS.accordionToggle);
@@ -558,14 +574,24 @@
   }
 
   /**
-   * ROUND 8 CORRECTION: stabilizing the country ROOT (Round 7) before its
-   * children finish materializing turned out to be insufficient -- real
-   * evidence showed two different totals across consecutive real runs.
-   * Re-runs the ENTIRE discovery pass (every country re-expanded, every
-   * competition list re-enumerated) until two CONSECUTIVE full passes
-   * agree on BOTH the country count and the total competition count,
-   * bounded by a fixed number of attempts rather than a single "looks
-   * stable" snapshot.
+   * Stabilizing the country ROOT alone (Round 7) does not confirm every
+   * country's OWN competition list has also finished rendering by the
+   * time it's read -- the same asynchronous-rendering behavior Round 7
+   * confirmed for the root plausibly applies one level down too. Re-runs
+   * the ENTIRE discovery pass (every country re-expanded, every
+   * competition list re-enumerated) until two CONSECUTIVE full passes,
+   * WITHIN this one capture's own short discovery window, agree on BOTH
+   * the country count and the total competition count, bounded by a
+   * fixed number of attempts rather than a single "looks stable"
+   * snapshot. This is never a cross-capture check: Bet9ja's real
+   * inventory can and does change between separate captures (a league's
+   * round starting or finishing, a fixture window opening) -- two
+   * different real captures discovering two different totals (102
+   * countries/368 competitions, then 103/374) is normal, expected drift
+   * over time, not evidence this stabilization loop needs to chase a
+   * fixed total across days. Only what is visible during THIS run is
+   * ever frozen and reconciled, timestamped by the envelope's own
+   * `captured_at_utc`.
    */
   async function discoverStableInventory(competitionsRoot, shouldCancel) {
     let previousSignature = null;
