@@ -817,7 +817,12 @@ new DOM nodes vs. revealing hidden ones — is confirmed),
 `competitions_skipped_by_early_stop`, `duplicates_skipped`,
 `resume_metadata` (`can_resume`, `last_completed_country_id`,
 `last_completed_competition_id`, `resume_hint` — populated whenever the
-walk stops early, whether by cancellation or a failed return), and
+walk stops early, whether by cancellation or a failed return),
+`early_stop_diagnostics` (`pathname_at_failure`, `href_at_failure`,
+`soccer_accordion_toggle_present_at_failure`,
+`fixture_root_still_present_at_failure` — captured at the exact moment a
+return-to-Coupons step fails, `null` otherwise, so a real failure can be
+root-caused from the envelope alone rather than guessed at), and
 `competition_results[]` — one entry per attempted competition
 (`country_name_raw`, `competition_name_raw`, `source_group_id`,
 `source_competition_id`, `competition_control_id`, `resolved_url`,

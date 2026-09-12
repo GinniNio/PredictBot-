@@ -429,6 +429,21 @@ test('a return-to-Coupons that never confirms the route is a safe stop, not a cr
   );
   assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
   assert.ok(envelope.resume_metadata.can_resume);
+  // Regression: real evidence from a live capture (countries_available:
+  // 100 vs. visited+failed+capped+early-stopped summing to only 99)
+  // showed the one country whose competition triggered the early stop
+  // was never counted in ANY bucket. ENGLAND_TWO_COMPS is this run's
+  // only country and must land in exactly one bucket.
+  assert.equal(
+    envelope.countries_available,
+    envelope.countries_visited + envelope.countries_failed + envelope.countries_skipped_by_safety_cap + envelope.countries_skipped_by_early_stop
+  );
+  assert.equal(envelope.countries_visited, 1);
+  // The failed return must carry enough live-DOM evidence to root-cause
+  // it from the envelope alone, never leave the next diagnosis guessing.
+  assert.ok(envelope.early_stop_diagnostics);
+  assert.equal(typeof envelope.early_stop_diagnostics.pathname_at_failure, 'string');
+  assert.equal(typeof envelope.early_stop_diagnostics.soccer_accordion_toggle_present_at_failure, 'boolean');
 });
 
 test('safety: soccer_walker.js only ever clicks a confirmed control, never assigns a javascript: href, never clicks a Coupons-entry control, and neutralizes the default action before every click', () => {

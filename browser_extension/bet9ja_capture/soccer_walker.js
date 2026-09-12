@@ -129,13 +129,24 @@
   const Bet9jaCapture = typeof module !== 'undefined' && module.exports ? require('./parser.js') : root.Bet9jaCapture;
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  // NOT bumped yet: this is a from-evidence rewrite of the navigation
-  // strategy, but no real click-through has yet succeeded end-to-end
-  // against the live account (see "What is NOT yet confirmed" in
-  // SOCCER_ALL_COMPETITIONS_VALIDATION.md). Per this project's
-  // evidence-only versioning discipline, the version string advances
-  // only after that one real successful capture.
-  const PARSER_VERSION = 'bet9ja-soccer-walker@0.3.0-round2-verified-return-unverified';
+  // ROUND 4 (2026-09-12, real-capture evidence): a real authenticated run
+  // captured one full real competition (UEFA Nations League, League A --
+  // 4 real fixtures, 8 correctly-excluded unsupported records) then hit a
+  // real `STOPPED_EARLY_COULD_NOT_RETURN_TO_COUPONS` -- confirming the
+  // discovery/selection/parsing pipeline works end-to-end against the
+  // live site, but that `returnToCouponsAndReopen`'s `history.back()`
+  // mechanism itself is not yet proven reliable there. That same evidence
+  // also exposed a real accounting bug (fixed below: the one country
+  // whose competition triggered the early stop was never counted in any
+  // bucket, so countries_available summed one short of the visited /
+  // failed / capped / early-stopped buckets). Still not bumped past
+  // -unverified: no real run has yet completed without an early stop, and
+  // the return-mechanism failure itself is not yet root-caused (see
+  // SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 4 section) -- this
+  // round only fixes the confirmed accounting bug and adds
+  // `early_stop_diagnostics` so the NEXT real capture's failure (if any)
+  // carries the DOM state needed to root-cause it, rather than guessing.
+  const PARSER_VERSION = 'bet9ja-soccer-walker@0.3.1-round4-accounting-fix-diagnostics-added';
 
   const INVENTORY_PROFILE = 'BET9JA_PREMATCH_SOCCER_ACCORDION';
   const START_ROUTE_PATTERN = /^\/popularCoupons\/1\/?$/;
@@ -422,23 +433,45 @@
     if (!START_ROUTE_PATTERN.test(currentPathname(doc))) {
       const win = doc.defaultView;
       if (!win || !win.history || typeof win.history.back !== 'function') {
-        return { ok: false, reason: 'COULD_NOT_RETURN_TO_COUPONS' };
+        return { ok: false, reason: 'COULD_NOT_RETURN_TO_COUPONS', diagnostics: diagnoseReturnFailure(doc) };
       }
       win.history.back();
       const backOnRoute = await waitFor(() => START_ROUTE_PATTERN.test(currentPathname(doc)), ROUTE_TIMEOUT_MS, POLL_INTERVAL_MS);
       if (!backOnRoute) {
-        return { ok: false, reason: 'COULD_NOT_RETURN_TO_COUPONS' };
+        return { ok: false, reason: 'COULD_NOT_RETURN_TO_COUPONS', diagnostics: diagnoseReturnFailure(doc) };
       }
     }
     const accordionResult = await ensureSoccerAccordionOpen(doc);
     if (!accordionResult.ok) {
-      return { ok: false, reason: 'COULD_NOT_REOPEN_SOCCER_ACCORDION' };
+      return { ok: false, reason: 'COULD_NOT_REOPEN_SOCCER_ACCORDION', diagnostics: diagnoseReturnFailure(doc) };
     }
     const countryResult = await expandCountry(doc, countryId);
     if (!countryResult.ok) {
-      return { ok: false, reason: countryResult.reason, accordionItem: countryResult.accordionItem };
+      return {
+        ok: false,
+        reason: countryResult.reason,
+        accordionItem: countryResult.accordionItem,
+        diagnostics: diagnoseReturnFailure(doc),
+      };
     }
     return { ok: true, reason: null, accordionItem: countryResult.accordionItem };
+  }
+
+  /**
+   * Captures the exact live state at the moment a return-to-Coupons step
+   * failed, so a real failure (like the ones seen in the first real
+   * captures against the live account) can be root-caused from the
+   * envelope alone instead of needing to guess what the tab actually
+   * looked like when the timeout fired. Never used to decide success or
+   * failure itself -- purely diagnostic evidence attached to the envelope.
+   */
+  function diagnoseReturnFailure(doc) {
+    return {
+      pathname_at_failure: currentPathname(doc),
+      href_at_failure: currentHref(doc, null),
+      soccer_accordion_toggle_present_at_failure: !!doc.querySelector(SELECTORS.soccerAccordionToggle),
+      fixture_root_still_present_at_failure: !!doc.querySelector(SELECTORS.fixtureRoot),
+    };
   }
 
   function makeCompetitionResult({
@@ -491,6 +524,7 @@
       fixtures: [],
       unparsed_records: [],
       resume_metadata: null,
+      early_stop_diagnostics: null,
     };
   }
 
@@ -604,6 +638,7 @@
     let duplicatesSkipped = 0;
     let previousResolvedPath = currentPathname(doc);
     let earlyStopReason = null;
+    let earlyStopDiagnostics = null;
     let lastCompletedCountryId = null;
     let lastCompletedCompetitionId = null;
 
@@ -745,10 +780,26 @@
         const returnResult = await returnToCouponsAndReopen(doc, country.countryId);
         if (!returnResult.ok) {
           earlyStopReason = returnResult.reason;
+          earlyStopDiagnostics = returnResult.diagnostics || null;
           const remainingInThisCountry = cappedCompetitions.length - competitionIndex - 1;
           competitionsSkippedByEarlyStop += remainingInThisCountry;
           countriesSkippedByEarlyStop += cappedCountries.length - countryIndex - 1;
           if (!isLastAttemptOverall) {
+            // The current country's own accounting must be settled HERE,
+            // before breaking out of the country loop entirely -- this is
+            // the country whose competition attempt just triggered the
+            // early stop, so it is never counted in
+            // countries_skipped_by_early_stop (that only covers countries
+            // never even reached) and must not be silently dropped from
+            // every bucket. Real evidence (a live capture with
+            // countries_available: 100 but visited+failed+capped+skipped
+            // summing to only 99) showed exactly this one country going
+            // uncounted before this fix.
+            if (countryHadAnySuccess) {
+              countriesVisited += 1;
+            } else {
+              countriesFailed += 1;
+            }
             break countryLoop;
           }
         }
@@ -842,6 +893,7 @@
         fixtures,
         unparsed_records: unparsedRecords,
         resume_metadata: resumeMetadata,
+        early_stop_diagnostics: earlyStopDiagnostics,
       },
     };
   }

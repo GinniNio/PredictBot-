@@ -397,3 +397,131 @@ first (the exact Round 2 bug this round fixed). If a real run completes
 with `competitions_visited > 0`, no unexplained failures, and (ideally)
 `capture_status: 'CAPTURE_COMPLETE'`, `PARSER_VERSION` can finally drop
 its `-unverified` tag.
+
+## Round 4 — 2026-09-12 (first real run against the live account; return
+mechanism failed for real; a real accounting bug found and fixed)
+
+### The real Round 4 captures' results
+
+Four real captures were run back-to-back against the authenticated account.
+
+| # | capture_status | reasons | fixtures | notes |
+|---|---|---|---|---|
+| 1 | CAPTURE_PARTIAL | `COUNTRY_ACCOUNTING_INVARIANT_VIOLATED`, `STOPPED_EARLY_COULD_NOT_RETURN_TO_COUPONS` | 4 real | 1 real competition captured (UEFA Nations League, League A, `sg-11463`/`g-2238954`) |
+| 2 | CAPTURE_PARTIAL | same as #1 | 4 real | repeat of #1, same result |
+| 3 | CAPTURE_FAILED | `PREMATCH_SOCCER_INVENTORY_NOT_READY` | 0 | `soccer_accordion_found: false` |
+| 4 | CAPTURE_FAILED | same as #3 | 0 | repeat of #3, same result |
+
+### What this confirms works end-to-end against the real site
+
+Runs #1-#2 confirm the entire discovery/selection/parsing pipeline this
+project rebuilt is correct against the real DOM, not just synthetic
+fixtures: `coupons_route_confirmed: true`; the Soccer accordion opened;
+"show more" grew the country list to `countries_available: 100` with
+`country_inventory_growth_observed: true`; one real country expanded; one
+real competition was selected, its URL resolved to
+`/competition/soccer/...`, and `parser.js` correctly captured 4 real 1X2
+fixtures while correctly excluding 8 real `double_chance`/`over_under`
+records as `records_expected_unsupported`.
+
+### What failed: the return-to-Coupons step, for real
+
+Immediately after that one competition, `returnToCouponsAndReopen`
+reported `COULD_NOT_RETURN_TO_COUPONS` -- meaning `history.back()` was
+called but `currentPathname(doc)` never matched `/popularCoupons/1/?`
+within `ROUTE_TIMEOUT_MS` (3000ms). This is real evidence that the
+`history.back()`-based return this module relies on is not reliable
+against the live site, exactly the uncertainty this doc's own Round 3
+section already flagged ("Whether `history.back()`... reliably restores
+the Soccer accordion's DOM at all... has not been observed").
+
+Root cause is **not yet established** -- the two later runs (#3-#4) add a
+second, distinct symptom rather than resolving the first: on the next
+capture attempts, `coupons_route_confirmed: true` still held (the tab's
+URL pathname did match `/popularCoupons/1`) but
+`ensureSoccerAccordionOpen` could not find the Soccer accordion toggle at
+all (`soccer_accordion_found: false`). That the URL alone can be back on
+the confirmed route while the accordion widget itself is entirely absent
+means the URL pathname is not sufficient proof, on its own, that the page
+is in the state this module expects -- there is at least one more DOM
+state (URL correct, Soccer widget missing/not yet mounted) that none of
+the current typed failures distinguish from "never got the URL back at
+all". Two explanations are both consistent with this evidence and neither
+is yet confirmed:
+  - `history.back()` did eventually land on `/popularCoupons/1`, but after
+    this capture's own `ROUTE_TIMEOUT_MS` window had already given up --
+    and the Soccer accordion widget on that page takes noticeably longer
+    to mount/hydrate than the URL change itself, so the very next
+    capture's `ensureSoccerAccordionOpen` call raced it and lost.
+  - Bet9ja's SPA router does not fully restore `/popularCoupons/1` via
+    `history.back()` from a competition page at all (e.g. it lands on a
+    different, URL-coincidentally-matching intermediate state, or a
+    stale/torn-down widget), and the page never actually recovers without
+    a real full navigation.
+
+Neither can be distinguished from the four envelopes alone -- both are
+just "the accordion wasn't there yet/anymore". This round intentionally
+does **not** guess which one is true and does **not** attempt a
+`history.back()` replacement (e.g. routing the return through a real
+`chrome.tabs.update` round-trip via popup.js) without more evidence, per
+this project's own discipline. Instead:
+
+### Fixes (this round)
+
+- **A real accounting bug, confirmed from the evidence itself, fixed.**
+  Runs #1-#2 show `countries_available: 100` but
+  `countries_visited(0) + countries_failed(0) +
+  countries_skipped_by_safety_cap(0) + countries_skipped_by_early_stop(99)
+  = 99` -- one short. Tracing the code: when a competition's own
+  `returnToCouponsAndReopen` call failed and the walk was not on its
+  overall-last attempt, the country loop broke immediately
+  (`break countryLoop`) *before* ever reaching the country's own
+  visited/failed accounting a few lines later -- so the one country whose
+  competition triggered the early stop was counted in no bucket at all.
+  Fixed: that country's own visited/failed accounting now runs
+  immediately before the break, so it is always accounted for exactly
+  once. A regression test (`tests/soccer_walker.test.js`, the
+  return-never-confirms test) now asserts the full
+  `countries_available` equation holds and `countries_visited === 1` in
+  this exact scenario.
+- **`early_stop_diagnostics` added to the envelope.** Every failed
+  `returnToCouponsAndReopen` call now captures, at the exact moment of
+  failure: `pathname_at_failure`, `href_at_failure`,
+  `soccer_accordion_toggle_present_at_failure`, and
+  `fixture_root_still_present_at_failure`. This is purely diagnostic --
+  it changes no pass/fail decision -- so that the *next* real capture's
+  failure (if the return still fails) carries the exact live DOM state
+  needed to actually distinguish the two explanations above, rather than
+  requiring another blind round-trip of "run it again and see".
+- `PARSER_VERSION` bumped to
+  `bet9ja-soccer-walker@0.3.1-round4-accounting-fix-diagnostics-added` --
+  still not past `-unverified`-equivalent naming, since no real run has
+  yet completed without an early stop.
+
+### What is still NOT confirmed
+
+- Whether `history.back()` ever actually restores `/popularCoupons/1`
+  with a working Soccer accordion on the real site, and if so, how long
+  that restoration takes relative to `ROUTE_TIMEOUT_MS`/
+  `ACCORDION_TIMEOUT_MS`.
+- Whether the page recovers on its own (e.g. a plain reload) after a
+  failed return, or whether the two `PREMATCH_SOCCER_INVENTORY_NOT_READY`
+  runs indicate a genuinely broken/torn-down state that persists across
+  separate capture invocations.
+- Whether routing the return through a real `chrome.tabs.update`
+  navigation (mirroring `ensureOnPopularCouponsRoute`'s own pattern for
+  the *initial* entry to Coupons) is the right fix, or whether a longer
+  timeout / an explicit accordion-remount wait inside the existing
+  `history.back()` approach is enough. Deciding this without a further
+  real capture carrying `early_stop_diagnostics` would be exactly the
+  kind of guess this project's discipline rules out.
+
+### Recommendation for Round 5
+
+Re-run **Capture all Soccer fixtures** for real at least twice more,
+reading `early_stop_diagnostics` from any resulting `CAPTURE_PARTIAL`
+envelope, and manually observe the live tab at the moment a return fails
+(does the URL change? does the accordion ever reappear if you wait
+longer, or only after a manual reload?). That evidence -- not a guess --
+should decide between a longer wait and a `chrome.tabs.update`-based
+return.
