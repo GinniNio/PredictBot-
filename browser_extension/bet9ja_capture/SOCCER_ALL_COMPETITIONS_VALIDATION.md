@@ -1430,3 +1430,102 @@ the run should reach all 353 competitions rather than stopping at batch
 retry in a real run, that is useful evidence on its own (is it always the
 same competition? does a longer timeout window help?) for a possible
 Round 13 correction -- not something to guess ahead of now.
+
+## Round 12 -- 2026-09-12 (durable checkpointed capture sessions -- a
+requested feature addition, not a defect fix)
+
+Requested directly (not evidenced by a real capture defect): even with
+Round 11's one-time retry, a genuinely failed competition, a browser
+crash, or an accidental popup close would still lose the whole
+multi-hundred-competition walk's progress, since nothing about the
+capture persisted anywhere until the single, all-or-nothing download at
+the very end. This round adds durable, checkpointed sessions so a run can
+be safely stopped, resumed, and retried piecemeal.
+
+### Design
+
+- **`soccer_session.js`** (new file): pure ledger/merge logic only -- no
+  Chrome API of its own, dual Node/browser exactly like `ids.js`, so it
+  runs identically in the popup (via `chrome.storage.local`) and in the
+  Node test suite (via a plain in-memory object). Every function returns
+  a NEW session object, never mutates its input. Ledger statuses:
+  `PENDING`/`COMPLETED`/`CONFIRMED_EMPTY`/`FAILED`, matched exclusively by
+  each competition's own stable `competition_id` -- NEVER by array
+  position, since Bet9ja's own inventory can change between runs (see
+  the "Inventory stabilization" section above for the same
+  never-a-fixed-total discipline applied here to a session's own
+  reconciliation).
+- **`soccer_walker.js`** gained three new, additive `context` options,
+  all no-ops on an ordinary call: `context.discoveryOnly` (runs every
+  discovery step -- including the real-evidence-motivated
+  readiness/stabilization waits -- and returns immediately after,
+  walking NOTHING, so a caller can get the freshly discovered inventory
+  BEFORE deciding what to filter to -- otherwise a genuine
+  chicken-and-egg, since discovery and walking normally happen together
+  in one call); `context.competitionIdFilter` (restricts WALKING to a
+  caller-chosen subset of the freshly discovered inventory -- discovery
+  itself is never skipped or trusted stale; every competition filtered
+  out gets its own honest `SKIPPED_BY_RESUME_FILTER` result row, folded
+  into a new `competitions_skipped_by_resume_filter` counter that
+  participates in the same accounting invariant every other skip reason
+  already does); `context.onBatchComplete` (fires once per genuinely
+  attempted batch, AND once for the up-front filtered-out set, each call
+  carrying only that call's own delta -- never the whole running total --
+  so a session can be persisted after EVERY batch, not only at the end;
+  a throwing hook never breaks the underlying capture).
+- **`content.js`** forwards these through the existing
+  `chrome.scripting.executeScript()` boundary: `onBatchComplete` deltas
+  are queued into `window.__bet9jaSoccerAllPendingDeltas` (a function
+  reference can't cross that boundary either) and drained by a small
+  poll function popup.js re-injects on an interval -- the exact same
+  "poll a shared window variable" pattern `__bet9jaSettledBetsReadProgress`
+  already used for the settled-bets button's page-progress display.
+- **`popup.js`**: the single "Capture all Soccer fixtures" button is
+  replaced with five explicit actions -- Start new capture, Resume
+  capture, Retry failed competitions, Download current results, Clear
+  saved session -- plus a live ledger summary ("Completed: 139  Failed:
+  1  Remaining: 213"). This is the ONE deliberate, narrowly-scoped
+  exception to this extension's otherwise no-`chrome.storage` design
+  (documented at both `manifest.json`'s new `storage` permission and
+  popup.js's own header comment) -- persisting only this extension's own
+  progress ledger, never cookies, tokens, or account data.
+- Each run downloads its own small segment file
+  (`bet9ja-soccer-session-{session_id}-segment-{NNN}.json`); "Download
+  current results" produces the full assembled file
+  (`bet9ja-soccer-all-{session_id}.json`) combining every segment's
+  fixtures (deduped by `fixture_id`) with the complete ledger.
+
+### Tests
+
+229/229 JS tests pass (`tests/soccer_session.test.js`, new, 14 tests;
+`tests/soccer_walker.test.js` gained tests for `competitionIdFilter`,
+`onBatchComplete`, and `discoveryOnly`; `tests/structural.test.js` updated
+for the new `storage` permission and the five-button popup.js shape).
+Coverage includes: crash-recovery (a session persisted mid-run resumes
+correctly from exactly that point), changed-inventory reconciliation (a
+vanished competition id keeps its own prior status, a new one is added
+`PENDING`), failed-skip (`NOT_ATTEMPTED_AFTER_EARLY_STOP`/
+`SKIPPED_BY_RESUME_FILTER` never overwrite an existing ledger status),
+retry-failed (`failedCompetitionIds` never includes a `PENDING` or
+`COMPLETED` id, and a normal resume never includes a `FAILED` one), and
+fixture deduplication by `fixture_id` across separate segments.
+
+### PARSER_VERSION
+
+Unchanged from Round 11 -- this round adds a new, optional,
+fully-backward-compatible capability to `soccer_walker.js` (every new
+`context` option is a no-op when omitted) and a new sibling module; it
+changes no existing capture behavior, so no real-capture-confirmed
+version claim needs revising.
+
+### Recommendation for Round 13
+
+Exercise the checkpointed flow for real: start a capture, let it run for
+a while, then deliberately close the popup or click Cancel mid-run: the
+saved session should reflect exactly the batches completed so far, never
+more, never less. Then click Resume and confirm it picks up from the
+first `PENDING` competition (not from position 0) without re-walking
+anything already `COMPLETED`/`CONFIRMED_EMPTY`/`FAILED`. If Round 11's
+retry logic still leaves any competition `FAILED` on a full real run,
+Retry failed competitions should re-attempt exactly those and nothing
+else.

@@ -871,12 +871,16 @@
       competitions_failed: 0,
       competitions_skipped_by_safety_cap: 0,
       competitions_skipped_by_early_stop: 0,
+      competitions_skipped_by_resume_filter: 0,
       duplicates_skipped: 0,
       batch_results: [],
       competition_results: [],
       fixtures: [],
       unparsed_records: [],
       resume_metadata: null,
+      // Only populated by a `context.discoveryOnly` call -- see that
+      // option's own comment. Null on every ordinary/walking call.
+      discovered_competitions: null,
     };
   }
 
@@ -983,8 +987,80 @@
     const competitionsSkippedBySafetyCap = allCompetitions.length - cappedCompetitions.length;
     const competitionsAvailable = allCompetitions.length;
 
+    // Session-checkpointing support, part 1: a caller that wants to
+    // resume or retry-failed needs the FRESHLY discovered inventory
+    // (soccer_session.js's `reconcileInventory`) BEFORE it can know which
+    // competition ids to pass as `competitionIdFilter` below -- a genuine
+    // chicken-and-egg otherwise, since discovery and walking normally
+    // happen in this one call together. `context.discoveryOnly` runs
+    // every discovery step above (including the real-evidence-motivated
+    // readiness/stabilization waits) and returns immediately after,
+    // walking NOTHING -- no competition is ever selected, no Show
+    // Leagues click ever happens, on a discovery-only call.
+    if (context.discoveryOnly) {
+      return {
+        envelope: {
+          ...envelopeBase,
+          capture_status: 'CAPTURE_COMPLETE',
+          capture_status_reasons: competitionsSkippedBySafetyCap > 0 ? ['COMPETITIONS_SKIPPED_BY_SAFETY_CAP'] : [],
+          inventory_source_url: inventorySourceUrl,
+          competitions_route_confirmed: true,
+          countries_available: countriesAvailable,
+          countries_visited: countriesVisited,
+          countries_failed: countriesFailed,
+          ...emptyEnvelopeShape(),
+          competitions_available: competitionsAvailable,
+          competitions_skipped_by_safety_cap: competitionsSkippedBySafetyCap,
+          discovered_competitions: cappedCompetitions.map((c) => ({
+            competition_id: c.checkboxId,
+            country: c.countryNameRaw || null,
+            competition: c.competitionNameRaw || null,
+          })),
+        },
+      };
+    }
+
+    // Session-checkpointing support, part 2 (soccer_session.js / popup.js's
+    // "Resume capture" and "Retry failed competitions" actions): always
+    // rediscovers the FULL real inventory above (never trusts a stale
+    // list -- Bet9ja's own inventory changes between runs), but a caller
+    // may still restrict which of the freshly discovered competitions
+    // THIS run actually walks. Matched exclusively by the competition's
+    // own stable `checkboxId`, never by array position (see
+    // soccer_session.js's own header comment on resume authority). Every
+    // discovered competition NOT in the filter is excluded from
+    // `remaining` up front and gets its own explicit
+    // `SKIPPED_BY_RESUME_FILTER` result row below -- never silently
+    // absent, and never counted as captured, empty, or failed.
+    const competitionIdFilter =
+      context.competitionIdFilter && typeof context.competitionIdFilter.has === 'function'
+        ? context.competitionIdFilter
+        : Array.isArray(context.competitionIdFilter)
+          ? new Set(context.competitionIdFilter)
+          : null;
+    const toAttempt = competitionIdFilter ? cappedCompetitions.filter((c) => competitionIdFilter.has(c.checkboxId)) : cappedCompetitions;
+    const filteredOut = competitionIdFilter ? cappedCompetitions.filter((c) => !competitionIdFilter.has(c.checkboxId)) : [];
+    const competitionsSkippedByFilter = filteredOut.length;
+
+    // Optional per-batch progress hook (soccer_session.js's
+    // `applyBatchDelta`, invoked here so a session can persist after
+    // EVERY batch, not only when the whole capture finishes -- see
+    // soccer_session.js's own header comment for why). Passed only this
+    // one batch's own DELTA (never the whole growing arrays), and never
+    // awaited for its return value -- a broken/throwing hook must never
+    // affect the capture it's merely observing.
+    const onBatchComplete = typeof context.onBatchComplete === 'function' ? context.onBatchComplete : null;
+    function notifyBatchComplete(delta) {
+      if (!onBatchComplete) return;
+      try {
+        onBatchComplete(delta);
+      } catch (err) {
+        // Best-effort only, per this function's own comment above.
+      }
+    }
+
     // --- Phase 2: batch selection + capture.
-    const remaining = [...cappedCompetitions];
+    const remaining = [...toAttempt];
     const fixtures = [];
     const unparsedRecords = [];
     const competitionResults = [];
@@ -998,6 +1074,19 @@
     let earlyStopReason = null;
     let lastCompletedCheckboxId = null;
     let batchIndex = 0;
+
+    if (filteredOut.length > 0) {
+      const filteredResults = filteredOut.map((comp) => ({
+        country_name_raw: comp.countryNameRaw || null,
+        competition_name_raw: comp.competitionNameRaw || null,
+        source_competition_id: comp.checkboxId || null,
+        batch_index: null,
+        outcome: 'SKIPPED_BY_RESUME_FILTER',
+        failure_reason: null,
+      }));
+      competitionResults.push(...filteredResults);
+      notifyBatchComplete({ competitionResults: filteredResults, fixtures: [], unparsedRecords: [] });
+    }
 
     batchLoop: while (remaining.length > 0 && batchIndex < MAX_BATCHES_SAFETY_CAP) {
       if (shouldCancel()) {
@@ -1039,14 +1128,16 @@
           // it now, drop it, and keep filling the current batch with the
           // rest.
           competitionsFailed += 1;
-          competitionResults.push({
+          const selectionFailedResult = {
             country_name_raw: candidate.countryNameRaw || null,
             competition_name_raw: candidate.competitionNameRaw || null,
             source_competition_id: candidate.checkboxId || null,
             batch_index: null,
             outcome: 'SELECTION_FAILED',
             failure_reason: selectResult.reason,
-          });
+          };
+          competitionResults.push(selectionFailedResult);
+          notifyBatchComplete({ competitionResults: [selectionFailedResult], fixtures: [], unparsedRecords: [] });
           remaining.shift();
         }
       }
@@ -1065,16 +1156,20 @@
       const showResult = await showLeaguesWithRetryOnTimeout(doc, currentBatch);
       if (!showResult.ok) {
         competitionsFailed += currentBatch.length;
+        const timeoutFailedResults = [];
         for (const comp of currentBatch) {
-          competitionResults.push({
+          const failedResult = {
             country_name_raw: comp.countryNameRaw || null,
             competition_name_raw: comp.competitionNameRaw || null,
             source_competition_id: comp.checkboxId || null,
             batch_index: batchIndex,
             outcome: 'BATCH_FAILED',
             failure_reason: showResult.reason,
-          });
+          };
+          competitionResults.push(failedResult);
+          timeoutFailedResults.push(failedResult);
         }
+        notifyBatchComplete({ competitionResults: timeoutFailedResults, fixtures: [], unparsedRecords: [] });
         batchResults.push({
           batch_index: batchIndex,
           competition_ids: currentBatch.map((c) => c.checkboxId),
@@ -1132,16 +1227,20 @@
         // this, fail the batch (and the whole run) closed rather than
         // risk mislabeling every fixture in it.
         competitionsFailed += currentBatch.length;
+        const conflictFailedResults = [];
         for (const comp of currentBatch) {
-          competitionResults.push({
+          const failedResult = {
             country_name_raw: comp.countryNameRaw || null,
             competition_name_raw: comp.competitionNameRaw || null,
             source_competition_id: comp.checkboxId || null,
             batch_index: batchIndex,
             outcome: 'BATCH_FAILED',
             failure_reason: 'SPORT_CONTEXT_CONFLICT',
-          });
+          };
+          competitionResults.push(failedResult);
+          conflictFailedResults.push(failedResult);
         }
+        notifyBatchComplete({ competitionResults: conflictFailedResults, fixtures: [], unparsedRecords: [] });
         batchResults.push({
           batch_index: batchIndex,
           competition_ids: currentBatch.map((c) => c.checkboxId),
@@ -1160,6 +1259,7 @@
       }
 
       let batchDuplicates = 0;
+      const newFixturesThisBatch = [];
       for (const fixture of subEnvelope.fixtures) {
         if (seenFixtureIds.has(fixture.fixture_id)) {
           duplicatesSkipped += 1;
@@ -1174,17 +1274,20 @@
         // fixture with no resolved id at all despite an active resolver.
         const resolvedId = fixture.resolved_source_competition_id;
         const resolvedComp = resolvedId ? currentBatch.find((c) => c.checkboxId === resolvedId) : null;
-        fixtures.push({
+        const augmentedFixture = {
           ...fixture,
           source_batch_index: batchIndex,
           source_competition_ids_in_batch: resolvedComp ? [resolvedComp.checkboxId] : currentBatch.map((c) => c.checkboxId),
           source_competitions_raw_in_batch: resolvedComp
             ? [resolvedComp.competitionNameRaw]
             : currentBatch.map((c) => c.competitionNameRaw),
-        });
+        };
+        fixtures.push(augmentedFixture);
+        newFixturesThisBatch.push(augmentedFixture);
       }
-      for (const record of subEnvelope.unparsed_records) {
-        unparsedRecords.push({ ...record, source_batch_index: batchIndex });
+      const newUnparsedThisBatch = subEnvelope.unparsed_records.map((record) => ({ ...record, source_batch_index: batchIndex }));
+      for (const record of newUnparsedThisBatch) {
+        unparsedRecords.push(record);
       }
 
       // Per-competition classification from parser.js's own
@@ -1218,6 +1321,7 @@
           .map((t) => [t.source_competition_id, t])
       );
       const anyTableRenderedInBatch = (subEnvelope.table_attribution_summary || []).length > 0;
+      const batchCompetitionResults = [];
       for (const comp of currentBatch) {
         const attribution = attributionByCompetitionId.get(comp.checkboxId);
         let outcome;
@@ -1239,7 +1343,7 @@
           // competition actually completed, never one merely attempted.
           lastCompletedCheckboxId = comp.checkboxId;
         }
-        competitionResults.push({
+        const batchResult = {
           country_name_raw: comp.countryNameRaw || null,
           competition_name_raw: comp.competitionNameRaw || null,
           source_competition_id: comp.checkboxId || null,
@@ -1247,8 +1351,15 @@
           outcome,
           failure_reason:
             outcome === 'COMPETITION_ATTRIBUTION_UNRESOLVED' || outcome === 'COMPETITION_CONTENT_UNRESOLVED' ? outcome : null,
-        });
+        };
+        competitionResults.push(batchResult);
+        batchCompetitionResults.push(batchResult);
       }
+      notifyBatchComplete({
+        competitionResults: batchCompetitionResults,
+        fixtures: newFixturesThisBatch,
+        unparsedRecords: newUnparsedThisBatch,
+      });
       batchResults.push({
         batch_index: batchIndex,
         competition_ids: currentBatch.map((c) => c.checkboxId),
@@ -1307,12 +1418,18 @@
       statusReasons.push('SOME_COMPETITIONS_CONTENT_UNRESOLVED');
     }
     if (competitionsSkippedBySafetyCap > 0) statusReasons.push('COMPETITIONS_SKIPPED_BY_SAFETY_CAP');
+    if (competitionsSkippedByFilter > 0) statusReasons.push('COMPETITIONS_SKIPPED_BY_RESUME_FILTER');
     if (countriesFailed > 0) statusReasons.push('SOME_COUNTRIES_FAILED');
     if (earlyStopReason) statusReasons.push(`STOPPED_EARLY_${earlyStopReason}`);
 
     const competitionsInvariantHolds =
       competitionsAvailable ===
-      competitionsCaptured + competitionsEmpty + competitionsFailed + competitionsSkippedBySafetyCap + competitionsSkippedByEarlyStop;
+      competitionsCaptured +
+        competitionsEmpty +
+        competitionsFailed +
+        competitionsSkippedBySafetyCap +
+        competitionsSkippedByEarlyStop +
+        competitionsSkippedByFilter;
     if (!competitionsInvariantHolds) statusReasons.unshift('COMPETITION_ACCOUNTING_INVARIANT_VIOLATED');
 
     let captureStatus;
@@ -1323,6 +1440,11 @@
       countriesFailed === 0 &&
       competitionsFailed === 0 &&
       competitionsSkippedBySafetyCap === 0 &&
+      // A filtered run (soccer_session.js's "Resume capture"/"Retry
+      // failed competitions" actions) is, by its own design, only ever
+      // attempting a DELIBERATE subset of the discovered inventory --
+      // never the whole-inventory success CAPTURE_COMPLETE claims.
+      competitionsSkippedByFilter === 0 &&
       !earlyStopReason &&
       competitionsInvariantHolds
     ) {
@@ -1357,6 +1479,7 @@
         competitions_failed: competitionsFailed,
         competitions_skipped_by_safety_cap: competitionsSkippedBySafetyCap,
         competitions_skipped_by_early_stop: competitionsSkippedByEarlyStop,
+        competitions_skipped_by_resume_filter: competitionsSkippedByFilter,
         duplicates_skipped: duplicatesSkipped,
         batch_results: batchResults,
         competition_results: competitionResults,

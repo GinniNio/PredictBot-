@@ -26,14 +26,24 @@
         opacity: 0.6;
       }
       #ticket-capture-button,
-      #soccer-all-capture-button,
+      #soccer-start-new-button,
       #settled-capture-button {
         margin-top: 8px;
+      }
+      #soccer-resume-button,
+      #soccer-retry-failed-button,
+      #soccer-download-button,
+      #soccer-clear-session-button {
+        margin-top: 6px;
       }
       #settled-cancel-button,
       #soccer-all-cancel-button {
         margin-top: 6px;
         background: #fdecea;
+      }
+      #soccer-session-summary {
+        margin-top: 8px;
+        white-space: pre-wrap;
       }
       #status,
       #ticket-status,
@@ -107,14 +117,22 @@
       see TICKET_REAL_PAGE_VALIDATION.md.
     </p>
     <hr />
-    <button id="soccer-all-capture-button" type="button">Capture all Soccer fixtures</button>
+    <div id="soccer-session-summary" class="note"></div>
+    <button id="soccer-start-new-button" type="button">Start new capture</button>
+    <button id="soccer-resume-button" type="button">Resume capture</button>
+    <button id="soccer-retry-failed-button" type="button">Retry failed competitions</button>
+    <button id="soccer-download-button" type="button">Download current results</button>
+    <button id="soccer-clear-session-button" type="button">Clear saved session</button>
     <button id="soccer-all-cancel-button" type="button" hidden>Cancel</button>
     <div id="soccer-all-status"></div>
     <p class="note">
       Navigates the tab to sports.bet9ja.com/sportPage/1/competitions if not already there, then
       selects every country's competitions in batches and clicks Show Leagues to capture each
-      batch's fixtures (ordinary 1X2 only) into one combined file. Real hierarchy confirmed;
-      pending one real end-to-end run — see SOCCER_ALL_COMPETITIONS_VALIDATION.md.
+      batch's fixtures (ordinary 1X2 only). Progress is checkpointed to this browser's local
+      storage after every batch, so a slow/failed competition, a cancel, or a closed popup never
+      loses prior work — Resume continues from the first still-PENDING competition (matched by its
+      own stable id, never by position); Retry failed competitions re-attempts only ones marked
+      FAILED. See SOCCER_ALL_COMPETITIONS_VALIDATION.md for validation status.
     </p>
     <hr />
     <button id="settled-capture-button" type="button">Capture settled bets</button>
@@ -127,5 +145,7 @@
       SETTLED_BETS_REAL_PAGE_VALIDATION.md.
     </p>
   </body>
+  <script src="ids.js"></script>
+  <script src="soccer_session.js"></script>
   <script src="popup.js"></script>
 </html>

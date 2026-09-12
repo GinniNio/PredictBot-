@@ -934,6 +934,56 @@ Soccer/pre-match/ordinary-1X2 scope, the same typed `unparsed_records`
 exclusions, and the same `fixture_id` scheme, so a fixture legitimately
 duplicated across batches is deduplicated, not captured twice.
 
+**Durable checkpointed capture sessions (Round 12).** Even with Round
+11's retry, a genuinely failed competition, a browser crash, or an
+accidental popup close would otherwise lose the whole multi-hundred-
+competition walk's progress. `soccer_session.js` (a new, pure module --
+no Chrome API of its own, dual Node/browser like `ids.js`) maintains a
+small ledger (`{competition_id, country, competition, status}` per
+discovered competition, statuses `PENDING`/`COMPLETED`/`CONFIRMED_EMPTY`/
+`FAILED`) plus every fixture/unparsed-record captured so far, persisted
+to `chrome.storage.local` (a new, deliberate, narrowly-scoped exception to
+this extension's otherwise no-storage design -- see `manifest.json`'s
+`storage` permission and popup.js's own header comment) after EVERY
+batch via `soccer_walker.js`'s new `context.onBatchComplete` hook, not
+only when the whole capture finishes. The popup's single button is
+replaced with five explicit actions:
+
+- **Start new capture** -- discovers the inventory fresh (via
+  `context.discoveryOnly`, a walk-nothing discovery pass) and begins a
+  brand-new session, discarding any previously saved one.
+- **Resume capture** -- rediscovers the inventory, reconciles it into the
+  existing session (`reconcileInventory`: an id present in both keeps its
+  status; a newly discovered id is added `PENDING`; an id that vanished
+  from the fresh discovery is RETAINED as-is, never dropped, since
+  Bet9ja's own inventory changing between runs must never discard
+  completed work), then walks only the currently-`PENDING` ids via
+  `context.competitionIdFilter`.
+- **Retry failed competitions** -- same reconcile step, but walks only
+  currently-`FAILED` ids -- a separate, explicit action, never folded
+  into a normal resume (a normal resume must never silently re-attempt a
+  competition that already failed for a real reason).
+- **Download current results** -- `bet9ja-soccer-all-{session_id}.json`,
+  the full assembled file: every completed segment's fixtures (deduped by
+  `fixture_id`, the same scheme every other capture button uses) plus the
+  complete competition-status ledger.
+- **Clear saved session** -- removes the stored session outright.
+
+Resume authority is EXCLUSIVELY each competition's own stable
+`competition_id` (the Bet9ja checkbox id) -- never a numeric index or
+array position; a session's own `next_pending_index`-equivalent count
+exists only as a display aid. Each run also downloads its own small
+segment file (`bet9ja-soccer-session-{session_id}-segment-{NNN}.json`) --
+exactly what that one run captured, never the whole session.
+`soccer_walker.js`'s own accounting gained a matching
+`competitions_skipped_by_resume_filter` counter (and
+`SKIPPED_BY_RESUME_FILTER` competition outcome) for every competition a
+filtered run deliberately did not attempt -- folded into the same
+accounting invariant every other skip reason already participates in,
+never silently unaccounted for. A filtered run is never reported
+`CAPTURE_COMPLETE` (that status claims the WHOLE inventory succeeded,
+which a deliberately-partial resume/retry segment never claims).
+
 ### Output shape (`bet9ja-soccer-all-competitions-capture.v3`)
 
 `capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS'`,
@@ -941,7 +991,13 @@ duplicated across batches is deduplicated, not captured twice.
 `countries_available`/`countries_visited`/`countries_failed`,
 `competitions_available`/`competitions_captured`/`competitions_empty`/
 `competitions_failed`/`competitions_skipped_by_safety_cap`/
-`competitions_skipped_by_early_stop`, `duplicates_skipped`,
+`competitions_skipped_by_early_stop`/`competitions_skipped_by_resume_filter`
+(Round 12 -- competitions a filtered resume/retry run deliberately did
+not attempt), `duplicates_skipped`,
+`discovered_competitions` (Round 12 -- non-null ONLY on a
+`context.discoveryOnly` call: every freshly discovered competition's
+`{competition_id, country, competition}`, used by `soccer_session.js` to
+seed or reconcile a session before deciding what to walk),
 `resume_metadata` (`can_resume`, `last_completed_competition_id`,
 `resume_hint` — populated whenever the walk stops early), `batch_results[]`
 — one entry per attempted batch (`batch_index`, `competition_ids`, `ok`,

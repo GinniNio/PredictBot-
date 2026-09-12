@@ -1,20 +1,30 @@
 /**
  * Popup click handler -- the ONLY entry point that ever runs capture code.
  * Nothing in this extension executes on page load, on a schedule, or in a
- * background service worker; everything below is triggered directly by the
- * "Capture fixtures" button click, which is also what makes the
- * (click-gated) `activeTab` permission usable at all.
+ * background service worker; everything below is triggered directly by a
+ * button click, which is also what makes the (click-gated) `activeTab`
+ * permission usable at all.
  *
  * Permission contract: this file only ever calls chrome.tabs, chrome.
- * scripting, and chrome.downloads -- matching manifest.json's permissions
- * exactly (activeTab, scripting, downloads). No chrome.storage, no
- * chrome.cookies, no host_permissions, no fetch/XMLHttpRequest of any
- * kind. Because there is no persistent storage, duplicate_status across
- * separate captures always starts fresh (NEW / DUPLICATE_WITHIN_CAPTURE
- * only) -- cross-capture "have I seen this odds change before" history is
- * intentionally deferred to the ledger's own idempotent re-import
- * (ledgers.forecast_ledger, keyed by the same deterministic fixture_id),
- * not duplicated here.
+ * scripting, chrome.downloads, and (ONE exception, see below)
+ * chrome.storage.local -- matching manifest.json's permissions exactly
+ * (activeTab, scripting, downloads, storage). No chrome.cookies, no
+ * host_permissions, no fetch/XMLHttpRequest of any kind. Because there is
+ * otherwise no persistent storage, duplicate_status for every button
+ * EXCEPT "Capture all Soccer fixtures" always starts fresh (NEW /
+ * DUPLICATE_WITHIN_CAPTURE only) across separate captures -- cross-capture
+ * "have I seen this odds change before" history is intentionally deferred
+ * to the ledger's own idempotent re-import (ledgers.forecast_ledger, keyed
+ * by the same deterministic fixture_id), not duplicated here.
+ *
+ * The ONE exception: "Capture all Soccer fixtures" persists its OWN
+ * checkpoint ledger (competition ids, statuses, and fixtures already
+ * captured -- never cookies, tokens, or account data) to
+ * chrome.storage.local under one fixed key, so a crash, an accidental
+ * popup close, or a genuinely failed competition never costs the whole
+ * multi-hundred-competition walk's prior progress. See soccer_session.js's
+ * own header comment for the full checkpointing design and resume
+ * authority (a competition's own stable id, never a numeric position).
  */
 const button = document.getElementById('capture-button');
 const statusEl = document.getElementById('status');
@@ -193,21 +203,77 @@ ticketButton.addEventListener('click', async () => {
   }
 });
 
-// --- Capture all Soccer fixtures ---------------------------------------
-// Same click-gated, no-storage discipline as the buttons above -- see
-// soccer_walker.js's own header comment for scope, the confirmed
-// `/sportPage/1/competitions` batch-selector contract (Round 5), and the
-// current real-capture validation status (`CAPTURE_COMPLETE` is this
-// module's own top status, distinct from the other buttons' `CAPTURE_OK`).
-const soccerAllButton = document.getElementById('soccer-all-capture-button');
+// --- Capture all Soccer fixtures (durable checkpointed session) --------
+// UNLIKE every other button in this file, this flow DOES use
+// chrome.storage.local (see manifest.json's "storage" permission) --
+// deliberately: soccer_session.js's own header comment explains why a
+// long, many-batch walk needs a durable checkpoint (a crash, an
+// accidental popup close, or a genuinely failed competition must never
+// cost the whole run's prior progress). Nothing captured is ever more
+// sensitive than what the other buttons already read (public fixture
+// odds); this only persists THIS extension's OWN progress ledger, never
+// cookies, tokens, or account data. See soccer_walker.js's own header
+// comment for capture scope and the confirmed
+// `/sportPage/1/competitions` batch-selector contract.
+const SOCCER_SESSION_STORAGE_KEY = 'bet9ja_soccer_session';
+const soccerStartNewButton = document.getElementById('soccer-start-new-button');
+const soccerResumeButton = document.getElementById('soccer-resume-button');
+const soccerRetryFailedButton = document.getElementById('soccer-retry-failed-button');
+const soccerDownloadButton = document.getElementById('soccer-download-button');
+const soccerClearSessionButton = document.getElementById('soccer-clear-session-button');
 const soccerAllCancelButton = document.getElementById('soccer-all-cancel-button');
 const soccerAllStatusEl = document.getElementById('soccer-all-status');
+const soccerSessionSummaryEl = document.getElementById('soccer-session-summary');
+const SOCCER_BUTTONS = [soccerStartNewButton, soccerResumeButton, soccerRetryFailedButton, soccerDownloadButton, soccerClearSessionButton];
 let soccerAllCaptureInFlight = false;
+let soccerProgressIntervalId = null;
 
 function setSoccerAllStatus(cssClass, text) {
   soccerAllStatusEl.className = cssClass;
   soccerAllStatusEl.textContent = text;
 }
+
+async function loadSoccerSession() {
+  const data = await chrome.storage.local.get(SOCCER_SESSION_STORAGE_KEY);
+  return data[SOCCER_SESSION_STORAGE_KEY] || null;
+}
+
+async function saveSoccerSession(sessionObj) {
+  await chrome.storage.local.set({ [SOCCER_SESSION_STORAGE_KEY]: sessionObj });
+}
+
+async function clearSoccerSessionStorage() {
+  await chrome.storage.local.remove(SOCCER_SESSION_STORAGE_KEY);
+}
+
+/** Renders the "Completed: 139  Failed: 1  Remaining: 213" ledger summary and enables/disables each action to match what the saved session actually allows. */
+function renderSoccerSessionSummary(sessionObj) {
+  if (!sessionObj) {
+    soccerSessionSummaryEl.textContent = 'No saved Soccer capture session.';
+    soccerResumeButton.disabled = true;
+    soccerRetryFailedButton.disabled = true;
+    soccerDownloadButton.disabled = true;
+    soccerClearSessionButton.disabled = true;
+    return;
+  }
+  const summary = Bet9jaSoccerSession.summarize(sessionObj);
+  const failedIds = Bet9jaSoccerSession.failedCompetitionIds(sessionObj);
+  const lastFailed = failedIds.length ? sessionObj.inventory.find((e) => e.competition_id === failedIds[failedIds.length - 1]) : null;
+  const lastFailedLine = lastFailed ? `Last failed: ${lastFailed.country || ''} > ${lastFailed.competition || lastFailed.competition_id}\n` : '';
+  soccerSessionSummaryEl.textContent =
+    `Session: ${sessionObj.capture_session_id}\n` +
+    lastFailedLine +
+    `Completed: ${summary.completed}  Empty: ${summary.confirmed_empty}  Failed: ${summary.failed}  Remaining: ${summary.pending}`;
+  soccerResumeButton.disabled = summary.pending === 0;
+  soccerRetryFailedButton.disabled = summary.failed === 0;
+  soccerDownloadButton.disabled = summary.completed + summary.confirmed_empty + summary.failed === 0;
+  soccerClearSessionButton.disabled = false;
+}
+
+async function refreshSoccerSessionUI() {
+  renderSoccerSessionSummary(await loadSoccerSession());
+}
+refreshSoccerSessionUI();
 
 const COMPETITIONS_URL_PATTERN = /^https:\/\/sports\.bet9ja\.com\/sportPage\/1\/competitions\/?(?:[?#].*)?$/;
 const COMPETITIONS_TARGET_URL = 'https://sports.bet9ja.com/sportPage/1/competitions';
@@ -266,12 +332,62 @@ async function ensureOnCompetitionsRoute(tab) {
   return settledTab;
 }
 
-async function runSoccerAllCapture() {
+/** Injects a fresh, walk-nothing discovery-only call -- see soccer_walker.js's own `discoveryOnly` comment for why a resume/retry needs this BEFORE it can decide which ids to filter to. */
+async function discoverSoccerInventory(tabId, tabUrl, tabTitle, capturedAtUtc) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (sourceUrl, pageTitle, capturedAtUtcArg) =>
+      window.__bet9jaSoccerAllCompetitionsCaptureRun(sourceUrl, pageTitle, capturedAtUtcArg, null, true),
+    args: [tabUrl || '', tabTitle || '', capturedAtUtc],
+  });
+  const result = results && results[0] && results[0].result;
+  if (!result || !result.envelope || !result.envelope.discovered_competitions) {
+    const reasons = (result && result.envelope && result.envelope.capture_status_reasons) || [];
+    throw new Error(`Could not discover the Soccer competitions inventory${reasons.length ? `: ${reasons.join(', ')}` : ' (page may block script injection).'}`);
+  }
+  return result.envelope;
+}
+
+/** Drains every batch delta queued in the page since the last poll and persists them immediately -- so a crash, cancel, or closed popup loses at most the one batch in flight. `sessionRef` is a plain {current} box so this can be called repeatedly on an interval while sharing one evolving session object with the caller. */
+async function drainAndPersistSoccerDeltas(tabId, sessionRef) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => (window.__bet9jaSoccerAllDrainPendingDeltas ? window.__bet9jaSoccerAllDrainPendingDeltas() : []),
+    });
+    const deltas = (results && results[0] && results[0].result) || [];
+    if (deltas.length === 0) return;
+    let next = sessionRef.current;
+    for (const delta of deltas) {
+      next = Bet9jaSoccerSession.applyBatchDelta(next, delta);
+    }
+    sessionRef.current = next;
+    await saveSoccerSession(next);
+    renderSoccerSessionSummary(next);
+  } catch (err) {
+    // Best-effort only, same discipline as the settled-bets progress poll
+    // above -- a failed drain never affects the underlying capture, which
+    // keeps running independently and gets one more chance next poll.
+  }
+}
+
+/**
+ * Runs one checkpointed segment of the "Capture all Soccer fixtures"
+ * flow. `mode` is `'new'` (always starts a brand-new session, discarding
+ * any prior saved one), `'resume'` (walks only currently-`PENDING` ids),
+ * or `'retry'` (walks only currently-`FAILED` ids -- a separate, explicit
+ * action, never folded into a normal resume). Resume/retry always
+ * rediscover the real inventory first and reconcile it into the existing
+ * session (`Bet9jaSoccerSession.reconcileInventory`) -- Bet9ja's own
+ * inventory can change between runs, and an index is never the resume
+ * authority (see soccer_session.js's own header comment); only a
+ * competition's own stable id is.
+ */
+async function runCheckpointedSoccerSegment(mode) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) {
     throw new Error('No active tab found.');
   }
-
   const couponsTab = await ensureOnCompetitionsRoute(tab);
   const capturedAtUtc = new Date().toISOString();
 
@@ -280,61 +396,134 @@ async function runSoccerAllCapture() {
     files: ['ids.js', 'parser.js', 'soccer_walker.js', 'content.js'],
   });
 
-  const injectionResults = await chrome.scripting.executeScript({
-    target: { tabId: couponsTab.id },
-    func: (sourceUrl, pageTitle, capturedAtUtcArg) =>
-      window.__bet9jaSoccerAllCompetitionsCaptureRun(sourceUrl, pageTitle, capturedAtUtcArg),
-    args: [couponsTab.url || '', couponsTab.title || '', capturedAtUtc],
-  });
+  let sessionObj = await loadSoccerSession();
 
-  const result = injectionResults && injectionResults[0] && injectionResults[0].result;
-  if (!result || !result.envelope) {
-    throw new Error('Soccer capture produced no result (page may block script injection).');
+  if (mode === 'new' || !sessionObj) {
+    const discovered = await discoverSoccerInventory(couponsTab.id, couponsTab.url, couponsTab.title, capturedAtUtc);
+    sessionObj = Bet9jaSoccerSession.createSession({
+      sessionId: `soccer-${timestampForFilename(capturedAtUtc)}`,
+      capturedAtUtc,
+      captureScope: discovered.capture_scope,
+      inventory: discovered.discovered_competitions,
+    });
+    await saveSoccerSession(sessionObj);
+  } else {
+    const discovered = await discoverSoccerInventory(couponsTab.id, couponsTab.url, couponsTab.title, capturedAtUtc);
+    sessionObj = Bet9jaSoccerSession.reconcileInventory(sessionObj, discovered.discovered_competitions);
+    await saveSoccerSession(sessionObj);
   }
-  return { ...result, tabId: couponsTab.id };
+
+  const filterIds = mode === 'retry' ? Bet9jaSoccerSession.failedCompetitionIds(sessionObj) : Bet9jaSoccerSession.pendingCompetitionIds(sessionObj);
+  if (filterIds.length === 0) {
+    return { sessionObj, envelope: null };
+  }
+
+  const sessionRef = { current: sessionObj };
+  soccerProgressIntervalId = setInterval(() => drainAndPersistSoccerDeltas(couponsTab.id, sessionRef), 1000);
+
+  let envelope = null;
+  try {
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId: couponsTab.id },
+      func: (sourceUrl, pageTitle, capturedAtUtcArg, filterIdsArg) =>
+        window.__bet9jaSoccerAllCompetitionsCaptureRun(sourceUrl, pageTitle, capturedAtUtcArg, filterIdsArg, false),
+      args: [couponsTab.url || '', couponsTab.title || '', capturedAtUtc, filterIds],
+    });
+    const result = injectionResults && injectionResults[0] && injectionResults[0].result;
+    if (!result || !result.envelope) {
+      throw new Error('Soccer capture produced no result (page may block script injection).');
+    }
+    envelope = result.envelope;
+  } finally {
+    clearInterval(soccerProgressIntervalId);
+    soccerProgressIntervalId = null;
+    // Catches anything queued between the last poll and this run ending
+    // -- never rely on the poll interval alone to have caught the last batch.
+    await drainAndPersistSoccerDeltas(couponsTab.id, sessionRef);
+  }
+
+  return { sessionObj: sessionRef.current, envelope };
 }
 
-soccerAllButton.addEventListener('click', async () => {
+async function handleCheckpointedSoccerAction(mode) {
   if (soccerAllCaptureInFlight) {
     return;
   }
   soccerAllCaptureInFlight = true;
-  soccerAllButton.disabled = true;
+  SOCCER_BUTTONS.forEach((b) => (b.disabled = true));
   soccerAllCancelButton.hidden = false;
-  setSoccerAllStatus('ok', 'Capturing all Soccer competitions...');
+  soccerAllCancelButton.disabled = false;
+  soccerAllCancelButton.textContent = 'Cancel';
+  setSoccerAllStatus(
+    'ok',
+    mode === 'new' ? 'Starting new capture...' : mode === 'retry' ? 'Retrying failed competitions...' : 'Resuming capture...'
+  );
   try {
-    const { envelope } = await runSoccerAllCapture();
+    const { sessionObj, envelope } = await runCheckpointedSoccerSegment(mode);
+    renderSoccerSessionSummary(sessionObj);
 
-    const filename = `bet9ja-soccer-all-${timestampForFilename(envelope.captured_at_utc)}.json`;
-    await triggerDownload(filename, JSON.stringify(envelope, null, 2));
+    if (!envelope) {
+      setSoccerAllStatus('ok', mode === 'retry' ? 'No failed competitions to retry.' : 'Nothing pending to resume.');
+      return;
+    }
 
-    const resumeLine =
-      envelope.resume_metadata && envelope.resume_metadata.can_resume ? `Resume: ${envelope.resume_metadata.resume_hint}\n` : '';
-    const summary =
+    // "Each run can download a small segment file" -- exactly what THIS
+    // run captured (never the whole session; see "Download current
+    // results" below for the cumulative file).
+    const segmentIndex = (sessionObj.segments ? sessionObj.segments.length : 0) + 1;
+    const segmentEnvelope = Bet9jaSoccerSession.buildSegmentEnvelope(sessionObj, segmentIndex, {
+      competitionResults: envelope.competition_results,
+      fixtures: envelope.fixtures,
+      unparsedRecords: envelope.unparsed_records,
+    });
+    const segmentFilename = `bet9ja-soccer-session-${sessionObj.capture_session_id}-segment-${String(segmentIndex).padStart(3, '0')}.json`;
+    await triggerDownload(segmentFilename, JSON.stringify(segmentEnvelope, null, 2));
+    const sessionWithSegment = {
+      ...sessionObj,
+      segments: [...(sessionObj.segments || []), { segment_index: segmentIndex, filename: segmentFilename }],
+    };
+    await saveSoccerSession(sessionWithSegment);
+    renderSoccerSessionSummary(sessionWithSegment);
+
+    const summary = Bet9jaSoccerSession.summarize(sessionWithSegment);
+    const text =
       `${envelope.capture_status}\n` +
-      `Countries: ${envelope.countries_visited}/${envelope.countries_available} (failed: ${envelope.countries_failed})\n` +
-      `Competitions: ${envelope.competitions_captured}/${envelope.competitions_available} (empty: ${envelope.competitions_empty}, failed: ${envelope.competitions_failed})\n` +
-      `Batches: ${envelope.batch_results.length}\n` +
-      `Fixtures captured: ${envelope.fixtures.length}\n` +
-      `Duplicates skipped: ${envelope.duplicates_skipped}\n` +
-      resumeLine +
-      `Reasons: ${envelope.capture_status_reasons.join(', ')}\n` +
-      `Saved: ${filename}`;
-
-    const cssClass =
-      envelope.capture_status === 'CAPTURE_COMPLETE'
-        ? 'ok'
-        : envelope.capture_status === 'CAPTURE_PARTIAL'
-          ? 'partial'
-          : 'failed';
-    setSoccerAllStatus(cssClass, summary);
+      `This run -- captured: ${envelope.competitions_captured}, empty: ${envelope.competitions_empty}, failed: ${envelope.competitions_failed}\n` +
+      `Session totals -- completed: ${summary.completed}, empty: ${summary.confirmed_empty}, failed: ${summary.failed}, remaining: ${summary.pending}\n` +
+      `Reasons: ${(envelope.capture_status_reasons || []).join(', ') || 'none'}\n` +
+      `Saved segment: ${segmentFilename}`;
+    const cssClass = envelope.capture_status === 'CAPTURE_COMPLETE' ? 'ok' : envelope.capture_status === 'CAPTURE_PARTIAL' ? 'partial' : 'failed';
+    setSoccerAllStatus(cssClass, text);
   } catch (err) {
     setSoccerAllStatus('error', `Soccer capture failed to run: ${err && err.message ? err.message : String(err)}`);
   } finally {
-    soccerAllButton.disabled = false;
-    soccerAllCancelButton.hidden = true;
     soccerAllCaptureInFlight = false;
+    SOCCER_BUTTONS.forEach((b) => (b.disabled = false));
+    soccerAllCancelButton.hidden = true;
+    await refreshSoccerSessionUI();
   }
+}
+
+soccerStartNewButton.addEventListener('click', () => handleCheckpointedSoccerAction('new'));
+soccerResumeButton.addEventListener('click', () => handleCheckpointedSoccerAction('resume'));
+soccerRetryFailedButton.addEventListener('click', () => handleCheckpointedSoccerAction('retry'));
+
+soccerDownloadButton.addEventListener('click', async () => {
+  const sessionObj = await loadSoccerSession();
+  if (!sessionObj) {
+    setSoccerAllStatus('error', 'No saved session to download.');
+    return;
+  }
+  const assembled = Bet9jaSoccerSession.buildAssembledEnvelope(sessionObj);
+  const filename = `bet9ja-soccer-all-${sessionObj.capture_session_id}.json`;
+  await triggerDownload(filename, JSON.stringify(assembled, null, 2));
+  setSoccerAllStatus('ok', `Saved: ${filename}`);
+});
+
+soccerClearSessionButton.addEventListener('click', async () => {
+  await clearSoccerSessionStorage();
+  setSoccerAllStatus('ok', 'Saved session cleared.');
+  await refreshSoccerSessionUI();
 });
 
 soccerAllCancelButton.addEventListener('click', async () => {

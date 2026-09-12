@@ -755,3 +755,122 @@ test('safety: soccer_walker.js only ever clicks a country accordion toggle, a co
   assert.ok(!code.includes('javascript:'));
   assert.ok(!code.includes('checkbox.click'));
 });
+
+// --- Round 12: checkpointed capture sessions (soccer_session.js) support:
+// context.competitionIdFilter (walk only a caller-specified subset of the
+// freshly discovered inventory) and context.onBatchComplete (a per-batch
+// progress hook so a session can be persisted after EVERY batch, not only
+// at the end) -------------------------------------------------------------
+
+test('competitionIdFilter: only the filtered-in competitions are walked; every filtered-out one gets an honest SKIPPED_BY_RESUME_FILTER row, never silently absent', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, {
+    ...BASE_CONTEXT,
+    // Only Nigeria and Championship -- Premier League (2000001) is
+    // deliberately left out, modeling a "Resume capture" run that skips
+    // an already-COMPLETED competition from a prior session.
+    competitionIdFilter: ['1209691', '2000002'],
+  });
+  const nigeria = envelope.competition_results.find((r) => r.source_competition_id === '1209691');
+  const premierLeague = envelope.competition_results.find((r) => r.source_competition_id === '2000001');
+  const championship = envelope.competition_results.find((r) => r.source_competition_id === '2000002');
+  assert.equal(nigeria.outcome, 'CAPTURED_IN_BATCH');
+  assert.equal(championship.outcome, 'CAPTURED_IN_BATCH');
+  assert.equal(premierLeague.outcome, 'SKIPPED_BY_RESUME_FILTER');
+  assert.equal(premierLeague.batch_index, null);
+  assert.equal(envelope.competitions_skipped_by_resume_filter, 1);
+  assert.ok(envelope.capture_status_reasons.includes('COMPETITIONS_SKIPPED_BY_RESUME_FILTER'));
+  assert.ok(!envelope.capture_status_reasons.includes('COMPETITION_ACCOUNTING_INVARIANT_VIOLATED'));
+  assert.equal(
+    envelope.competitions_available,
+    envelope.competitions_captured +
+      envelope.competitions_empty +
+      envelope.competitions_failed +
+      envelope.competitions_skipped_by_safety_cap +
+      envelope.competitions_skipped_by_early_stop +
+      envelope.competitions_skipped_by_resume_filter
+  );
+  // A filtered run is, by design, only ever attempting a deliberate
+  // subset -- never CAPTURE_COMPLETE, which claims the whole inventory
+  // succeeded.
+  assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
+});
+
+test('competitionIdFilter accepts a Set as well as an array', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, {
+    ...BASE_CONTEXT,
+    competitionIdFilter: new Set(['1209691']),
+  });
+  assert.equal(envelope.competitions_skipped_by_resume_filter, 0);
+  assert.equal(envelope.competition_results[0].outcome, 'CAPTURED_IN_BATCH');
+});
+
+test('onBatchComplete fires once per genuinely attempted competition (and once for the up-front filtered-out set), each call carrying only that call\'s own delta, never the whole running total', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND] }));
+  const calls = [];
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, {
+    ...BASE_CONTEXT,
+    onBatchComplete: (delta) => calls.push(delta),
+  });
+  // One call per batch (3 competitions, MAX_COMPETITIONS_PER_BATCH === 1
+  // means 3 batches) -- never one giant call with everything at the end.
+  assert.equal(calls.length, 3);
+  const allDeltaIds = calls.flatMap((c) => c.competitionResults.map((r) => r.source_competition_id));
+  assert.deepEqual(allDeltaIds.sort(), ['1209691', '2000001', '2000002'].sort());
+  // Every delta's own fixtures are a SUBSET of the final envelope's own
+  // fixtures (by fixture_id) -- proof this is a true per-batch delta, not
+  // an accumulating snapshot.
+  const finalFixtureIds = new Set(envelope.fixtures.map((f) => f.fixture_id));
+  for (const call of calls) {
+    for (const fixture of call.fixtures) {
+      assert.ok(finalFixtureIds.has(fixture.fixture_id));
+    }
+  }
+});
+
+test('onBatchComplete also fires for a filtered-out competition (SKIPPED_BY_RESUME_FILTER), so a session can record it without waiting for the whole run to finish', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND] }));
+  const calls = [];
+  await soccerWalker.captureAllSoccerCompetitions(doc, {
+    ...BASE_CONTEXT,
+    competitionIdFilter: ['1209691'],
+    onBatchComplete: (delta) => calls.push(delta),
+  });
+  const skippedCall = calls.find((c) => c.competitionResults.some((r) => r.outcome === 'SKIPPED_BY_RESUME_FILTER'));
+  assert.ok(skippedCall, 'expected one onBatchComplete call covering the filtered-out competitions');
+  assert.equal(skippedCall.competitionResults.length, 2); // England's two competitions
+});
+
+test('a throwing onBatchComplete never breaks the underlying capture', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, {
+    ...BASE_CONTEXT,
+    onBatchComplete: () => {
+      throw new Error('boom');
+    },
+  });
+  assert.equal(envelope.competitions_captured, 1);
+  assert.equal(envelope.capture_status, 'CAPTURE_COMPLETE');
+});
+
+test('discoveryOnly: runs discovery but walks nothing -- no competition is ever selected, no Show Leagues click happens, and every discovered competition is returned', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, {
+    ...BASE_CONTEXT,
+    discoveryOnly: true,
+  });
+  assert.equal(envelope.competitions_available, 3);
+  assert.deepEqual(
+    envelope.discovered_competitions.map((c) => c.competition_id).sort(),
+    ['1209691', '2000001', '2000002'].sort()
+  );
+  const nigeriaEntry = envelope.discovered_competitions.find((c) => c.competition_id === '1209691');
+  assert.equal(nigeriaEntry.country, 'Nigeria');
+  assert.equal(nigeriaEntry.competition, 'Professional Football League');
+  // Nothing was ever walked -- no batches, no fixtures, no checkbox ever
+  // left checked (still exactly as discovery found it).
+  assert.equal(envelope.batch_results.length, 0);
+  assert.equal(envelope.fixtures.length, 0);
+  assert.equal(doc.querySelectorAll('.sportpage__cb-input:checked').length, 0);
+});
