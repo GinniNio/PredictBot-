@@ -1664,3 +1664,135 @@ pinpoint the exact segment/batch). Then run Resume/Retry failed again for
 real and confirm no NEW `CONFIRMED_EMPTY`+fixtures conflict is ever
 produced, and that any batch whose content genuinely couldn't be
 confirmed shows up as `COMPETITION_STALE_CONTENT_SUSPECTED` instead.
+
+## Round 14 -- 2026-09-12 (the guard worked exactly as designed; the
+underlying classification bug it caught was still real and systematic)
+
+Round 13's export-time guard did its job -- it correctly BLOCKED a
+contradictory export rather than producing one. But the underlying
+classification bug was still live, and a fresh segment export proved it
+was systematic, not occasional:
+
+| Outcome | Competitions |
+|---|---:|
+| `CAPTURED_IN_BATCH` | 272 |
+| `BATCH_EMPTY` | 46 |
+| `COMPETITION_CONTENT_UNRESOLVED` | 3 |
+| Total | 321 |
+
+Fixtures existed for 318 competition ids -- exactly `272 + 46`. Every
+single `BATCH_EMPTY` competition in this segment had captured fixtures,
+including a clean example: UEFA Champions League (id `5468459`) recorded
+`BATCH_EMPTY` with fixtures present.
+
+### Root cause
+
+`parser.js`'s own header comment (Round 2, still accurate) already
+documents that a single page's rendered content can include MORE THAN
+ONE `.sports-table` -- "2 tables, one per date section" was the
+originally-confirmed real shape. `soccer_walker.js`'s per-competition
+classification, though, built `attributionByCompetitionId` as a `Map`
+keyed on `source_competition_id` from `table_attribution_summary`'s
+per-TABLE `row_count` entries -- and a `Map.set` on an already-present
+key OVERWRITES the previous value. A competition whose fixtures span
+TWO OR MORE `.sports-table`s (exactly what UEFA Champions League, with
+its own multiple matchdays, would very plausibly render) had every
+earlier table's real row count silently discarded, keeping only the
+LAST table's own count. If that last table happened to be empty (a
+later, not-yet-populated date section, or simply table rendering order),
+the whole competition read `row_count: 0` and was classified
+`BATCH_EMPTY` -- even though its EARLIER table had already produced real
+fixtures, which were separately (and correctly) pushed into `fixtures[]`
+regardless of this broken per-table bookkeeping. This explains the exact
+reported symmetry: fixtures existed for precisely the competitions whose
+LAST table happened to differ from at least one of their own earlier
+tables.
+
+### Fix
+
+Classification no longer reads any per-table `row_count` for the
+CAPTURED_IN_BATCH/BATCH_EMPTY decision at all. It is now driven directly
+by the actual PARSED FIXTURE COUNT this batch produced and kept
+(`newFixturesThisBatch`, precisely the same array attached to
+`fixtures[]` and handed to `onBatchComplete`) -- summed per competition
+id, immune to the table-collapse bug by construction since it counts
+real output across every table rather than reading one (possibly wrong)
+table's own count:
+
+```
+records_parsed > 0                                    -> CAPTURED_IN_BATCH
+records_parsed == 0 and content change confirmed       -> BATCH_EMPTY
+records_parsed == 0 and content change NOT confirmed   -> COMPETITION_STALE_CONTENT_SUSPECTED
+records_parsed == 0 and no table ever rendered          -> COMPETITION_CONTENT_UNRESOLVED
+```
+
+(The per-table attribution `Map` is also fixed defensively -- summed
+rather than overwritten -- for the `COMPETITION_ATTRIBUTION_UNRESOLVED`
+vs. `COMPETITION_CONTENT_UNRESOLVED` distinction, which still needs to
+know whether ANY table rendered at all.) No confirmed empty-state
+selector exists for this page still ([UNVERIFIED], never guessed at) --
+that honest limitation is unchanged from Round 13.
+
+A hard runtime invariant now backs this up directly in
+`captureAllSoccerCompetitions`:
+
+```js
+if (outcome === 'BATCH_EMPTY' && parsedCount > 0) {
+  throw new Error('BATCH_OUTCOME_FIXTURE_CONFLICT');
+}
+```
+
+This throws rather than silently recovering -- a violation here means
+the classification logic itself has a bug that must be fixed, never
+papered over with a fallback guess. `soccer_session.js` gained a second,
+independent check at the segment-generation boundary --
+`validateSegmentOutcomeFixtureConsistency`, used by `buildSegmentEnvelope`,
+throwing `SEGMENT_OUTCOME_FIXTURE_CONFLICT` -- using
+`soccer_walker.js`'s own outcome vocabulary directly, alongside (not
+instead of) Round 13's ledger-level `SESSION_LEDGER_FIXTURE_CONFLICT`
+check.
+
+### Session integration boundary
+
+Confirmed the ledger is updated from the SAME finalized batch result
+whose fixtures are appended: `soccer_walker.js`'s `notifyBatchComplete`
+call already passes one delta object
+(`{competitionResults: batchCompetitionResults, fixtures:
+newFixturesThisBatch, unparsedRecords: newUnparsedThisBatch}`) built
+from the SAME already-corrected classification and the SAME fixtures
+array -- there was never a separate "earlier readiness/content-change
+result" the ledger could read from instead. This is structural, not
+merely tested: the ledger-write function
+(`soccer_session.js`'s `applyBatchDelta`) only ever receives this one
+object.
+
+### Tests
+
+248/248 JS tests pass. New tests cover exactly the six requested cases:
+parsed fixtures always producing `CAPTURED_IN_BATCH`; a competition
+whose fixtures render across TWO `.sports-table`s (one real, one
+genuinely empty -- the exact real defect shape) still producing
+`CAPTURED_IN_BATCH`, never `BATCH_EMPTY`; an explicit empty state with
+zero parsed fixtures producing `BATCH_EMPTY`; zero fixtures with no
+rendered table producing `COMPETITION_CONTENT_UNRESOLVED`; ledger status
+and appended fixtures coming from the same finalized batch result; and
+segment generation rejecting an empty outcome that still carries
+fixtures (`SEGMENT_OUTCOME_FIXTURE_CONFLICT`).
+
+### PARSER_VERSION
+
+Bumped to `bet9ja-soccer-walker@0.7.0-round14-batch-outcome-fixture-conflict-fix-unverified`
+-- still `-unverified`: not yet exercised against the live account.
+
+### Recommendation for Round 15
+
+Per instruction, the affected saved session was NOT resumed or retried
+(its ledger is already contradictory from before this fix existed) --
+clear it and start a brand-new capture. Watch specifically for any
+competition known to span multiple matchdays/date sections (UEFA
+Champions League, Europa League, or similar) and confirm it now reads
+`CAPTURED_IN_BATCH` with its real fixture count, never `BATCH_EMPTY`.
+If `BATCH_OUTCOME_FIXTURE_CONFLICT` or `SEGMENT_OUTCOME_FIXTURE_CONFLICT`
+ever throws in a real run, that is now itself the most useful possible
+evidence -- it means the classification fix still has a gap, pinpointed
+to the exact competition/batch that triggered it.

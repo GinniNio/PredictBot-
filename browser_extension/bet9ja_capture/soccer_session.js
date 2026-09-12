@@ -433,8 +433,61 @@
     };
   }
 
-  /** One run's own small segment file -- exactly what that run itself captured, never the whole session. */
+  /**
+   * ROUND 14: the segment-level counterpart to
+   * `validateLedgerFixtureConsistency`, using soccer_walker.js's own
+   * outcome vocabulary directly (never the ledger's smaller status
+   * vocabulary) -- a second, independent check on the SAME delta a live
+   * run's `onBatchComplete`/drain loop already applied to the ledger as
+   * it went (see popup.js's own `drainAndPersistSoccerDeltas`), so a
+   * classification bug is still caught even if it somehow slipped past
+   * `applyCompetitionResults`'s own write-time guard. Any
+   * competition result whose outcome maps to the ledger's
+   * `CONFIRMED_EMPTY` status (today, only `BATCH_EMPTY`) must have ZERO
+   * fixtures in this SAME segment attributed to its
+   * `source_competition_id`. Returns an array of
+   * `{competition_id, fixture_count}` conflicts -- empty means
+   * consistent.
+   */
+  function validateSegmentOutcomeFixtureConsistency(competitionResults, fixtures) {
+    const fixtureCountByCompetitionId = new Map();
+    for (const fixture of fixtures || []) {
+      const id = fixture.resolved_source_competition_id;
+      if (!id) continue;
+      fixtureCountByCompetitionId.set(id, (fixtureCountByCompetitionId.get(id) || 0) + 1);
+    }
+    const conflicts = [];
+    for (const result of competitionResults || []) {
+      const id = result.source_competition_id;
+      if (!id) continue;
+      if (OUTCOME_TO_LEDGER_STATUS[result.outcome] !== 'CONFIRMED_EMPTY') continue;
+      const fixtureCount = fixtureCountByCompetitionId.get(id) || 0;
+      if (fixtureCount > 0) conflicts.push({ competition_id: id, fixture_count: fixtureCount });
+    }
+    return conflicts;
+  }
+
+  /**
+   * One run's own small segment file -- exactly what that run itself
+   * captured, never the whole session. THROWS
+   * `err.code === 'SEGMENT_OUTCOME_FIXTURE_CONFLICT'` (never silently
+   * builds a self-contradictory segment) if
+   * `validateSegmentOutcomeFixtureConsistency` finds any conflict --
+   * this is the earliest point such a conflict can be caught, before it
+   * ever reaches the session ledger at all.
+   */
   function buildSegmentEnvelope(session, segmentIndex, { competitionResults, fixtures, unparsedRecords }) {
+    const conflicts = validateSegmentOutcomeFixtureConsistency(competitionResults, fixtures);
+    if (conflicts.length > 0) {
+      const err = new Error(
+        `SEGMENT_OUTCOME_FIXTURE_CONFLICT: ${conflicts.length} competition id(s) reported an empty outcome but this same segment also carries fixtures for them (${conflicts
+          .map((c) => c.competition_id)
+          .join(', ')})`
+      );
+      err.code = 'SEGMENT_OUTCOME_FIXTURE_CONFLICT';
+      err.conflicts = conflicts;
+      throw err;
+    }
     return {
       schema_version: SESSION_SCHEMA_VERSION,
       capture_session_id: session.capture_session_id,
@@ -463,6 +516,7 @@
     buildSegmentEnvelope,
     inventoryFingerprint,
     validateLedgerFixtureConsistency,
+    validateSegmentOutcomeFixtureConsistency,
     isTransitionAllowed,
   };
   if (typeof module !== 'undefined' && module.exports) {

@@ -505,7 +505,19 @@ async function handleCheckpointedSoccerAction(mode) {
     const cssClass = envelope.capture_status === 'CAPTURE_COMPLETE' ? 'ok' : envelope.capture_status === 'CAPTURE_PARTIAL' ? 'partial' : 'failed';
     setSoccerAllStatus(cssClass, text);
   } catch (err) {
-    setSoccerAllStatus('error', `Soccer capture failed to run: ${err && err.message ? err.message : String(err)}`);
+    if (err && err.code === 'SEGMENT_OUTCOME_FIXTURE_CONFLICT') {
+      // Round 14: this run's own classification produced an internally
+      // inconsistent result -- see soccer_walker.js's own
+      // BATCH_OUTCOME_FIXTURE_CONFLICT invariant, which should make this
+      // unreachable, but buildSegmentEnvelope checks independently
+      // anyway. The run's own ledger transitions (applied live via
+      // drainAndPersistSoccerDeltas as the run went) are NOT rolled back
+      // by this -- surfaced plainly so it's investigated, never silently
+      // swallowed.
+      setSoccerAllStatus('error', `${err.message}\nSegment file NOT saved -- this run's own classification produced an inconsistent result.`);
+    } else {
+      setSoccerAllStatus('error', `Soccer capture failed to run: ${err && err.message ? err.message : String(err)}`);
+    }
   } finally {
     soccerAllCaptureInFlight = false;
     SOCCER_BUTTONS.forEach((b) => (b.disabled = false));

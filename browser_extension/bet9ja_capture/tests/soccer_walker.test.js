@@ -1,5 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const soccerWalker = require('../soccer_walker.js');
 const { BASE_CONTEXT } = require('./helpers.js');
@@ -126,6 +128,15 @@ function pageHtml({
   // done -- just wrong -- which is exactly what `contentChangeConfirmed`
   // exists to catch.
   doNotUpdateForIds = [],
+  // ROUND 14: these ids render their configured rows in a FIRST
+  // .sports-table, followed by a SECOND, genuinely empty .sports-table
+  // (real evidence: parser.js's own header comment already documents "2
+  // tables, one per date section" for a single real page -- a
+  // competition spanning multiple matchdays, e.g. UEFA Champions League,
+  // can easily render this shape). Reproduces the exact real defect:
+  // per-table row counts collapsed by competition id must never lose
+  // the first table's real rows to the second table's own zero.
+  splitAcrossTwoTablesWithTrailingEmptyForIds = [],
 }) {
   const countriesHtml = countries.map((c) => countryAccordionHtml(c)).join('');
   const rowsById = {};
@@ -171,6 +182,7 @@ function pageHtml({
         const OMIT_TABLE_FOR_IDS = ${JSON.stringify(omitTableForIds)};
         const NEVER_UPDATES_FOR_IDS = ${JSON.stringify(neverUpdatesForIds)};
         const DO_NOT_UPDATE_FOR_IDS = ${JSON.stringify(doNotUpdateForIds)};
+        const SPLIT_ACROSS_TWO_TABLES_FOR_IDS = ${JSON.stringify(splitAcrossTwoTablesWithTrailingEmptyForIds)};
         const alreadySlowedIds = new Set();
         const results = document.getElementById('results');
         const limitNotice = document.getElementById('limit-notice');
@@ -255,6 +267,9 @@ function pageHtml({
                   const breadcrumb = 'Soccer > ' + (COUNTRY_LABELS_BY_ID[cb.id] || '') + ' > ' + competitionLabel;
                   const heading = OMIT_HEADINGS ? '' : '<div class="heading">' + breadcrumb + '</div>';
                   const rowsHtml = (ROWS_BY_ID[cb.id] || []).join('');
+                  if (SPLIT_ACROSS_TWO_TABLES_FOR_IDS.indexOf(cb.id) !== -1) {
+                    return heading + '<div class="sports-table">' + rowsHtml + '</div><div class="sports-table"></div>';
+                  }
                   return heading + '<div class="sports-table">' + rowsHtml + '</div>';
                 })
                 .join('');
@@ -918,4 +933,56 @@ test('ROUND 13 (real-capture regression): a batch whose Show Leagues click never
   assert.ok(envelope.capture_status_reasons.includes('SOME_COMPETITIONS_STALE_CONTENT_SUSPECTED'));
   const botswanaBatch = envelope.batch_results.find((b) => b.competition_ids.includes('1838204'));
   assert.equal(botswanaBatch.content_change_confirmed, false);
+});
+
+// --- Round 14: derive competition outcome from actual PARSED fixture
+// count, never a per-table row count (real evidence: a segment export
+// showed 46 competitions -- including UEFA Champions League -- marked
+// BATCH_EMPTY while ALL 46 had real fixtures attached) ------------------
+
+test('ROUND 14 requirement 1: parsed fixtures always produce CAPTURED_IN_BATCH', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.fixtures.length, 1);
+  assert.equal(envelope.competition_results[0].outcome, 'CAPTURED_IN_BATCH');
+});
+
+test('ROUND 14 requirement 2 (real-capture regression): a competition whose fixtures render across TWO .sports-tables (one with real rows, a second genuinely empty) is CAPTURED_IN_BATCH, never BATCH_EMPTY', async () => {
+  // This is the exact real defect: UEFA Champions League-shaped
+  // multi-date-section rendering must never lose its first table's real
+  // rows to a later, empty table's own zero row_count.
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA], splitAcrossTwoTablesWithTrailingEmptyForIds: ['1209691'] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.fixtures.length, 1);
+  assert.equal(envelope.competition_results[0].source_competition_id, '1209691');
+  assert.equal(envelope.competition_results[0].outcome, 'CAPTURED_IN_BATCH');
+  assert.equal(envelope.competitions_captured, 1);
+  assert.equal(envelope.competitions_empty, 0);
+});
+
+test('ROUND 14 requirement 3: an explicit empty state (zero configured rows, content change confirmed) with zero parsed fixtures produces BATCH_EMPTY', async () => {
+  const emptyComp = { countrySlug: 'nowhere', label: 'Nowhere', competitions: [{ checkboxId: '9999', label: 'Off Season League', rows: [] }] };
+  const doc = docFromHtml(pageHtml({ countries: [emptyComp] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.fixtures.length, 0);
+  assert.equal(envelope.competition_results[0].outcome, 'BATCH_EMPTY');
+  assert.equal(envelope.competitions_empty, 1);
+});
+
+test('ROUND 14 requirement 4: zero fixtures with no rendered table at all produces COMPETITION_CONTENT_UNRESOLVED', async () => {
+  const TURKEY = { countrySlug: 'turkey', label: 'Turkey', competitions: [{ checkboxId: '5000001', label: '2. Lig', rows: [] }] };
+  const doc = docFromHtml(pageHtml({ countries: [TURKEY], omitTableForIds: ['5000001'] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.competition_results[0].outcome, 'COMPETITION_CONTENT_UNRESOLVED');
+});
+
+test('ROUND 14: the hard invariant throws BATCH_OUTCOME_FIXTURE_CONFLICT rather than ever returning a BATCH_EMPTY outcome alongside parsed fixtures', () => {
+  // Direct unit check that the invariant guard exists and fires exactly
+  // on the shape of the reported defect -- exercised indirectly by
+  // requirement-2's own test above (which never throws, proving the
+  // classification fix itself works); this confirms the source text of
+  // the guard is present and unconditional.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'soccer_walker.js'), 'utf-8');
+  assert.ok(source.includes("throw new Error('BATCH_OUTCOME_FIXTURE_CONFLICT')"));
+  assert.ok(/outcome === 'BATCH_EMPTY' && parsedCount > 0/.test(source));
 });

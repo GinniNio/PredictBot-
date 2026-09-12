@@ -361,3 +361,73 @@ test('isTransitionAllowed is exported and matches the documented transition tabl
   assert.equal(session.isTransitionAllowed('COMPLETED', 'COMPLETED'), true);
   assert.equal(session.isTransitionAllowed('CONFIRMED_EMPTY', 'CONFIRMED_EMPTY'), true);
 });
+
+// --- Round 14: session integration boundary -- ledger status and
+// appended fixtures must come from the SAME finalized batch result, and
+// segment generation must reject any empty outcome that still carries
+// fixtures (real evidence: a segment showed 46 BATCH_EMPTY competitions,
+// including UEFA Champions League, that ALL had real fixtures attached) --
+
+test('ROUND 14 requirement 5: ledger status and appended fixtures come from the same finalized batch result (applyBatchDelta), never from an earlier readiness/content-change result', () => {
+  // The delta handed to applyBatchDelta IS soccer_walker.js's own final,
+  // post-classification competitionResults + the exact fixtures array
+  // attached to the envelope -- there is no separate "earlier" result
+  // this module could accidentally read instead. This test proves that
+  // a competitionResult and its own fixtures, passed together in ONE
+  // delta, always land in a mutually consistent ledger/fixture state.
+  let s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE] });
+  s = session.applyBatchDelta(s, {
+    competitionResults: [{ source_competition_id: '1209691', outcome: 'CAPTURED_IN_BATCH', batch_index: 0 }],
+    fixtures: [fixture('f1', '1209691', 'Enyimba')],
+    unparsedRecords: [],
+  });
+  const entry = s.inventory.find((e) => e.competition_id === '1209691');
+  assert.equal(entry.status, 'COMPLETED');
+  assert.equal(entry.fixture_count, 1);
+  assert.equal(session.allFixtures(s).length, 1);
+  assert.deepEqual(session.validateLedgerFixtureConsistency(s), []);
+});
+
+test('ROUND 14 requirement 6: buildSegmentEnvelope rejects a BATCH_EMPTY outcome that carries fixtures for the same id (SEGMENT_OUTCOME_FIXTURE_CONFLICT)', () => {
+  const s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE] });
+  assert.throws(
+    () =>
+      session.buildSegmentEnvelope(s, 1, {
+        competitionResults: [{ source_competition_id: '1209691', outcome: 'BATCH_EMPTY', batch_index: 0 }],
+        fixtures: [fixture('f1', '1209691', 'Enyimba')],
+        unparsedRecords: [],
+      }),
+    (err) => err.code === 'SEGMENT_OUTCOME_FIXTURE_CONFLICT' && err.conflicts.length === 1 && err.conflicts[0].competition_id === '1209691'
+  );
+});
+
+test('ROUND 14: buildSegmentEnvelope succeeds normally for a genuinely consistent delta (CAPTURED_IN_BATCH with fixtures, BATCH_EMPTY with none)', () => {
+  const s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE, PREMIER_LEAGUE] });
+  const segment = session.buildSegmentEnvelope(s, 1, {
+    competitionResults: [
+      { source_competition_id: '1209691', outcome: 'CAPTURED_IN_BATCH', batch_index: 0 },
+      { source_competition_id: '2000001', outcome: 'BATCH_EMPTY', batch_index: 1 },
+    ],
+    fixtures: [fixture('f1', '1209691', 'Enyimba')],
+    unparsedRecords: [],
+  });
+  assert.equal(segment.fixtures.length, 1);
+  assert.equal(segment.competition_results.length, 2);
+});
+
+test('validateSegmentOutcomeFixtureConsistency returns an empty array for a consistent delta and the conflicting entry for an inconsistent one', () => {
+  assert.deepEqual(
+    session.validateSegmentOutcomeFixtureConsistency(
+      [{ source_competition_id: '1209691', outcome: 'BATCH_EMPTY' }],
+      []
+    ),
+    []
+  );
+  assert.deepEqual(
+    session.validateSegmentOutcomeFixtureConsistency(
+      [{ source_competition_id: '1209691', outcome: 'BATCH_EMPTY' }],
+      [fixture('f1', '1209691', 'Enyimba')]
+    ),
+    [{ competition_id: '1209691', fixture_count: 1 }]
+  );
+});

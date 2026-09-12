@@ -1029,6 +1029,34 @@ gets its own honest, distinct outcome, `COMPETITION_STALE_CONTENT_SUSPECTED`
 (mapped to ledger status `FAILED`, retryable), rather than a confirmed
 result the page's own state couldn't actually support.
 
+**Classification driven by parsed fixture count, not per-table row count
+(Round 14).** A real segment export showed the SAME defect shape as
+Round 13, still occurring systematically: 46 competitions -- including
+UEFA Champions League -- marked `BATCH_EMPTY` while ALL 46 had real
+fixtures captured. Root cause: `parser.js`'s own header comment already
+documents that a single competition can render its fixtures across MORE
+THAN ONE `.sports-table` (e.g. one per date/matchday section) -- and
+classification was reading `table_attribution_summary`'s per-TABLE
+`row_count`, collapsed by a `Map` keyed on `source_competition_id` that
+silently kept only the LAST table seen for a given id. A competition
+like UEFA Champions League spanning several matchdays could easily have
+its real, non-empty first table's rows overwritten by a later, empty
+date section's own zero `row_count`. The fix drives classification from
+the actual PARSED FIXTURE COUNT this batch produced and kept (the exact
+same array attached to `fixtures[]` and handed to `onBatchComplete`) --
+immune to the per-table collapse by construction, since it sums real
+output across every table rather than reading one (possibly wrong)
+table's own count. A new hard runtime invariant
+(`BATCH_OUTCOME_FIXTURE_CONFLICT`) THROWS if a `BATCH_EMPTY` outcome is
+ever about to be returned alongside parsed fixtures for that same
+competition -- a defect here must surface immediately as a bug to fix,
+never be silently papered over. `soccer_session.js` gained a matching
+`validateSegmentOutcomeFixtureConsistency` check inside
+`buildSegmentEnvelope` (using `soccer_walker.js`'s own outcome
+vocabulary directly) that throws `SEGMENT_OUTCOME_FIXTURE_CONFLICT` --
+independent of, and in addition to, the ledger-level
+`SESSION_LEDGER_FIXTURE_CONFLICT` check Round 13 already added.
+
 ### Output shape (`bet9ja-soccer-all-competitions-capture.v3`)
 
 `capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS'`,

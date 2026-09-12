@@ -157,20 +157,25 @@
   // capture (13:30:07) reached actual row parsing for the first time --
   // 353 competitions discovered, 616 Soccer fixtures captured, 110
   // competitions captured, 27 confirmed empty, accounting reconciling
-  // exactly. Still NOT bumped to a non-"-unverified" tag: that same
-  // capture also showed one competition's `SHOW_LEAGUES_CONTENT_TIMEOUT`
-  // (Botswana > Premier League, batch 139 of 140, one matchup row and no
-  // loader already present -- a real but transient slow render, not a
-  // structural defect) stopping the ENTIRE run, leaving 213 competitions
-  // NOT_ATTEMPTED_AFTER_EARLY_STOP. Round 11 fixes that resilience gap
-  // (retry once, then continue past a genuine per-competition failure --
-  // see `showLeaguesWithRetryOnTimeout`'s own comment) and corrects
-  // `COMPETITION_ATTRIBUTION_UNRESOLVED` being reported for a competition
-  // whose content never rendered at all (Turkey's "2. Lig"/"3. Lig" --
-  // now `COMPETITION_CONTENT_UNRESOLVED`). Per this project's
-  // evidence-only versioning discipline, the version string advances
-  // only after a real capture confirms this round's fix too.
-  const PARSER_VERSION = 'bet9ja-soccer-walker@0.6.0-round11-timeout-retry-and-content-unresolved-fix-unverified';
+  // exactly. Real runs since then confirmed Round 11's retry/continue
+  // fix and Round 12's checkpointed sessions both work end to end --
+  // but a Round 12 segment export revealed a systematic classification
+  // bug: 46 competitions (including UEFA Champions League) marked
+  // `BATCH_EMPTY` while ALL 46 had real fixtures captured. Root cause
+  // (Round 14): a competition's fixtures can render across MORE THAN ONE
+  // `.sports-table` (already-documented real behavior -- see this file's
+  // own header comment and parser.js's), and classification was reading
+  // one table's own row_count, collapsed by a `Map` that silently kept
+  // only the LAST table seen for a given competition id. Classification
+  // is now driven by the actual PARSED FIXTURE COUNT this batch produced
+  // and kept, immune to that collapse by construction, with a hard
+  // runtime invariant (`BATCH_OUTCOME_FIXTURE_CONFLICT`) that throws
+  // rather than ever silently returning a `BATCH_EMPTY` outcome
+  // alongside parsed fixtures again. Still `-unverified`: not yet
+  // exercised against the live account. Per this project's evidence-only
+  // versioning discipline, the version string advances only after a real
+  // capture confirms this round's fix too.
+  const PARSER_VERSION = 'bet9ja-soccer-walker@0.7.0-round14-batch-outcome-fixture-conflict-fix-unverified';
 
   const INVENTORY_PROFILE = 'BET9JA_SPORTPAGE_COMPETITIONS_SELECTOR';
   const START_ROUTE_PATTERN = /^\/sportPage\/1\/competitions\/?$/;
@@ -1310,45 +1315,64 @@
         unparsedRecords.push(record);
       }
 
-      // Per-competition classification from parser.js's own
-      // table_attribution_summary -- never assumed captured merely
-      // because the batch as a whole produced some fixtures. A
-      // competition is CAPTURED_IN_BATCH only if its own table resolved
-      // AND had at least one row; BATCH_EMPTY only if its own table
-      // resolved with zero rows (a confirmed, audited empty result).
+      // Per-competition classification.
       //
-      // ROUND 11 CORRECTION (real evidence: the 13:30:07 capture's Turkey
-      // "2. Lig"/"3. Lig" competitions -- zero rendered `.sports-table`s,
-      // zero rows): a competition with NO attribution entry at all was
-      // always labeled COMPETITION_ATTRIBUTION_UNRESOLVED, but that name
-      // claims attribution logic ran and failed to resolve a table to
-      // this competition. For a single-competition batch (the only case
-      // MAX_COMPETITIONS_PER_BATCH ever produces today),
-      // `table_attribution_summary` being EMPTY means zero tables
-      // rendered for this batch at all -- attribution was never even
-      // exercised, so calling it "unresolved attribution" is inaccurate.
-      // `anyTableRenderedInBatch` distinguishes the two honestly: empty
-      // summary -> COMPETITION_CONTENT_UNRESOLVED (content never
-      // rendered); a NON-empty summary that still excludes this
-      // competition's id -> COMPETITION_ATTRIBUTION_UNRESOLVED (a table
-      // DID render somewhere in the batch but couldn't be mapped to this
-      // one) -- only reachable via the dormant multi-competition fallback
-      // in makeTableCompetitionResolver, kept as its own distinct, honest
-      // "don't know" outcome, never folded into any of the others.
-      const attributionByCompetitionId = new Map(
-        (subEnvelope.table_attribution_summary || [])
-          .filter((t) => t.resolved && t.source_competition_id)
-          .map((t) => [t.source_competition_id, t])
-      );
+      // ROUND 14 CORRECTION (real evidence: a segment export showed 46
+      // competitions -- including UEFA Champions League -- marked
+      // `BATCH_EMPTY` while ALL 46 had real captured fixtures attached;
+      // systematic, not occasional -- every single BATCH_EMPTY entry in
+      // that segment had fixtures). Root cause: classification was based
+      // on `table_attribution_summary`'s per-TABLE `row_count`, collapsed
+      // into a `Map` keyed by `source_competition_id` -- a competition
+      // whose fixtures render across MORE THAN ONE `.sports-table`
+      // (confirmed real behavior: parser.js's own header comment already
+      // documents "2 tables, one per date section" for a single page)
+      // only ever kept the LAST table's own row_count, silently
+      // discarding every earlier table's real rows. A competition like
+      // UEFA Champions League, spanning multiple matchdays/date
+      // sections, could easily have its real, non-empty first table's
+      // rows overwritten by a later, genuinely empty (or not-yet-
+      // populated) date section's table -- reading `row_count: 0`
+      // despite real fixtures already parsed and attached from the
+      // earlier table.
+      //
+      // The fix: classification is now driven by the actual PARSED
+      // FIXTURE COUNT this batch produced and kept (`newFixturesThisBatch`,
+      // the exact same array attached to `fixtures[]`/handed to
+      // `onBatchComplete` below) rather than any per-table row count.
+      // This is immune to the multi-table collapse bug by construction --
+      // it sums across every table's real output rather than reading one
+      // (possibly wrong) table's own count.
+      const parsedFixtureCountByCompetitionId = new Map();
+      for (const fx of newFixturesThisBatch) {
+        const id = fx.resolved_source_competition_id;
+        if (!id) continue;
+        parsedFixtureCountByCompetitionId.set(id, (parsedFixtureCountByCompetitionId.get(id) || 0) + 1);
+      }
+      // Still needed for the COMPETITION_ATTRIBUTION_UNRESOLVED vs.
+      // COMPETITION_CONTENT_UNRESOLVED distinction (Round 11) when a
+      // competition produced ZERO parsed fixtures -- summed per id
+      // (never overwritten) so this, too, is immune to the same
+      // multi-table collapse the fixture-count fix above addresses.
+      const attributionByCompetitionId = new Map();
+      for (const t of subEnvelope.table_attribution_summary || []) {
+        if (!t.resolved || !t.source_competition_id) continue;
+        const prior = attributionByCompetitionId.get(t.source_competition_id);
+        attributionByCompetitionId.set(t.source_competition_id, { row_count: (prior ? prior.row_count : 0) + t.row_count });
+      }
       const anyTableRenderedInBatch = (subEnvelope.table_attribution_summary || []).length > 0;
       const batchCompetitionResults = [];
       for (const comp of currentBatch) {
+        const parsedCount = parsedFixtureCountByCompetitionId.get(comp.checkboxId) || 0;
         const attribution = attributionByCompetitionId.get(comp.checkboxId);
         let outcome;
-        if (!attribution) {
+        if (parsedCount > 0) {
+          outcome = 'CAPTURED_IN_BATCH';
+          competitionsCaptured += 1;
+        } else if (!attribution) {
           outcome = anyTableRenderedInBatch ? 'COMPETITION_ATTRIBUTION_UNRESOLVED' : 'COMPETITION_CONTENT_UNRESOLVED';
           competitionsFailed += 1;
-        } else if (attribution.row_count === 0) {
+        } else {
           // ROUND 13 CORRECTION (real evidence: an assembled session
           // export showed 37 competitions marked CONFIRMED_EMPTY that
           // ALSO had real fixtures attached -- a competition cannot
@@ -1362,7 +1386,7 @@
           // genuine confirmed-empty result. There is still no confirmed
           // empty-state DOM element for this page ([UNVERIFIED] -- never
           // guessed at), so this is the best available corroborating
-          // signal, not a replacement for one. A zero-row table with
+          // signal, not a replacement for one. Zero PARSED fixtures with
           // UNCONFIRMED content change is therefore never called
           // BATCH_EMPTY -- it is its own honest, distinct "don't know"
           // outcome instead, never silently folded into a confirmed
@@ -1374,9 +1398,16 @@
             outcome = 'COMPETITION_STALE_CONTENT_SUSPECTED';
             competitionsFailed += 1;
           }
-        } else {
-          outcome = 'CAPTURED_IN_BATCH';
-          competitionsCaptured += 1;
+        }
+        // ROUND 14 hard invariant: a competition classified BATCH_EMPTY
+        // must never, under any code path, have any parsed fixtures
+        // attached -- see this block's own comment above for exactly the
+        // real defect this guards against. Thrown, not silently
+        // recovered: a violation here means this function's own
+        // classification logic has a bug that must be fixed, never
+        // papered over with a fallback guess.
+        if (outcome === 'BATCH_EMPTY' && parsedCount > 0) {
+          throw new Error('BATCH_OUTCOME_FIXTURE_CONFLICT');
         }
         if (outcome === 'CAPTURED_IN_BATCH' || outcome === 'BATCH_EMPTY') {
           // The ONLY place this is ever set -- a genuinely confirmed
