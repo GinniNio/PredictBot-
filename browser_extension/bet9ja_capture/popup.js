@@ -195,9 +195,10 @@ ticketButton.addEventListener('click', async () => {
 
 // --- Capture all Soccer fixtures ---------------------------------------
 // Same click-gated, no-storage discipline as the buttons above -- see
-// soccer_walker.js's own header comment for scope and the current
-// selector-scoping gap (competitions_available: 0 is the expected,
-// honest result until real evidence supplies the menu-scoping selector).
+// soccer_walker.js's own header comment for scope, the confirmed
+// pre-match Soccer accordion hierarchy, and the current real-capture
+// validation status (`CAPTURE_COMPLETE` is this module's own top status,
+// distinct from the other buttons' `CAPTURE_OK`).
 const soccerAllButton = document.getElementById('soccer-all-capture-button');
 const soccerAllStatusEl = document.getElementById('soccer-all-status');
 let soccerAllCaptureInFlight = false;
@@ -249,16 +250,15 @@ soccerAllButton.addEventListener('click', async () => {
 
     const summary =
       `${envelope.capture_status}\n` +
-      `Competitions available: ${envelope.competitions_available}\n` +
-      `Competitions visited: ${envelope.competitions_visited}\n` +
-      `Competitions failed: ${envelope.competitions_failed}\n` +
-      `Fixtures parsed: ${envelope.fixtures_parsed}\n` +
+      `Countries: ${envelope.countries_visited}/${envelope.countries_available} (failed: ${envelope.countries_failed})\n` +
+      `Competitions: ${envelope.competitions_visited}/${envelope.competitions_available} (empty: ${envelope.competitions_empty}, failed: ${envelope.competitions_failed})\n` +
+      `Fixtures captured: ${envelope.fixtures.length}\n` +
       `Duplicates skipped: ${envelope.duplicates_skipped}\n` +
       `Reasons: ${envelope.capture_status_reasons.join(', ')}\n` +
       `Saved: ${filename}`;
 
     const cssClass =
-      envelope.capture_status === 'CAPTURE_OK'
+      envelope.capture_status === 'CAPTURE_COMPLETE'
         ? 'ok'
         : envelope.capture_status === 'CAPTURE_PARTIAL'
           ? 'partial'

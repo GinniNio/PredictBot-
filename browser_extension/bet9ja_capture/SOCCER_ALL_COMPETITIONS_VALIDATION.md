@@ -156,7 +156,8 @@ from the confirmed shapes above)
 - The exact number and identity of discoverable competitions in a real
   session.
 
-### Recommendation for Round 2
+### Recommendation for Round 2 (superseded — Round 2 was run for real and
+failed; see below)
 
 Run **Capture all Soccer fixtures** from both `/sport/soccer/1` and
 `/sportPage/1/coupons` against the real, authenticated account and report
@@ -165,3 +166,138 @@ any `competition_results[].failure_reason` values, and whether the final
 page state left the menu visible and usable. If a real run completes
 with `competitions_visited > 0` and no unexplained `FAILED` entries,
 `PARSER_VERSION` can finally drop `unverified-menu-selectors`.
+
+## Round 2 — 2026-09-12 (Round 1 selectors run for real and FAILED
+completely; entire discovery/navigation strategy replaced)
+
+**Status: `.menu-list.mt30` discovery was exercised against the real,
+authenticated account per the Round 1 recommendation above. It failed on
+every count. Live re-inspection then traced the correct hierarchy and
+this module was rewritten from scratch against it. Implemented and
+unit-tested against synthetic markup built from the new evidence; no real
+click-through has yet succeeded end-to-end.**
+
+### The real Round 1 capture's results
+
+```text
+competitions_available: 24
+competitions_visited: 0
+competitions_failed: 24
+```
+
+- The first discovered link: `CONTENT_DID_NOT_CHANGE`.
+- The remaining 23: `LINK_NOT_FOUND_ON_REDISCOVERY`.
+- Browser error: executing the `href="javascript:;"` URL was blocked by
+  the page's own Content Security Policy — Chrome correctly refuses to
+  run a `javascript:` URL that the intended application handler doesn't
+  itself intercept, and Round 1's direct `linkEl.click()` (with no
+  `preventDefault()` guard) triggered exactly that.
+- The one click that appeared to make progress moved the page to
+  `/liveCompetitions` — a LIVE surface, not the pre-match inventory Round
+  1 needed.
+
+### Root cause
+
+`.menu-list.mt30` is the general popular-shortcuts sidebar — confirmed to
+mix Soccer, tennis, NFL, NHL, and MLB shortcuts in the same list. It was
+never the Soccer competition inventory, which explains all three real
+failure modes at once: wrong links discovered (so re-discovery by label
+frequently failed after the one navigation that did occur), no
+application handler behind most of those links (so the CSP block), and
+the one link that did have a handler routing to a live-odds surface, not
+pre-match.
+
+### Confirmed real hierarchy (this round)
+
+```text
+Sports (/) → pre-match Soccer accordion → Coupons
+  → /popularCoupons/1 → country accordion → competition control
+  → /competition/soccer/{country}/{competition}/{ids}
+```
+
+- `#coupons_sport-1_soccer` resolves to `/popularCoupons/1` (confirmed;
+  resolving instead to `/liveCompetitions` is the same wrong-surface
+  failure mode named above, now caught explicitly and immediately).
+- Pre-match Soccer accordion: `#left_prematch_sport-1_soccer_label-toggle`;
+  its owning `.accordion-item` scopes all further discovery.
+- "Show N A-Z more" countries: `[id$="_buttonmore-toggle"]`, scoped
+  inside the Soccer accordion.
+- Country toggles: `[id^="left_prematch_sport-1_soccer_sg-"][id$="_label-toggle"]`,
+  e.g. `#left_prematch_sport-1_soccer_sg-11058_england_label-toggle`.
+- Competition controls: `[id^="left_prematch_sport-1_soccer_sg-"][id*="_g-"]`,
+  e.g. `#left_prematch_sport-1_soccer_sg-11058_england_g-170880_premier_league`,
+  confirmed to resolve on click to
+  `https://sports.bet9ja.com/competition/soccer/england/premierleague/1-11058-170880`
+  with 20 real `.sports-table__matchup` rows.
+
+### What is implemented (logic, unit-tested against synthetic markup built
+from the confirmed shapes above)
+
+- Discovery scoped entirely to the Soccer accordion's own
+  `.accordion-item` — `.menu-list.mt30` is not referenced anywhere in the
+  rewritten module.
+- `ensureOnCouponsSurface`: accepts `/popularCoupons/1` directly, or
+  clicks the confirmed entry control and waits for that route; landing on
+  `/liveCompetitions` is an immediate, named failure
+  (`WRONG_SURFACE_LIVE_COMPETITIONS`), never accepted as success.
+- `clickSafely()`: the ONLY way this module clicks a `javascript:;`
+  control — a one-time, capturing `preventDefault()` listener stops the
+  anchor's own default action (the exact action CSP blocked in Round 1)
+  while leaving Bet9ja's real handler free to run.
+- Countries and competitions are rediscovered by their own stable DOM ID
+  before every use, never a cached reference or list position.
+- `selectCompetition` waits for THREE conditions together: pathname
+  starts with `/competition/soccer/`, that pathname differs from the
+  previous competition's own resolved path, and the confirmed
+  `.sports-table` root is present — never a content-text diff alone.
+- Fail-closed, non-aborting typed failures at every level: a country
+  failure (`COUNTRY_CONTROL_NOT_FOUND_ON_REDISCOVERY`,
+  `COUNTRY_EXPANSION_TIMEOUT`, `COUNTRY_COMPETITION_LIST_EMPTY`) never
+  stops remaining countries; a competition failure
+  (`COMPETITION_CONTROL_NOT_FOUND_ON_REDISCOVERY`,
+  `COMPETITION_ROUTE_TIMEOUT`, `COMPETITION_ROUTE_NOT_SOCCER`,
+  `COMPETITION_CONTENT_TIMEOUT`) never stops remaining competitions in
+  that country. A competition confirmed to have zero fixtures
+  (`competitions_empty`) is a valid, audited outcome, never a failure.
+- `capture_status` is computed from real reconciliation, not permanently
+  capped: `CAPTURE_COMPLETE` requires the Coupons route confirmed, the
+  Soccer accordion found, the full country inventory expanded, every
+  discovered country/competition visited or confirmed empty, zero
+  failures, and the country-accounting invariant holding.
+  `PARSER_VERSION` itself is still NOT bumped past `-unverified`, since
+  none of this has been exercised against the real, live account yet.
+
+### What is NOT yet confirmed
+
+- **An actual successful click-through against the live account.** This
+  round's evidence is a live DOM/route inspection, not a real run of this
+  rewritten module start to finish. Round 3 should run the real capture
+  and report `countries_available`/`countries_visited`/`countries_failed`,
+  `competitions_available`/`competitions_visited`/`competitions_empty`/
+  `competitions_failed`, and any `competition_results[].failure_reason`,
+  exactly the reconciliation pattern `TICKET_REAL_PAGE_VALIDATION.md`'s
+  later rounds used.
+- Whether the "show N A-Z more" control adds NEW country DOM nodes or
+  reveals already-present hidden ones — this module rediscovers fresh
+  after a short settle window regardless, but which mechanism is real has
+  not been observed.
+- Whether returning to `/popularCoupons/1` via `history.back()` after a
+  competition reliably restores the Soccer accordion (and the relevant
+  country) already open, or whether this module needs to re-open them
+  explicitly every time — currently it always re-opens the Soccer
+  accordion fresh for the next country, but does not yet re-verify a
+  specific country's own open state is preserved across the return.
+- The exact number and identity of discoverable countries/competitions in
+  a real session.
+
+### Recommendation for Round 3
+
+Run **Capture all Soccer fixtures** from `https://sports.bet9ja.com/popularCoupons/1`
+against the real, authenticated account and report
+`coupons_route_confirmed`, `countries_available`/`countries_visited`/
+`countries_failed`, `competitions_available`/`competitions_visited`/
+`competitions_empty`/`competitions_failed`, and any
+`competition_results[].failure_reason` values. If a real run completes
+with `competitions_visited > 0`, no unexplained failures, and (ideally)
+`capture_status: 'CAPTURE_COMPLETE'`, `PARSER_VERSION` can finally drop
+its `-unverified` tag.
