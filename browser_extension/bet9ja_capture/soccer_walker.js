@@ -153,18 +153,24 @@
   const Bet9jaCapture = typeof module !== 'undefined' && module.exports ? require('./parser.js') : root.Bet9jaCapture;
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  // NOT bumped to a non-"-unverified" tag yet: real runs got past
-  // country/competition discovery, batching, and content readiness (all
-  // confirmed working by two real captures -- see
-  // SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 8/9 sections) but then
-  // hit `SPORT_CONTEXT_CONFLICT` on both, traced (Round 10, real
-  // diagnostic evidence) to two heading-based gate/attribution checks
-  // that assumed rendered content this page never has. This round
-  // replaces those checks with machine-verifiable conditions (see the
-  // header comment above) -- not yet exercised against the live account.
-  // Per this project's evidence-only versioning discipline, the version
-  // string advances only after one real successful capture.
-  const PARSER_VERSION = 'bet9ja-soccer-walker@0.5.0-round10-sport-context-gate-and-attribution-fix-unverified';
+  // Round 10's sport-context gate fix is CONFIRMED working: a real
+  // capture (13:30:07) reached actual row parsing for the first time --
+  // 353 competitions discovered, 616 Soccer fixtures captured, 110
+  // competitions captured, 27 confirmed empty, accounting reconciling
+  // exactly. Still NOT bumped to a non-"-unverified" tag: that same
+  // capture also showed one competition's `SHOW_LEAGUES_CONTENT_TIMEOUT`
+  // (Botswana > Premier League, batch 139 of 140, one matchup row and no
+  // loader already present -- a real but transient slow render, not a
+  // structural defect) stopping the ENTIRE run, leaving 213 competitions
+  // NOT_ATTEMPTED_AFTER_EARLY_STOP. Round 11 fixes that resilience gap
+  // (retry once, then continue past a genuine per-competition failure --
+  // see `showLeaguesWithRetryOnTimeout`'s own comment) and corrects
+  // `COMPETITION_ATTRIBUTION_UNRESOLVED` being reported for a competition
+  // whose content never rendered at all (Turkey's "2. Lig"/"3. Lig" --
+  // now `COMPETITION_CONTENT_UNRESOLVED`). Per this project's
+  // evidence-only versioning discipline, the version string advances
+  // only after a real capture confirms this round's fix too.
+  const PARSER_VERSION = 'bet9ja-soccer-walker@0.6.0-round11-timeout-retry-and-content-unresolved-fix-unverified';
 
   const INVENTORY_PROFILE = 'BET9JA_SPORTPAGE_COMPETITIONS_SELECTOR';
   const START_ROUTE_PATTERN = /^\/sportPage\/1\/competitions\/?$/;
@@ -783,6 +789,56 @@
     return { ok: false, reason: 'SHOW_LEAGUES_CONTENT_TIMEOUT', diagnostics: buildReadinessDiagnostics(doc, stablePollCount) };
   }
 
+  /**
+   * ROUND 11 CORRECTION (real evidence: a 13:30:07 capture -- Botswana >
+   * Premier League, competition id 1838204, stopped the ENTIRE run at
+   * batch 139 of 140 after a single `SHOW_LEAGUES_CONTENT_TIMEOUT`, even
+   * though its own diagnostics showed one matchup row, one table, and no
+   * loading indicator -- the row count simply never reached two
+   * consecutive stable polls within the timeout budget). Every one of
+   * the other 213 competitions was left `NOT_ATTEMPTED_AFTER_EARLY_STOP`
+   * over what is, on its own evidence, a single slow-to-settle
+   * competition -- a real defect this module must not repeat.
+   *
+   * This clears the current batch's own selection and reselects each of
+   * its competitions before retrying Show Leagues exactly once. If the
+   * retry ALSO times out (or the retry itself cannot even get back to a
+   * clean state to retry from), the caller treats that as a genuine
+   * per-batch failure (`BATCH_FAILED`) and moves on to the NEXT
+   * competition -- never a whole-run stop. Only
+   * `SHOW_LEAGUES_CONTENT_TIMEOUT` is ever retried this way: any OTHER
+   * `showLeaguesAndWait` failure (e.g. `SHOW_LEAGUES_BUTTON_NOT_FOUND`,
+   * meaning the page itself no longer has a control this module
+   * structurally depends on) is passed through unchanged and still stops
+   * the whole run -- see the caller's own comment for the full list of
+   * genuinely structural stop conditions.
+   */
+  async function showLeaguesWithRetryOnTimeout(doc, currentBatch) {
+    const first = await showLeaguesAndWait(doc);
+    if (first.ok || first.reason !== 'SHOW_LEAGUES_CONTENT_TIMEOUT') {
+      return { ...first, retried: false };
+    }
+
+    const retryClear = await clearAllAndWait(doc, currentBatch.map((c) => c.checkboxId));
+    if (!retryClear.ok) {
+      // Could not even get back to a clean state to retry from -- report
+      // the ORIGINAL timeout, still the honest, evidenced reason this
+      // one competition failed, never escalated to a different reason
+      // this attempt never actually observed.
+      return { ...first, retried: true };
+    }
+
+    for (const comp of currentBatch) {
+      const reselect = await selectCompetition(doc, comp.checkboxId);
+      if (reselect.outcome !== 'SELECTED') {
+        return { ...first, retried: true };
+      }
+    }
+
+    const second = await showLeaguesAndWait(doc);
+    return { ...second, retried: true };
+  }
+
   /** Clicks "Clear all" and confirms every selection actually reset before the next batch. */
   async function clearAllAndWait(doc, checkboxIds) {
     const button = doc.querySelector(SELECTORS.clearAllButton);
@@ -1006,7 +1062,7 @@
         break;
       }
 
-      const showResult = await showLeaguesAndWait(doc);
+      const showResult = await showLeaguesWithRetryOnTimeout(doc, currentBatch);
       if (!showResult.ok) {
         competitionsFailed += currentBatch.length;
         for (const comp of currentBatch) {
@@ -1029,7 +1085,33 @@
           records_unresolved: 0,
           records_expected_unsupported: 0,
           content_readiness_diagnostics: showResult.diagnostics || null,
+          retried: !!showResult.retried,
         });
+
+        if (showResult.reason === 'SHOW_LEAGUES_CONTENT_TIMEOUT') {
+          // ROUND 11: retried once already (see
+          // showLeaguesWithRetryOnTimeout's own comment) -- this is a
+          // genuine per-competition content failure, not evidence the
+          // whole run has lost its structural footing. Try to clear this
+          // batch's own stuck selection so the next batch starts clean,
+          // then continue to the next competition -- never stop the
+          // whole capture over one slow-to-settle competition.
+          batchIndex += 1;
+          const cleanupClear = await clearAllAndWait(doc, currentBatch.map((c) => c.checkboxId));
+          if (!cleanupClear.ok) {
+            // Clear all itself is broken -- THIS is genuinely structural
+            // (every subsequent batch would select on top of a stuck
+            // selection), so stop closed here, unchanged from before.
+            earlyStopReason = cleanupClear.reason;
+            break;
+          }
+          continue;
+        }
+
+        // Any other showLeaguesAndWait failure (e.g. the Show Leagues
+        // button itself is gone) means this module has lost a control it
+        // depends on structurally -- stop the whole run closed, exactly
+        // as before Round 11.
         earlyStopReason = showResult.reason;
         batchIndex += 1;
         break;
@@ -1110,20 +1192,37 @@
       // because the batch as a whole produced some fixtures. A
       // competition is CAPTURED_IN_BATCH only if its own table resolved
       // AND had at least one row; BATCH_EMPTY only if its own table
-      // resolved with zero rows (a confirmed, audited empty result); any
-      // competition whose table never resolved at all is
-      // COMPETITION_ATTRIBUTION_UNRESOLVED -- an honest "don't know",
-      // never silently folded into either of the other two outcomes.
+      // resolved with zero rows (a confirmed, audited empty result).
+      //
+      // ROUND 11 CORRECTION (real evidence: the 13:30:07 capture's Turkey
+      // "2. Lig"/"3. Lig" competitions -- zero rendered `.sports-table`s,
+      // zero rows): a competition with NO attribution entry at all was
+      // always labeled COMPETITION_ATTRIBUTION_UNRESOLVED, but that name
+      // claims attribution logic ran and failed to resolve a table to
+      // this competition. For a single-competition batch (the only case
+      // MAX_COMPETITIONS_PER_BATCH ever produces today),
+      // `table_attribution_summary` being EMPTY means zero tables
+      // rendered for this batch at all -- attribution was never even
+      // exercised, so calling it "unresolved attribution" is inaccurate.
+      // `anyTableRenderedInBatch` distinguishes the two honestly: empty
+      // summary -> COMPETITION_CONTENT_UNRESOLVED (content never
+      // rendered); a NON-empty summary that still excludes this
+      // competition's id -> COMPETITION_ATTRIBUTION_UNRESOLVED (a table
+      // DID render somewhere in the batch but couldn't be mapped to this
+      // one) -- only reachable via the dormant multi-competition fallback
+      // in makeTableCompetitionResolver, kept as its own distinct, honest
+      // "don't know" outcome, never folded into any of the others.
       const attributionByCompetitionId = new Map(
         (subEnvelope.table_attribution_summary || [])
           .filter((t) => t.resolved && t.source_competition_id)
           .map((t) => [t.source_competition_id, t])
       );
+      const anyTableRenderedInBatch = (subEnvelope.table_attribution_summary || []).length > 0;
       for (const comp of currentBatch) {
         const attribution = attributionByCompetitionId.get(comp.checkboxId);
         let outcome;
         if (!attribution) {
-          outcome = 'COMPETITION_ATTRIBUTION_UNRESOLVED';
+          outcome = anyTableRenderedInBatch ? 'COMPETITION_ATTRIBUTION_UNRESOLVED' : 'COMPETITION_CONTENT_UNRESOLVED';
           competitionsFailed += 1;
         } else if (attribution.row_count === 0) {
           outcome = 'BATCH_EMPTY';
@@ -1146,7 +1245,8 @@
           source_competition_id: comp.checkboxId || null,
           batch_index: batchIndex,
           outcome,
-          failure_reason: outcome === 'COMPETITION_ATTRIBUTION_UNRESOLVED' ? 'COMPETITION_ATTRIBUTION_UNRESOLVED' : null,
+          failure_reason:
+            outcome === 'COMPETITION_ATTRIBUTION_UNRESOLVED' || outcome === 'COMPETITION_CONTENT_UNRESOLVED' ? outcome : null,
         });
       }
       batchResults.push({
@@ -1162,6 +1262,7 @@
         content_change_confirmed: !!showResult.contentChangeConfirmed,
         table_attribution_summary: subEnvelope.table_attribution_summary || [],
         content_readiness_diagnostics: showResult.diagnostics || null,
+        retried: !!showResult.retried,
       });
 
       const clearResult = await clearAllAndWait(doc, currentBatch.map((c) => c.checkboxId));
@@ -1201,6 +1302,9 @@
     if (competitionsFailed > 0) statusReasons.push('SOME_COMPETITIONS_FAILED');
     if (competitionResults.some((r) => r.outcome === 'COMPETITION_ATTRIBUTION_UNRESOLVED')) {
       statusReasons.push('SOME_COMPETITIONS_ATTRIBUTION_UNRESOLVED');
+    }
+    if (competitionResults.some((r) => r.outcome === 'COMPETITION_CONTENT_UNRESOLVED')) {
+      statusReasons.push('SOME_COMPETITIONS_CONTENT_UNRESOLVED');
     }
     if (competitionsSkippedBySafetyCap > 0) statusReasons.push('COMPETITIONS_SKIPPED_BY_SAFETY_CAP');
     if (countriesFailed > 0) statusReasons.push('SOME_COUNTRIES_FAILED');

@@ -840,13 +840,16 @@ row. Every discovered competition is classified individually
 (`competition_results[].outcome` — see below), never assumed captured
 merely because a batch produced some fixtures: a resolved table with
 rows is `CAPTURED_IN_BATCH`, a resolved table with zero rows is a
-confirmed `BATCH_EMPTY`, a table that never resolved is
-`COMPETITION_ATTRIBUTION_UNRESOLVED`, and a competition genuinely never
-reached after an early stop is `NOT_ATTEMPTED_AFTER_EARLY_STOP` (Round
-8 — see "Failure and resume accounting" below) — four genuinely
-different, honestly distinguished outcomes a batch-wide classification
-could never tell apart. Every fixture that IS captured carries a single,
-confirmed `resolved_source_competition_id`.
+confirmed `BATCH_EMPTY`, a competition whose table rendered but couldn't
+be uniquely attributed is `COMPETITION_ATTRIBUTION_UNRESOLVED` (dormant
+today — see "Per-table competition attribution" above), one whose
+content never rendered at all is `COMPETITION_CONTENT_UNRESOLVED` (Round
+11 — see below), and a competition genuinely never reached after an
+early stop is `NOT_ATTEMPTED_AFTER_EARLY_STOP` (Round 8 — see "Failure
+and resume accounting" below) — five genuinely different, honestly
+distinguished outcomes a batch-wide classification could never tell
+apart. Every fixture that IS captured carries a single, confirmed
+`resolved_source_competition_id`.
 
 **Waiting for genuinely rendered content, not just an existing table
 (Round 8).** A real screenshot showed `.sports-table` elements that
@@ -860,6 +863,39 @@ discipline already used for the country inventory. A stable zero-row
 result is accepted as a confirmed-empty outcome (there is no confirmed
 empty-state element to check for instead); only a genuine bounded timeout
 without ever reaching that stable state is `SHOW_LEAGUES_CONTENT_TIMEOUT`.
+
+**A single slow competition no longer stops the whole run (Round 11).**
+A real capture (13:30:07) confirmed Round 10's sport-context fix end to
+end — 353 competitions discovered, 616 fixtures captured — but a single
+`SHOW_LEAGUES_CONTENT_TIMEOUT` (Botswana > Premier League, one matchup
+row and no loader already present when it timed out — a real but
+transient slow render, not a structural defect) stopped the ENTIRE run,
+leaving 213 other competitions `NOT_ATTEMPTED_AFTER_EARLY_STOP`.
+`showLeaguesWithRetryOnTimeout` now retries a `SHOW_LEAGUES_CONTENT_TIMEOUT`
+exactly once — clearing the batch's own selection, reselecting each
+competition, and calling `showLeaguesAndWait` again — before giving up.
+If the retry also times out (or can't even get back to a clean state to
+retry from), that competition is classified `BATCH_FAILED` and the run
+moves on to the next competition; the whole capture stops early only for
+genuinely structural failures — losing the Soccer route, the inventory
+root, the trusted sport context, or a broken Show Leagues/Clear all
+control — never for one slow-to-render competition. This changes nothing
+about content-readiness stability itself (unchanged from Round 8) or
+about when a batch is legitimately confirmed empty.
+
+**`COMPETITION_CONTENT_UNRESOLVED` vs. `COMPETITION_ATTRIBUTION_UNRESOLVED`
+(Round 11).** A real capture's Turkey "2. Lig"/"3. Lig" competitions
+rendered zero `.sports-table`s and zero rows — but were previously
+labeled `COMPETITION_ATTRIBUTION_UNRESOLVED`, which claims attribution
+logic ran and failed to map a table to that competition. For a
+single-competition batch (the only case `MAX_COMPETITIONS_PER_BATCH`
+ever produces today), an EMPTY `table_attribution_summary` means zero
+tables rendered for the whole batch — attribution was never even
+exercised. `COMPETITION_CONTENT_UNRESOLVED` now names that case
+honestly; `COMPETITION_ATTRIBUTION_UNRESOLVED` is reserved for when a
+table DID render somewhere in the batch but couldn't be mapped to this
+specific competition (today only reachable via the dormant
+multi-competition fallback).
 
 **Inventory stabilization within one capture, twice over (Round 8,
 corrected).** `expandCountryAccordion` waits for a country's OWN
@@ -914,7 +950,9 @@ duplicated across batches is deduplicated, not captured twice.
 `content_change_confirmed` — whether Show Leagues' own fixture output was
 actually observed to change, recorded honestly `false` when the result was
 textually identical to what was already on screen, e.g. a genuinely empty
-or duplicate batch, `table_attribution_summary[]` — one entry per rendered
+or duplicate batch, `retried` (Round 11 — whether this batch's Show
+Leagues call needed the one-time timeout retry, success or failure
+either way), `table_attribution_summary[]` — one entry per rendered
 `.sports-table`, `{source_competition_id, resolved, row_count}`, straight
 from `parser.js`, `content_readiness_diagnostics` (Round 9 — on every
 batch result, success or failure: `loading_indicators_remaining`,
@@ -933,7 +971,11 @@ heading; see "Trusted Soccer classification" above), and
 discovered competition (`country_name_raw`, `competition_name_raw`,
 `source_competition_id`, `batch_index`, `outcome` — one of
 `CAPTURED_IN_BATCH`, `BATCH_EMPTY`, `COMPETITION_ATTRIBUTION_UNRESOLVED`,
-`BATCH_FAILED`, `SELECTION_FAILED`, `NOT_ATTEMPTED_AFTER_EARLY_STOP`
+`COMPETITION_CONTENT_UNRESOLVED` (Round 11 — content never rendered at
+all, distinct from an attribution failure — see "Trusted Soccer
+classification" above), `BATCH_FAILED` (Round 11: also covers a
+`SHOW_LEAGUES_CONTENT_TIMEOUT` that didn't recover after one retry),
+`SELECTION_FAILED`, `NOT_ATTEMPTED_AFTER_EARLY_STOP`
 (Round 8 — a competition genuinely never reached after an early stop,
 never confused with a real failure) — `failure_reason`). `fixtures[]` and
 `unparsed_records[]` carry every normalized `parser.js` field (including

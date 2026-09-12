@@ -95,6 +95,26 @@ function pageHtml({
   countryRenderDelayMs = 0,
   countriesNeverRender = false,
   mismatchAttributionForIds = [],
+  // ROUND 11: the FIRST Show Leagues click ever made while any of these
+  // ids is the (sole) selected competition delays its own content update
+  // until past SHOW_LEAGUES_CONTENT_TIMEOUT_MS -- modeling a real
+  // competition that is merely slow once (e.g. Botswana's own real
+  // capture), not permanently broken. A later click (soccer_walker.js's
+  // own clear+reselect+retry) updates immediately, same as any other
+  // competition.
+  slowFirstShowLeaguesForIds = [],
+  // ROUND 11: these ids render NEITHER a heading NOR a `.sports-table`
+  // at all when selected -- modeling the real Turkey "2. Lig"/"3. Lig"
+  // evidence (zero tables, zero rows), distinct from a competition whose
+  // table renders but is empty.
+  omitTableForIds = [],
+  // ROUND 11: Show Leagues clicks made while ONLY these ids are selected
+  // always leave a persistent, never-clearing loading indicator (both
+  // the original attempt AND the retry) -- unlike page-wide
+  // `contentNeverUpdates`, this is scoped so a DIFFERENT, later batch in
+  // the same run can still succeed normally, proving one permanently
+  // stuck competition never stops the whole run.
+  neverUpdatesForIds = [],
 }) {
   const countriesHtml = countries.map((c) => countryAccordionHtml(c)).join('');
   const rowsById = {};
@@ -136,6 +156,10 @@ function pageHtml({
         const CONTENT_NEVER_UPDATES = ${JSON.stringify(contentNeverUpdates)};
         const OMIT_HEADINGS = ${JSON.stringify(omitHeadings)};
         const MISMATCH_ATTRIBUTION_FOR_IDS = ${JSON.stringify(mismatchAttributionForIds)};
+        const SLOW_FIRST_SHOW_LEAGUES_FOR_IDS = ${JSON.stringify(slowFirstShowLeaguesForIds)};
+        const OMIT_TABLE_FOR_IDS = ${JSON.stringify(omitTableForIds)};
+        const NEVER_UPDATES_FOR_IDS = ${JSON.stringify(neverUpdatesForIds)};
+        const alreadySlowedIds = new Set();
         const results = document.getElementById('results');
         const limitNotice = document.getElementById('limit-notice');
         const soccerRoot = document.getElementById('soccer-root');
@@ -186,26 +210,51 @@ function pageHtml({
               return;
             }
             const checked = Array.from(document.querySelectorAll('.sportpage__cb-input:checked'));
-            // Real evidence: the rendered content includes the
-            // competition heading IMMEDIATELY BEFORE its own fixture
-            // table -- one .sports-table PER selected competition, each
-            // preceded by a "Soccer > Country > Competition" breadcrumb
-            // heading (never one combined table).
-            const html = checked
-              .map((cb) => {
-                // A genuinely UNRELATED name -- not a suffixed variant of
-                // the real one -- so neither an exact nor a substring
-                // match against any candidate's own name can succeed.
-                const competitionLabel = MISMATCH_ATTRIBUTION_FOR_IDS.indexOf(cb.id) !== -1
-                  ? 'Some Unrelated League Entirely'
-                  : (LABELS_BY_ID[cb.id] || '');
-                const breadcrumb = 'Soccer > ' + (COUNTRY_LABELS_BY_ID[cb.id] || '') + ' > ' + competitionLabel;
-                const heading = OMIT_HEADINGS ? '' : '<div class="heading">' + breadcrumb + '</div>';
-                const rowsHtml = (ROWS_BY_ID[cb.id] || []).join('');
-                return heading + '<div class="sports-table">' + rowsHtml + '</div>';
-              })
-              .join('');
-            results.innerHTML = html;
+            if (checked.some((cb) => NEVER_UPDATES_FOR_IDS.indexOf(cb.id) !== -1)) {
+              results.innerHTML = '<div class="loading-spinner">Loading...</div>';
+              return;
+            }
+            const isFirstSlowClick = checked.some(
+              (cb) => SLOW_FIRST_SHOW_LEAGUES_FOR_IDS.indexOf(cb.id) !== -1 && !alreadySlowedIds.has(cb.id)
+            );
+            function renderNow() {
+              // Real evidence: the rendered content includes the
+              // competition heading IMMEDIATELY BEFORE its own fixture
+              // table -- one .sports-table PER selected competition, each
+              // preceded by a "Soccer > Country > Competition" breadcrumb
+              // heading (never one combined table). A competition in
+              // OMIT_TABLE_FOR_IDS renders NEITHER at all (real evidence:
+              // Turkey's "2. Lig"/"3. Lig", zero tables, zero rows).
+              const html = checked
+                .map((cb) => {
+                  if (OMIT_TABLE_FOR_IDS.indexOf(cb.id) !== -1) return '';
+                  // A genuinely UNRELATED name -- not a suffixed variant
+                  // of the real one -- so neither an exact nor a
+                  // substring match against any candidate's own name can
+                  // succeed.
+                  const competitionLabel = MISMATCH_ATTRIBUTION_FOR_IDS.indexOf(cb.id) !== -1
+                    ? 'Some Unrelated League Entirely'
+                    : (LABELS_BY_ID[cb.id] || '');
+                  const breadcrumb = 'Soccer > ' + (COUNTRY_LABELS_BY_ID[cb.id] || '') + ' > ' + competitionLabel;
+                  const heading = OMIT_HEADINGS ? '' : '<div class="heading">' + breadcrumb + '</div>';
+                  const rowsHtml = (ROWS_BY_ID[cb.id] || []).join('');
+                  return heading + '<div class="sports-table">' + rowsHtml + '</div>';
+                })
+                .join('');
+              results.innerHTML = html;
+            }
+            if (isFirstSlowClick) {
+              checked.forEach((cb) => alreadySlowedIds.add(cb.id));
+              // Never resolves within SHOW_LEAGUES_CONTENT_TIMEOUT_MS on
+              // THIS click -- modeling a competition that is merely slow
+              // once, not permanently broken. Leaves a loading indicator
+              // up in the meantime, same honest "still loading" signal
+              // CONTENT_NEVER_UPDATES uses.
+              results.innerHTML = '<div class="loading-spinner">Loading...</div>';
+              setTimeout(renderNow, 10000);
+              return;
+            }
+            renderNow();
           });
         }
 
@@ -511,19 +560,91 @@ test('a country whose accordion never opens is countries_failed but does not sto
   assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
 });
 
-test('Show Leagues never updating the fixture output is a safe stop, not a crash', async () => {
+test('ROUND 11: Show Leagues never updating the fixture output is retried once, then a safe BATCH_FAILED, not a crash and not a whole-run stop', async () => {
+  // contentNeverUpdates means BOTH the original attempt and the retry
+  // time out -- a persistent, never-clearing loading indicator, matching
+  // the real screenshot evidence this check was built from. With only
+  // one competition in the run, once it fails there is nothing left to
+  // attempt, so the run ends normally (no earlyStopReason) rather than
+  // stopping "early".
   const doc = docFromHtml(pageHtml({ countries: [NIGERIA], contentNeverUpdates: true }));
   const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
-  assert.ok(envelope.capture_status_reasons.some((r) => r === 'STOPPED_EARLY_SHOW_LEAGUES_CONTENT_TIMEOUT'));
+  assert.ok(!envelope.capture_status_reasons.some((r) => r.startsWith('STOPPED_EARLY_')));
+  assert.equal(envelope.competitions_failed, 1);
+  const nigeria = envelope.competition_results.find((r) => r.source_competition_id === '1209691');
+  assert.equal(nigeria.outcome, 'BATCH_FAILED');
+  assert.equal(nigeria.failure_reason, 'SHOW_LEAGUES_CONTENT_TIMEOUT');
   // Zero usable output resulted (no fixtures, no unparsed records, no
-  // confirmed-empty competition either) -- CAPTURE_FAILED is the correct,
-  // honest status here, same as every other zero-output gate in this
-  // module, even though there IS also a named early-stop reason.
+  // confirmed-empty competition either) -- CAPTURE_FAILED is still the
+  // correct, honest status here, same as every other zero-output gate.
   assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
-  assert.ok(envelope.resume_metadata.can_resume);
+  // Nothing left to resume TO (the only competition already failed and
+  // there is no early stop) -- can_resume is honestly false here.
+  assert.equal(envelope.resume_metadata.can_resume, false);
   const timedOutBatch = envelope.batch_results.find((b) => b.failure_reason === 'SHOW_LEAGUES_CONTENT_TIMEOUT');
   assert.ok(timedOutBatch.content_readiness_diagnostics, 'a content timeout must carry readiness diagnostics');
   assert.ok(timedOutBatch.content_readiness_diagnostics.loading_indicators_remaining >= 1);
+  assert.equal(timedOutBatch.retried, true);
+});
+
+test('ROUND 11 (real-capture regression): a single competition that times out on every attempt does not stop the run -- every other competition is still attempted, classified, and captured', async () => {
+  // This is the exact real-capture defect (13:30:07 capture): Botswana >
+  // Premier League timed out once and stopped the ENTIRE run, leaving
+  // 213 other competitions NOT_ATTEMPTED_AFTER_EARLY_STOP. England's two
+  // competitions here model those "left behind" competitions -- they
+  // must now be reached and captured normally even though Nigeria (the
+  // first batch) is permanently stuck (times out on both the original
+  // attempt and the retry).
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND], neverUpdatesForIds: ['1209691'] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.ok(!envelope.capture_status_reasons.some((r) => r.startsWith('STOPPED_EARLY_')));
+  const nigeria = envelope.competition_results.find((r) => r.source_competition_id === '1209691');
+  assert.equal(nigeria.outcome, 'BATCH_FAILED');
+  assert.equal(nigeria.failure_reason, 'SHOW_LEAGUES_CONTENT_TIMEOUT');
+  for (const id of ['2000001', '2000002']) {
+    const result = envelope.competition_results.find((r) => r.source_competition_id === id);
+    assert.equal(result.outcome, 'CAPTURED_IN_BATCH');
+  }
+  assert.equal(envelope.competitions_captured, 2);
+  assert.equal(envelope.competitions_failed, 1);
+  assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
+  const nigeriaBatch = envelope.batch_results.find((b) => b.competition_ids.includes('1209691'));
+  assert.equal(nigeriaBatch.retried, true);
+});
+
+test('ROUND 11: a competition slow only ONCE recovers on the retry and is captured normally, never reported as failed', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA], slowFirstShowLeaguesForIds: ['1209691'] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.ok(!envelope.capture_status_reasons.some((r) => r.startsWith('STOPPED_EARLY_')));
+  const nigeria = envelope.competition_results.find((r) => r.source_competition_id === '1209691');
+  assert.equal(nigeria.outcome, 'CAPTURED_IN_BATCH');
+  assert.equal(envelope.competitions_captured, 1);
+  assert.equal(envelope.competitions_failed, 0);
+  assert.equal(envelope.fixtures.length, 1);
+  const nigeriaBatch = envelope.batch_results.find((b) => b.competition_ids.includes('1209691'));
+  assert.equal(nigeriaBatch.ok, true);
+  assert.equal(nigeriaBatch.retried, true);
+});
+
+test('ROUND 11 (real-capture regression): a competition with zero rendered tables and zero rows is COMPETITION_CONTENT_UNRESOLVED, not COMPETITION_ATTRIBUTION_UNRESOLVED', async () => {
+  // Real evidence: the 13:30:07 capture's Turkey "2. Lig"/"3. Lig"
+  // competitions rendered no .sports-table at all. For a single-
+  // competition batch (the only case reachable today), an EMPTY
+  // table_attribution_summary means attribution logic was never even
+  // exercised -- COMPETITION_ATTRIBUTION_UNRESOLVED would wrongly claim
+  // it ran and failed to resolve a table that in fact never rendered.
+  const TURKEY = {
+    countrySlug: 'turkey',
+    label: 'Turkey',
+    competitions: [{ checkboxId: '5000001', label: '2. Lig', rows: [] }],
+  };
+  const doc = docFromHtml(pageHtml({ countries: [TURKEY], omitTableForIds: ['5000001'] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  const turkey = envelope.competition_results.find((r) => r.source_competition_id === '5000001');
+  assert.equal(turkey.outcome, 'COMPETITION_CONTENT_UNRESOLVED');
+  assert.equal(turkey.failure_reason, 'COMPETITION_CONTENT_UNRESOLVED');
+  assert.ok(envelope.capture_status_reasons.includes('SOME_COMPETITIONS_CONTENT_UNRESOLVED'));
+  assert.ok(!envelope.capture_status_reasons.includes('SOME_COMPETITIONS_ATTRIBUTION_UNRESOLVED'));
 });
 
 test('a missing Show Leagues button fails the batch safely instead of throwing', async () => {

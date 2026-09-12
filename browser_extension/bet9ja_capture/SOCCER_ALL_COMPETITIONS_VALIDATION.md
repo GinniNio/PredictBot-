@@ -1314,3 +1314,119 @@ is very likely the run PR #38 has been waiting for. If parsing surfaces a
 *further* issue (e.g. an unrecognized outcome label, an incomplete 1X2
 market, or something else entirely), that is real evidence for a Round 12
 correction -- not a reason to guess ahead of it now.
+
+## Round 11 -- 2026-09-12 (Round 10 confirmed working end to end; one
+resilience defect found: a single slow competition stopped the entire
+run)
+
+A real capture (`13:30:07`) confirmed Round 10's sport-context fix works
+exactly as designed, reaching real row parsing for the first time:
+
+| Check | Result |
+|---|---|
+| Competitions discovered | 353 |
+| Batches attempted | 140 |
+| Batches completed successfully | 139 |
+| Soccer fixtures captured | 616 |
+| Competitions captured | 110 |
+| Competitions confirmed empty | 27 |
+| Competitions unresolved | 2 |
+| Competitions timed out | 1 |
+| Competitions left unattempted | 213 |
+| Accounting reconciliation | Exact: 353 |
+| Duplicate fixtures | 0 |
+| Resume pointer | Correct: last completed competition |
+
+This is the run PR #38 has been waiting for on the sport-context front --
+`SPORT_CONTEXT_CONFLICT` did not recur once across 140 batches. One
+resilience defect remained, both real and narrow:
+
+### The stopping competition
+
+```
+Botswana > Premier League
+Competition ID: 1838204
+Batch: 139
+Failure: SHOW_LEAGUES_CONTENT_TIMEOUT
+```
+
+Its own diagnostics showed one matchup row, one table, and no loader --
+content was GENUINELY almost ready; the row count simply never reached
+the two consecutive stable polls `showLeaguesAndWait` requires before its
+5-second budget ran out. Under the pre-Round-11 design, ANY
+`SHOW_LEAGUES_CONTENT_TIMEOUT` set `earlyStopReason` and stopped the
+whole run -- one slow-to-settle competition cost the run 213 other
+competitions it never even attempted.
+
+### Fix
+
+`showLeaguesWithRetryOnTimeout` wraps `showLeaguesAndWait`: a
+`SHOW_LEAGUES_CONTENT_TIMEOUT` (and only that reason -- every other
+`showLeaguesAndWait` failure, e.g. `SHOW_LEAGUES_BUTTON_NOT_FOUND`, means
+the page itself lost a control this module depends on structurally, and
+is passed through unchanged) triggers exactly one retry: clear the
+batch's own selection, reselect each of its competitions, and call
+`showLeaguesAndWait` again. If the retry succeeds, the batch proceeds
+normally (its `batch_results[]` entry carries `retried: true` for audit).
+If the retry also times out (or the retry's own clear/reselect fails),
+the competition is classified `BATCH_FAILED` and the run moves on to the
+NEXT competition -- `earlyStopReason` is never set for this case, so the
+whole run only stops early now for genuinely structural failures: losing
+the Soccer route, the inventory root, the trusted sport context, or a
+broken Show Leagues/Clear all control. Content-readiness stability itself
+(the two-consecutive-stable-polls requirement) is completely unchanged --
+this is purely a "try once more before giving up on this ONE
+competition" resilience fix, never a loosening of what counts as ready.
+
+A second, smaller correction: the same capture's Turkey "2. Lig"/"3. Lig"
+competitions rendered zero `.sports-table`s and zero rows, and were
+labeled `COMPETITION_ATTRIBUTION_UNRESOLVED` -- a name that claims
+attribution logic ran and failed to map a table to that competition. For
+a single-competition batch (the only case `MAX_COMPETITIONS_PER_BATCH`
+ever produces today), an EMPTY `table_attribution_summary` means zero
+tables rendered for the batch at all -- attribution was never exercised.
+A new `COMPETITION_CONTENT_UNRESOLVED` outcome now names that case
+honestly, distinguished from `COMPETITION_ATTRIBUTION_UNRESOLVED` by
+whether `table_attribution_summary` is empty (content never rendered) or
+merely excludes this one competition's id (a table DID render somewhere
+in the batch, today only reachable via the dormant multi-competition
+fallback).
+
+Reconciliation and resume logic are unchanged, per instruction: a
+competition resolved by retry still updates
+`resume_metadata.last_completed_competition_id` exactly as before (via
+the same `CAPTURED_IN_BATCH`/`BATCH_EMPTY` classification block), and the
+accounting invariant (`competitions_available = captured + empty + failed
++ skipped_by_safety_cap + skipped_by_early_stop`) is untouched.
+
+### Tests
+
+208/208 JS tests pass. New tests prove: a single competition that times
+out on every attempt (both the original click and the retry) no longer
+stops the run -- every other competition is still attempted, classified,
+and captured; a competition slow only ONCE recovers on the retry and is
+captured normally, never reported as failed; a competition with zero
+rendered tables and zero rows is `COMPETITION_CONTENT_UNRESOLVED`, not
+`COMPETITION_ATTRIBUTION_UNRESOLVED`; and the single-competition,
+permanently-stuck case (no retry can help) still ends in the correct,
+honest `CAPTURE_FAILED`/`BATCH_FAILED` state when it's the only
+competition in the run.
+
+### PARSER_VERSION
+
+Bumped to `bet9ja-soccer-walker@0.6.0-round11-timeout-retry-and-content-unresolved-fix-unverified`
+-- still `-unverified`: Round 10's fix is now confirmed, but Round 11's
+retry/reclassification fix has not yet been exercised against the live
+account.
+
+### Recommendation for Round 12
+
+Re-run **Capture all Soccer fixtures** for real. Expect a materially more
+complete run: any competition that was merely slow once (like Botswana)
+should now recover on retry and be captured; only a genuinely,
+persistently unresponsive competition should end up `BATCH_FAILED`, and
+the run should reach all 353 competitions rather than stopping at batch
+139. If a competition times out on BOTH the original attempt and the
+retry in a real run, that is useful evidence on its own (is it always the
+same competition? does a longer timeout window help?) for a possible
+Round 13 correction -- not something to guess ahead of now.
