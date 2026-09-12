@@ -28,21 +28,43 @@
  * `/competition/soccer/...` route-change waits -- there is no per-
  * competition navigation left to verify at all.
  *
- * CONFIRMED REAL HIERARCHY (live-DOM evidence, 2026-09-12):
+ * CONFIRMED REAL HIERARCHY (live-DOM evidence, 2026-09-12; root corrected
+ * Round 7 after PR #38's two real captures both reached this exact route
+ * and still returned `NO_COUNTRIES_DISCOVERED`):
  *
- *   `/sportPage/1/competitions` -> `.competitions` root -> one
- *   `.accordion-item` per country -> `.competitions__group-item` rows,
- *   each holding a `.sportpage__cb-input` checkbox (id = the competition's
- *   own stable numeric id, e.g. `1209691` for Nigeria's "Professional
- *   Football League") with its own `<label for="{id}">` -- the checkbox
- *   itself is marked `readonly`, so selection happens through its label,
- *   matching the site's own UI behavior. `.competitions__filter-btn.
- *   check-coupon` ("Show Leagues") renders every currently-checked
- *   competition's fixtures into the page's existing `.sports-table`/
- *   `.sports-table__matchup` structure (already fully supported by
- *   parser.js) WITHOUT changing the URL.
+ *   `/sportPage/1/competitions`
+ *   -> `.accordion.accordion-soccer` (the ACTUAL country-inventory root)
+ *      -> `.competitions` (a SIBLING block -- the Popular-competitions
+ *         selection/results panel, never a country and never the
+ *         discovery root itself; Round 5/6 wrongly used exactly this
+ *         element as `pageRoot`)
+ *      -> one `.accordion-item` DIRECT CHILD per country
+ *         -> `.competitions__group-item` rows, each holding a
+ *            `.sportpage__cb-input` checkbox (id = the competition's own
+ *            stable numeric id, e.g. `1209691` for Nigeria's
+ *            "Professional Football League") with its own
+ *            `<label for="{id}">` -- the checkbox itself is marked
+ *            `readonly`, so selection happens through its label,
+ *            matching the site's own UI behavior.
+ *   `.competitions__filter-btn.check-coupon` ("Show Leagues") renders
+ *   every currently-checked competition's fixtures into the page's
+ *   existing `.sports-table`/`.sports-table__matchup` structure (already
+ *   fully supported by parser.js) WITHOUT changing the URL.
  *   `.competitions__filter-btn.clear-all` clears every current
  *   selection, confirmed necessary before starting the next batch.
+ *
+ * CLIENT-RENDER TIMING (real evidence, 2026-09-12): immediately after
+ * DOMContentLoaded the live page has ZERO `.accordion-item` elements at
+ * all; the full inventory (141 countries, in the one real inspection)
+ * only exists roughly 1.8 SECONDS later. This is the second real cause
+ * behind both of PR #38's captures failing at the exact same route: the
+ * popup injected and this module started discovery before that render
+ * ever completed. `waitForCountryInventoryReady` waits for the root
+ * AND for the discovered country COUNT to stop changing across
+ * consecutive polls (not merely become non-zero) before discovery ever
+ * begins -- see its own comment for the three typed, distinct timeout
+ * outcomes this replaced a single immediate `NO_COUNTRIES_DISCOVERED`
+ * with.
  *
  * IDENTITY: `source_competition_id` is read directly from the checkbox's
  * own `id` attribute -- no composite `sg-`/`g-` id-parsing is needed here
@@ -99,13 +121,15 @@
   const Bet9jaCapture = typeof module !== 'undefined' && module.exports ? require('./parser.js') : root.Bet9jaCapture;
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  // NOT bumped to a non-"-unverified" tag yet: this batch-selector
-  // rewrite has not itself been exercised end-to-end against the live
-  // account (see "What is NOT yet confirmed" in
-  // SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 5 section). Per this
+  // NOT bumped to a non-"-unverified" tag yet: two real captures against
+  // the live account both reached the correct route but never got past
+  // country discovery (NO_COUNTRIES_DISCOVERED, root-cause fixed this
+  // round -- see the header comment's "CLIENT-RENDER TIMING" section and
+  // SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 7 section). This fix
+  // itself has not yet been exercised against the live account. Per this
   // project's evidence-only versioning discipline, the version string
-  // advances only after that one real successful capture.
-  const PARSER_VERSION = 'bet9ja-soccer-walker@0.4.0-round5-batch-selector-unverified';
+  // advances only after one real successful capture.
+  const PARSER_VERSION = 'bet9ja-soccer-walker@0.4.1-round7-inventory-root-and-timing-fix-unverified';
 
   const INVENTORY_PROFILE = 'BET9JA_SPORTPAGE_COMPETITIONS_SELECTOR';
   const START_ROUTE_PATTERN = /^\/sportPage\/1\/competitions\/?$/;
@@ -135,7 +159,17 @@
   // tests can exercise this logic against synthetic markup shaped like
   // the confirmed real structure.
   const SELECTORS = {
-    pageRoot: '.competitions',
+    // ROUND 7 CORRECTION (2026-09-12, real-DOM evidence): `.competitions`
+    // is NOT the country-inventory root -- it is the Popular-competitions
+    // selection/results block, a SIBLING of the actual country accordion
+    // items, not their container. Both uploaded real captures reached
+    // the correct route and still reported `NO_COUNTRIES_DISCOVERED`
+    // because of exactly this: discovery was scoped to the wrong element,
+    // so it could never find the `.accordion-item`s living outside it.
+    // The confirmed real container is `.accordion.accordion-soccer`; a
+    // `.competitions` block lives INSIDE it as one of several siblings,
+    // alongside the real per-country `.accordion-item`s.
+    pageRoot: '.accordion.accordion-soccer',
     accordionItem: '.accordion-item',
     accordionToggle: '.accordion-toggle',
     accordionText: '.accordion-toggle .accordion-text',
@@ -161,12 +195,21 @@
   // notification's own markup was never inspected.
   const MAX_LIMIT_TEXT_PATTERN = /maximum selection limit/i;
 
-  const ROUTE_READY_TIMEOUT_MS = 3000;
   const ACCORDION_TIMEOUT_MS = 3000;
   const SELECTION_TIMEOUT_MS = 1500;
   const SHOW_LEAGUES_CONTENT_TIMEOUT_MS = 5000;
   const CLEAR_ALL_TIMEOUT_MS = 2000;
   const POLL_INTERVAL_MS = 25;
+
+  // Real evidence, 2026-09-12: immediately after DOMContentLoaded the
+  // live page has zero `.accordion-item` elements; the full 141-country
+  // inventory only exists ~1.8s later, client-rendered. 10000ms/100ms
+  // are generous multiples of that observed delay, never a guess.
+  // Shared as ONE budget across both "root appears" and "country count
+  // settles", matching how the two conditions were observed together in
+  // the real page, not as two independently-invented timeouts.
+  const SOCCER_COMPETITIONS_ROOT_TIMEOUT_MS = 10000;
+  const SOCCER_COMPETITIONS_ROOT_POLL_MS = 100;
   // Real evidence: 100+ countries and (per the retired per-competition
   // walker's own real capture) dozens of competitions per country are
   // plausible; this is a generous multiple of any plausible real total,
@@ -206,13 +249,75 @@
     return !!item && item.classList.contains(SELECTORS.accordionOpenClass);
   }
 
-  function findCompetitionsRoot(doc) {
-    return doc.querySelector(SELECTORS.pageRoot);
-  }
-
+  /**
+   * DIRECT children only (`:scope >`), never a full-descendant query --
+   * `.accordion-item` also appears nested inside a country's own expanded
+   * `.accordion-content` (there is no confirmed limit on accordion
+   * nesting), and a full-descendant query would misclassify those as
+   * top-level countries. A candidate must also carry its own
+   * `:scope > .accordion-toggle .accordion-text` (the country's own
+   * name), which the Popular-competitions `.competitions` sibling block
+   * (a plain results/selection panel, not an accordion item at all)
+   * never has -- filtering on this, not just the class name, is what
+   * keeps that sibling block from ever being misread as a country.
+   */
   function discoverCountryAccordions(competitionsRoot) {
     if (!competitionsRoot) return [];
-    return Array.from(competitionsRoot.querySelectorAll(SELECTORS.accordionItem));
+    return Array.from(competitionsRoot.querySelectorAll(':scope > .accordion-item')).filter(
+      (item) => !!item.querySelector(':scope > .accordion-toggle .accordion-text')
+    );
+  }
+
+  /**
+   * Waits for the client-rendered country inventory to actually exist
+   * AND settle before discovery ever begins. Real evidence: immediately
+   * after DOMContentLoaded the page has zero `.accordion-item` elements
+   * at all; the full inventory (141 countries, in the one real
+   * inspection) only exists ~1.8s later. A single "count > 0" check is
+   * not enough on its own -- countries render asynchronously and a
+   * capture that started discovery too early would silently walk only
+   * the first few. This polls until the discovered country COUNT itself
+   * stops changing between two consecutive polls (not just becomes
+   * non-zero), sharing one overall timeout budget with the root-element
+   * wait itself.
+   *
+   * Three distinct, typed outcomes, never conflated: the root element
+   * itself never appearing (`SOCCER_COMPETITIONS_ROOT_TIMEOUT`); the root
+   * appearing but never gaining a single country within the budget
+   * (`SOCCER_COUNTRY_INVENTORY_TIMEOUT`); and the root appearing with
+   * countries that kept appearing/changing without ever settling
+   * (`SOCCER_COUNTRY_INVENTORY_UNSTABLE`) -- the latter two are both real
+   * evidence of an incomplete inventory, but are different enough
+   * (nothing at all vs. still growing) to keep separate for diagnosis.
+   */
+  async function waitForCountryInventoryReady(doc) {
+    const deadline = Date.now() + SOCCER_COMPETITIONS_ROOT_TIMEOUT_MS;
+
+    let root = doc.querySelector(SELECTORS.pageRoot);
+    while (!root && Date.now() < deadline) {
+      await sleep(SOCCER_COMPETITIONS_ROOT_POLL_MS);
+      root = doc.querySelector(SELECTORS.pageRoot);
+    }
+    if (!root) {
+      return { ok: false, reason: 'SOCCER_COMPETITIONS_ROOT_TIMEOUT', root: null };
+    }
+
+    let previousCount = null;
+    while (Date.now() < deadline) {
+      const currentCount = discoverCountryAccordions(root).length;
+      if (currentCount > 0 && currentCount === previousCount) {
+        return { ok: true, reason: null, root };
+      }
+      previousCount = currentCount;
+      await sleep(SOCCER_COMPETITIONS_ROOT_POLL_MS);
+    }
+
+    const finalCount = discoverCountryAccordions(root).length;
+    return {
+      ok: false,
+      reason: finalCount === 0 ? 'SOCCER_COUNTRY_INVENTORY_TIMEOUT' : 'SOCCER_COUNTRY_INVENTORY_UNSTABLE',
+      root,
+    };
   }
 
   function discoverCompetitionsInCountry(countryItem) {
@@ -491,13 +596,21 @@
 
     const inventorySourceUrl = Bet9jaCapture.sanitizeSourceUrl(currentHref(doc, context.sourceUrl));
 
-    const rootReady = await waitFor(() => !!findCompetitionsRoot(doc), ROUTE_READY_TIMEOUT_MS, POLL_INTERVAL_MS);
-    if (!rootReady) {
+    // Both uploaded real captures reached this exact route and still
+    // reported NO_COUNTRIES_DISCOVERED -- discovery was starting before
+    // the client-rendered country inventory existed at all (confirmed
+    // real evidence: 0 `.accordion-item` elements immediately after
+    // DOMContentLoaded, 141 roughly 1.8s later). NO_COUNTRIES_DISCOVERED
+    // is never returned until this readiness wait has fully completed --
+    // see waitForCountryInventoryReady's own comment for the three typed
+    // outcomes this replaces a single bare "not ready" check with.
+    const inventoryReady = await waitForCountryInventoryReady(doc);
+    if (!inventoryReady.ok) {
       return {
         envelope: {
           ...envelopeBase,
           capture_status: 'CAPTURE_FAILED',
-          capture_status_reasons: ['COMPETITIONS_ROOT_NOT_READY'],
+          capture_status_reasons: [inventoryReady.reason],
           inventory_source_url: inventorySourceUrl,
           competitions_route_confirmed: true,
           ...emptyEnvelopeShape(),
@@ -505,24 +618,7 @@
       };
     }
 
-    const competitionsRoot = findCompetitionsRoot(doc);
-    const countriesReady = await waitFor(
-      () => discoverCountryAccordions(competitionsRoot).length > 0,
-      ROUTE_READY_TIMEOUT_MS,
-      POLL_INTERVAL_MS
-    );
-    if (!countriesReady) {
-      return {
-        envelope: {
-          ...envelopeBase,
-          capture_status: 'CAPTURE_FAILED',
-          capture_status_reasons: ['NO_COUNTRIES_DISCOVERED'],
-          inventory_source_url: inventorySourceUrl,
-          competitions_route_confirmed: true,
-          ...emptyEnvelopeShape(),
-        },
-      };
-    }
+    const competitionsRoot = inventoryReady.root;
 
     // --- Phase 1: discovery -- expand every country, enumerate every
     // competition checkbox. No selection happens yet.

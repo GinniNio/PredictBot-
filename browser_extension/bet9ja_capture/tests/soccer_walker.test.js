@@ -4,12 +4,15 @@ const { JSDOM } = require('jsdom');
 const soccerWalker = require('../soccer_walker.js');
 const { BASE_CONTEXT } = require('./helpers.js');
 
-// --- Round 5 rewrite: batch competition selector on
-// `/sportPage/1/competitions`, confirmed 2026-09-12 -- see
+// --- Round 5 rewrite (+ Round 7 correction): batch competition selector
+// on `/sportPage/1/competitions`, confirmed 2026-09-12 -- see
 // soccer_walker.js's own header comment and
-// SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 5 section. This harness
-// models:
-//   `.competitions` root -> `.accordion-item` per country -> expand ->
+// SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 5/7 sections. This
+// harness models the CONFIRMED real hierarchy:
+//   `.accordion.accordion-soccer` root -> a `.competitions` SIBLING
+//   block (the Popular-competitions selection/results panel -- never a
+//   country, and never the discovery root itself) alongside one
+//   `.accordion-item` DIRECT CHILD per country -> expand -> its own
 //   `.competitions__group-item` rows, each a `.sportpage__cb-input`
 //   checkbox (readonly, matching the real markup) + its own
 //   `<label for="{id}">` -> click the label -> checkbox toggles ->
@@ -21,7 +24,11 @@ const { BASE_CONTEXT } = require('./helpers.js');
 // shows a "Maximum selection limit reached!" notification once the
 // count would be exceeded -- modeling Bet9ja's own unconfirmed limit,
 // discovered operationally rather than hard-coded, per this project's
-// "never invent a fixed batch size" rule.
+// "never invent a fixed batch size" rule. `countryRenderDelayMs` and
+// `countriesNeverRender` model the confirmed real client-render delay
+// (0 countries immediately after DOMContentLoaded, the full inventory
+// only ~1.8s later) that PR #38's real captures both hit as
+// `NO_COUNTRIES_DISCOVERED`.
 //
 // NOTE on fixture row ids: real evidence confirms row-level sport
 // resolution needs an id-embedded "sport-N" segment ONLY on pages where
@@ -47,16 +54,36 @@ function countryAccordionHtml({ countrySlug, label, competitions }) {
   const rows = competitions.map((c) => competitionGroupItemHtml(c)).join('');
   return `
     <div class="accordion-item" data-country="${countrySlug}">
-      <div class="accordion-toggle"><span class="accordion-text">${label}</span></div>
-      <div class="accordion-content"><div class="accordion-inner">${rows}</div></div>
+      <div class="accordion-toggle"><div class="accordion-text">${label}</div></div>
+      <div class="accordion-content"><div class="accordion-inner"><div class="competitions">${rows}</div></div></div>
     </div>
   `;
 }
+
+// The real Popular-competitions block: a `.competitions` SIBLING of the
+// country `.accordion-item`s, not an accordion item itself and not their
+// container -- discovery must never mistake it for a country.
+const POPULAR_COMPETITIONS_DECOY_HTML = `
+  <div class="competitions" data-popular="1">
+    <div class="competitions__group-item"><input type="checkbox" id="9000001" class="sportpage__cb-input" readonly><label for="9000001"></label><span>Some Popular League</span></div>
+  </div>
+`;
+
+// A DIRECT-CHILD `.accordion-item` with no `.accordion-toggle
+// .accordion-text` of its own -- proves discovery filters on that, not
+// merely on class name + direct-child scoping.
+const MALFORMED_ACCORDION_ITEM_DECOY_HTML = `
+  <div class="accordion-item" data-decoy="1"><span>not a real country -- no accordion-toggle/accordion-text</span></div>
+`;
 
 /**
  * `countries` is `[{countrySlug, label, competitions: [{checkboxId, label, rows}]}]`.
  * `maxSimultaneousSelectable` models Bet9ja's own unconfirmed selection
  * limit -- `Infinity` (default) means "never observed in this test".
+ * `countryRenderDelayMs` (default 0) delays the country `.accordion-item`s
+ * being inserted into `.accordion.accordion-soccer`, modeling the
+ * confirmed real client-render delay; `countriesNeverRender` means they
+ * never appear at all.
  */
 function pageHtml({
   countries,
@@ -65,6 +92,8 @@ function pageHtml({
   clearAllMissing = false,
   contentNeverUpdates = false,
   omitHeadings = false,
+  countryRenderDelayMs = 0,
+  countriesNeverRender = false,
 }) {
   const countriesHtml = countries.map((c) => countryAccordionHtml(c)).join('');
   const rowsById = {};
@@ -82,11 +111,15 @@ function pageHtml({
     ? ''
     : `<button type="button" class="competitions__filter-btn clear-all">Clear all</button>`;
 
+  const immediateCountriesHtml = countryRenderDelayMs > 0 || countriesNeverRender ? '' : countriesHtml;
+
   return `
     <head><title>Soccer - Competitions</title></head>
     <body>
-      <div class="competitions">
-        ${countriesHtml}
+      <div class="accordion accordion-soccer" id="soccer-root">
+        ${POPULAR_COMPETITIONS_DECOY_HTML}
+        ${MALFORMED_ACCORDION_ITEM_DECOY_HTML}
+        ${immediateCountriesHtml}
         ${clearAllBtn}
         ${showLeaguesBtn}
       </div>
@@ -100,12 +133,27 @@ function pageHtml({
         const OMIT_HEADINGS = ${JSON.stringify(omitHeadings)};
         const results = document.getElementById('results');
         const limitNotice = document.getElementById('limit-notice');
+        const soccerRoot = document.getElementById('soccer-root');
 
-        document.querySelectorAll('.accordion-toggle').forEach((el) => {
-          el.addEventListener('click', () => {
-            el.closest('.accordion-item').classList.toggle('accordion-item--open');
+        function wireCountryToggles() {
+          document.querySelectorAll('.accordion-toggle').forEach((el) => {
+            if (el.dataset.wired) return;
+            el.dataset.wired = '1';
+            el.addEventListener('click', () => {
+              el.closest('.accordion-item').classList.toggle('accordion-item--open');
+            });
           });
-        });
+        }
+        wireCountryToggles();
+
+        ${
+          countryRenderDelayMs > 0
+            ? `setTimeout(() => {
+                soccerRoot.insertAdjacentHTML('beforeend', ${JSON.stringify(countriesHtml)});
+                wireCountryToggles();
+              }, ${countryRenderDelayMs});`
+            : ''
+        }
 
         function selectedCount() {
           return document.querySelectorAll('.sportpage__cb-input:checked').length;
@@ -193,12 +241,58 @@ test('not on /sportPage/1/competitions fails closed, no clicks attempted', async
   assert.equal(envelope.fixtures.length, 0);
 });
 
-test('the correct route with no countries in .competitions fails closed', async () => {
+test('the .accordion.accordion-soccer root never appearing at all is a typed timeout, never NO_COUNTRIES_DISCOVERED', async () => {
   const doc = docFromHtml('<body><div class="competitions"></div></body>');
   const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
   assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
-  assert.ok(envelope.capture_status_reasons.includes('NO_COUNTRIES_DISCOVERED'));
+  // The outer Popular .competitions block existing (but NOT wrapped in
+  // .accordion.accordion-soccer) must never be mistaken for the root --
+  // this is the exact real-capture defect PR #38's two uploaded captures
+  // both hit (NO_COUNTRIES_DISCOVERED despite reaching the right route).
+  assert.deepEqual(envelope.capture_status_reasons, ['SOCCER_COMPETITIONS_ROOT_TIMEOUT']);
   assert.equal(envelope.competitions_route_confirmed, true);
+});
+
+test('a root that exists but never gains a single country is SOCCER_COUNTRY_INVENTORY_TIMEOUT, not NO_COUNTRIES_DISCOVERED', async () => {
+  const doc = docFromHtml('<head><title>Soccer - Competitions</title></head><body><div class="accordion accordion-soccer"></div></body>');
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
+  assert.deepEqual(envelope.capture_status_reasons, ['SOCCER_COUNTRY_INVENTORY_TIMEOUT']);
+});
+
+test('an initially empty country inventory that renders after a delay is awaited successfully, never failed early', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA], countryRenderDelayMs: 300 }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.capture_status, 'CAPTURE_COMPLETE');
+  assert.equal(envelope.countries_available, 1);
+  assert.equal(envelope.fixtures.length, 1);
+});
+
+test('a country count that keeps changing without ever settling is SOCCER_COUNTRY_INVENTORY_UNSTABLE, never treated as ready', async () => {
+  const html = `
+    <head><title>Soccer - Competitions</title></head>
+    <body>
+      <div class="accordion accordion-soccer" id="soccer-root"></div>
+      <script>
+        const root = document.getElementById('soccer-root');
+        let i = 0;
+        function addOne() {
+          i += 1;
+          if (i > 250) return; // safely outlasts the 10s production timeout, then stops scheduling
+          const div = document.createElement('div');
+          div.className = 'accordion-item';
+          div.innerHTML = '<div class="accordion-toggle"><div class="accordion-text">Country ' + i + '</div></div>';
+          root.appendChild(div);
+          setTimeout(addOne, 50);
+        }
+        addOne();
+      </script>
+    </body>
+  `;
+  const doc = docFromHtml(html);
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.capture_status, 'CAPTURE_FAILED');
+  assert.deepEqual(envelope.capture_status_reasons, ['SOCCER_COUNTRY_INVENTORY_UNSTABLE']);
 });
 
 test('a single country, single competition, full batch capture reports CAPTURE_COMPLETE', async () => {
@@ -220,6 +314,31 @@ test('a single country, single competition, full batch capture reports CAPTURE_C
   assert.equal(envelope.competition_results.length, 1);
   assert.equal(envelope.competition_results[0].outcome, 'CAPTURED_IN_BATCH');
   assert.equal(envelope.competition_results[0].source_competition_id, '1209691');
+  // Requirements 1, 2, 3 from the real-structure regression fixture: the
+  // outer Popular .competitions block (and its own decoy checkbox) is
+  // never treated as a country or a competition; Nigeria IS discovered;
+  // its own competition 1209691 is discovered after expanding it.
+  assert.equal(envelope.countries_available, 1, 'the Popular .competitions sibling must never be counted as a country');
+  assert.ok(
+    !envelope.competition_results.some((r) => r.source_competition_id === '9000001'),
+    'the Popular block\'s own decoy checkbox must never be discovered as a real competition'
+  );
+});
+
+test('country discovery uses DIRECT children only -- a nested .accordion-item inside another country\'s own content is never double-counted as a top-level country', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND] }));
+  // Simulate a nested accordion item living INSIDE Nigeria's own expanded
+  // content (there is no confirmed limit on accordion nesting depth) --
+  // it carries its own accordion-toggle/accordion-text, so a naive
+  // full-descendant query would misclassify it as a THIRD top-level
+  // country.
+  const nigeriaInner = doc.querySelector('[data-country="nigeria"] .accordion-inner');
+  nigeriaInner.insertAdjacentHTML(
+    'beforeend',
+    '<div class="accordion-item"><div class="accordion-toggle"><div class="accordion-text">Nested Decoy</div></div></div>'
+  );
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  assert.equal(envelope.countries_available, 2, 'the nested accordion-item must never be counted as a third top-level country');
 });
 
 test('multiple countries and competitions with no selection limit all land in ONE batch', async () => {

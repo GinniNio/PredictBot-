@@ -773,3 +773,129 @@ would mean the heading-position assumption above needs correcting);
 `competitions_available`; `Clear all` actually resets every checkbox
 between batches; no competition is processed twice; and one combined JSON
 downloads at the end.
+
+## Round 7 -- 2026-09-12 (two real captures reached the correct route and
+both failed at country discovery; two compounding root causes found and
+fixed, no redesign)
+
+Two real captures (08:54:29 and 08:54:54) were run against the live
+account with PR #38's code. Both reached the confirmed route and both
+failed immediately after:
+
+```text
+capture_status: CAPTURE_FAILED
+capture_status_reasons: ["NO_COUNTRIES_DISCOVERED"]
+countries_available: 0
+competitions_available: 0
+batches: 0
+fixtures: 0
+```
+
+This means route control worked, but nothing downstream of it --
+sport classification, table attribution, checkbox selection, batching --
+was ever exercised. Two direct competition URLs were also confirmed
+live (Nigeria Professional Football League, England Premier League) as
+individual pages, but the batch walker correctly stays on
+`/sportPage/1/competitions` rather than reverting to those.
+
+### Root cause 1: wrong inventory root
+
+`pageRoot: '.competitions'` (Round 5/6) was wrong. On the real page,
+`.competitions` is the Popular-competitions selection/results block --
+a SIBLING of the real country accordion items, never their container.
+The real hierarchy:
+
+```text
+.table-f.mt15
+└── .main-content
+    └── .accordion
+        └── .accordion-item--open
+            └── .accordion-content
+                └── .accordion-inner
+                    └── .accordion.accordion-soccer
+                        ├── .competitions        (Popular block -- NOT a country)
+                        ├── .accordion-item       Nigeria
+                        ├── .accordion-item       International
+                        ├── .accordion-item       England
+                        └── ...
+```
+
+Scoping discovery to `.competitions` meant it could never see any of the
+`.accordion-item` country elements living outside it -- `NO_COUNTRIES_
+DISCOVERED` on every run, regardless of timing.
+
+### Root cause 2: injection before the inventory renders
+
+Independently of the wrong root, live inspection showed: immediately
+after `DOMContentLoaded`, zero `.accordion-item` elements exist anywhere
+on the page; roughly 1.8 seconds later, 141 exist (Nigeria's own control
+among them). The old code's `ROUTE_READY_TIMEOUT_MS` (3000ms) COULD have
+been enough time on its own, but the wrong root (cause 1) meant the count
+being checked was always scoped to the wrong element regardless of how
+long it waited -- both causes had to be fixed together to actually
+observe the real page's timing.
+
+### Fixes (this round)
+
+- `SELECTORS.pageRoot` corrected: `.competitions` -> `.accordion.
+  accordion-soccer`.
+- Country discovery corrected to direct children only:
+  `Array.from(soccerRoot.querySelectorAll(':scope > .accordion-item'))`,
+  filtered on each candidate carrying its own
+  `:scope > .accordion-toggle .accordion-text` -- this is what keeps the
+  Popular `.competitions` sibling (which has no such toggle/text of its
+  own) AND any nested `.accordion-item` living inside another country's
+  own expanded content (there is no confirmed limit on accordion nesting)
+  from ever being misclassified as a top-level country.
+- A new `waitForCountryInventoryReady`, run before discovery ever begins,
+  replacing the old immediate root/country checks: it polls for
+  `.accordion.accordion-soccer` to exist, then polls until the
+  discovered country COUNT itself stops changing across two consecutive
+  polls (not merely becomes non-zero) -- the stronger check this round's
+  review asked for, protecting against capturing only the first few
+  asynchronously-rendered countries. Shares one 10000ms/100ms budget
+  (a generous multiple of the observed ~1.8s real delay) across both
+  conditions. Three typed, distinct outcomes, never conflated:
+  `SOCCER_COMPETITIONS_ROOT_TIMEOUT` (the root itself never appeared),
+  `SOCCER_COUNTRY_INVENTORY_TIMEOUT` (the root appeared but gained zero
+  countries within budget), `SOCCER_COUNTRY_INVENTORY_UNSTABLE` (the
+  count kept changing and never settled). The old immediate
+  `NO_COUNTRIES_DISCOVERED` is no longer returned until this readiness
+  wait has fully completed -- it survives only as a defensive residual
+  for the (should-never-happen) case of the country list emptying again
+  between readiness confirmation and discovery.
+- The synthetic regression fixture (`tests/soccer_walker.test.js`)
+  rebuilt to match the real structure exactly: a `.accordion.
+  accordion-soccer` root containing a Popular `.competitions` decoy
+  sibling (with its own decoy checkbox, proving it's never discovered as
+  a real competition), a malformed direct-child `.accordion-item` decoy
+  with no toggle/text of its own, and real countries as direct children.
+  4 new timing tests (root-never-appears, root-appears-but-no-countries,
+  delayed-render-succeeds, count-never-stabilizes) plus a direct-children
+  regression test (a nested accordion item inside another country's own
+  content must never be counted as a third top-level country).
+
+### PARSER_VERSION
+
+Bumped to
+`bet9ja-soccer-walker@0.4.1-round7-inventory-root-and-timing-fix-unverified`
+-- still not past `-unverified`, since this fix has not itself been
+exercised against the live account. 199/199 JS tests green.
+
+### What is still NOT confirmed
+
+Everything flagged [UNVERIFIED] in the Round 6 section above (the visible
+sport-heading selector/wording, whether a real competition heading's text
+contains its display name verbatim, whether `previousElementSibling` is
+really where a real multi-competition heading lives) remains unconfirmed
+-- this round only fixes country discovery, which sits BEFORE any of
+that logic runs. A real capture that gets past country discovery is the
+next opportunity to actually exercise (and validate or correct) the
+Round 6 sport-context and attribution logic for the first time.
+
+### Recommended PR status
+
+Unchanged from Round 6: keep this held, not merged. This round fixes a
+real, confirmed, root-caused defect in country discovery itself (not a
+redesign), but a real capture still hasn't gotten far enough to validate
+the sport-context/attribution logic that sits downstream of it.

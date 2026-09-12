@@ -720,18 +720,47 @@ Rounds 1-4 needed. See `SOCCER_ALL_COMPETITIONS_VALIDATION.md` for the
 full Round 1-4 postmortems and this round's confirmed replacement
 evidence.
 
-**Confirmed real hierarchy:**
+**Confirmed real hierarchy (root corrected Round 7 — see below):**
 
 ```text
-/sportPage/1/competitions → .competitions root → one .accordion-item
-  per country → .competitions__group-item rows, each a
-  .sportpage__cb-input checkbox (id = the competition's own stable
-  numeric id) + its own <label for="{id}"> → "Show Leagues"
-  (.competitions__filter-btn.check-coupon) renders every checked
-  competition's fixtures into the existing .sports-table/
-  .sports-table__matchup structure WITHOUT changing the URL →
-  .competitions__filter-btn.clear-all resets the selection
+/sportPage/1/competitions → .accordion.accordion-soccer (the ACTUAL
+  country-inventory root) → .competitions (a SIBLING block, the Popular-
+  competitions selection/results panel — never a country, never the
+  discovery root) + one .accordion-item DIRECT CHILD per country →
+  .competitions__group-item rows, each a .sportpage__cb-input checkbox
+  (id = the competition's own stable numeric id) + its own
+  <label for="{id}"> → "Show Leagues" (.competitions__filter-btn.
+  check-coupon) renders every checked competition's fixtures into the
+  existing .sports-table/.sports-table__matchup structure WITHOUT
+  changing the URL → .competitions__filter-btn.clear-all resets the
+  selection
 ```
+
+**ROUND 7 CORRECTION (2026-09-12) — real-capture root-cause fix, no
+redesign.** Two real captures both reached the correct route and both
+returned `NO_COUNTRIES_DISCOVERED`, from two compounding causes: (1)
+`.competitions` — the Popular-competitions selection/results block — is
+a SIBLING of the real country `.accordion-item`s, not their container;
+Round 5/6 wrongly used it as `pageRoot`, so discovery could never see the
+country accordions living outside it. (2) the live page renders ZERO
+`.accordion-item` elements immediately after `DOMContentLoaded` — the
+full inventory (141 countries, in the one real inspection) only exists
+roughly 1.8s later — and this module started discovery before that
+render ever completed. Fixed: `pageRoot` corrected to
+`.accordion.accordion-soccer`; country discovery scoped to
+`:scope > .accordion-item` filtered on each candidate carrying its own
+`:scope > .accordion-toggle .accordion-text` (so a nested accordion item,
+or the Popular block, is never misclassified); and a new
+`waitForCountryInventoryReady` polls until the discovered country COUNT
+itself stops changing across consecutive polls (not merely becomes
+non-zero) before discovery begins, with three typed, distinct outcomes —
+`SOCCER_COMPETITIONS_ROOT_TIMEOUT` (the root itself never appeared),
+`SOCCER_COUNTRY_INVENTORY_TIMEOUT` (the root appeared but gained zero
+countries within budget), `SOCCER_COUNTRY_INVENTORY_UNSTABLE` (countries
+kept appearing without ever settling) — replacing the old immediate
+`NO_COUNTRIES_DISCOVERED`, which is now unreachable except as a
+defensive residual for a country list that somehow empties again between
+readiness confirmation and discovery.
 
 - Reaching `/sportPage/1/competitions` from an arbitrary starting page is
   **popup.js's job**, via a real `chrome.tabs.update` navigation of the
@@ -1133,15 +1162,27 @@ synthetic HTML:
 
 `tests/soccer_walker.test.js` runs `soccer_walker.js` against a synthetic
 jsdom harness modeling the confirmed `/sportPage/1/competitions` batch
-selector (`.competitions` root, `.accordion-item` country groups,
-`.competitions__group-item` checkbox+label rows, `.competitions__filter-
-btn.check-coupon`/`.clear-all`), with a configurable maximum-selection
-limit that reverts a checkbox and shows a "Maximum selection limit
-reached!" notification, exactly modeling Bet9ja's own unconfirmed limit
-discovered operationally rather than hard-coded: a document not on
+selector (`.accordion.accordion-soccer` root, a `.competitions` SIBLING
+decoy block that must never be treated as a country, `.accordion-item`
+DIRECT-CHILD country groups, `.competitions__group-item` checkbox+label
+rows, `.competitions__filter-btn.check-coupon`/`.clear-all`), with a
+configurable maximum-selection limit that reverts a checkbox and shows a
+"Maximum selection limit reached!" notification, exactly modeling
+Bet9ja's own unconfirmed limit discovered operationally rather than
+hard-coded, and a configurable country-render delay modeling the
+confirmed real ~1.8s client-render gap: a document not on
 `/sportPage/1/competitions` failing closed with no click attempted, the
-correct route with no countries discovered failing closed, a single
-country/competition full batch capture reporting `CAPTURE_COMPLETE`,
+`.accordion.accordion-soccer` root never appearing at all being a typed
+`SOCCER_COMPETITIONS_ROOT_TIMEOUT` (never `NO_COUNTRIES_DISCOVERED`), a
+root that exists but never gains a country being
+`SOCCER_COUNTRY_INVENTORY_TIMEOUT`, an initially-empty inventory that
+renders after a delay being awaited successfully, a country count that
+keeps changing without ever settling being
+`SOCCER_COUNTRY_INVENTORY_UNSTABLE`, a single country/competition full
+batch capture reporting `CAPTURE_COMPLETE` (including proof the Popular
+sibling block's own decoy checkbox is never discovered as a real
+competition), direct-child-only discovery never double-counting a nested
+accordion item as a third top-level country,
 multiple countries/competitions with no limit landing in one batch, a
 selection limit reached mid-run splitting into two batches (both
 captured, `Clear all` verified between them, each batch's fixtures tagged
