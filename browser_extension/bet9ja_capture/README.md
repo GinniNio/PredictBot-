@@ -9,11 +9,12 @@ buttons:
   normalized JSON file. This replaces copy-pasting a Bet9ja page into a
   chat host as the first step of `docs/LEDGER_DAILY_WORKFLOW.md`.
 - **Capture all Soccer fixtures** (see "Capture all Soccer fixtures"
-  below — architecture and aggregation logic implemented and tested; the
-  competition-menu scoping selector is an unverified placeholder pending
-  real-page validation, so a real run currently discovers zero
-  competitions, honestly): walks every competition discoverable from the
-  Soccer navigation automatically, capturing each one's pre-match
+  below — Round 2 rewrite against the confirmed pre-match Soccer
+  accordion hierarchy on `/popularCoupons/1`, superseding Round 1's
+  failed `.menu-list.mt30` approach; architecture and aggregation logic
+  implemented and tested, pending one real end-to-end click-through):
+  walks every country and competition discoverable from the pre-match
+  Soccer accordion automatically, capturing each one's pre-match
   ordinary-1X2 fixtures via the same engine as **Capture fixtures**, into
   one deduplicated combined file — retiring manual per-competition
   selection.
@@ -700,108 +701,130 @@ uniformly regardless of which profile produced a given record.
 ## Capture all Soccer fixtures
 
 A third, independent button and module (`soccer_walker.js`) that retires
-manually selecting each competition. Live inspection of
-`https://sports.bet9ja.com/sport/soccer/1` confirmed: "Highlights" and
-"Upcoming" are separate client-side views (not both in the DOM at once);
-competition choices (Premier League, LaLiga, Serie A, Bundesliga, Ligue
-1, ...) are client-side menu controls using `href="javascript:;"`, whose
-fixtures load only after selection — so no single DOM scrape can collect
-everything, and this button automates the click-one-at-a-time traversal
-that used to be manual.
+manually selecting each competition.
 
-**SELECTOR STATUS (Round 1): the menu-scoping container is now a real,
-confirmed selector, not a placeholder — but no real end-to-end capture
-has succeeded against the live account yet.** Live inspection confirmed
-the real menu structure:
+**ROUND 2 REWRITE (2026-09-12) — Round 1 is fully retired.** Round 1's
+`.menu-list.mt30` discovery was run for real and failed completely: that
+container turned out to be the general popular-shortcuts sidebar (mixing
+Soccer, tennis, NFL, NHL, and MLB shortcuts), so it discovered nothing
+usable; clicking its `href="javascript:;"` links directly was blocked by
+the page's own Content Security Policy (no registered handler intercepted
+the anchor's default action); and the one click that appeared to work
+landed on `/liveCompetitions` — a live surface, not the pre-match
+inventory. None of Round 1's selectors, starting routes
+(`/sport/soccer/1`, `/sportPage/1/coupons`), or `history.back()`-based
+inventory recovery survive into this rewrite. See
+`SOCCER_ALL_COMPETITIONS_VALIDATION.md` for the full Round 1 postmortem
+and this round's confirmed replacement evidence.
 
-```html
-<ul class="menu-list mt30">
-  <li class="menu-list__item">
-    <a class="menu-list__link" href="javascript:;">England Premier League</a>
-  </li>
-</ul>
+**Confirmed real hierarchy:**
+
+```text
+Sports (/) → pre-match Soccer accordion → Coupons
+  → /popularCoupons/1 → country accordion → competition control
+  → /competition/soccer/{country}/{competition}/{ids}
 ```
 
-Discovery is scoped to `.menu-list.mt30 .menu-list__item > .menu-list__link`
-(see `SOCCER_MENU_SELECTORS` in `soccer_walker.js`) — `.menu-list__link`
-alone would also match other sports' pickers and unrelated site shortcuts
-sharing the same class, which is exactly what caused two real captures
-from both supported starting routes (`/sport/soccer/1` and
-`/sportPage/1/coupons`) to discover zero competitions before this round
-(see `SOCCER_ALL_COMPETITIONS_VALIDATION.md` Round 1). `PARSER_VERSION`
-is deliberately NOT bumped yet — this selector is confirmed by DOM
-inspection, not yet by one real click actually landing on a competition
-page and fixtures actually being parsed from it end-to-end.
+- Entry surface: `#coupons_sport-1_soccer` resolves to
+  `/popularCoupons/1` — resolving instead to `/liveCompetitions` is an
+  immediate, named failure (`WRONG_SURFACE_LIVE_COMPETITIONS`), never
+  silently accepted.
+- Pre-match Soccer accordion root:
+  `#left_prematch_sport-1_soccer_label-toggle` — its owning
+  `.accordion-item` is the ONLY boundary this module ever searches
+  inside; the global `.menu-list.mt30` sidebar is never referenced at
+  all.
+- "Show N A-Z more" countries: matched by the stable ID SUFFIX
+  `[id$="_buttonmore-toggle"]`, never by its visible text (the displayed
+  count changes).
+- Country toggles: `[id^="left_prematch_sport-1_soccer_sg-"][id$="_label-toggle"]`,
+  e.g. `#left_prematch_sport-1_soccer_sg-11058_england_label-toggle`.
+- Competition controls: `[id^="left_prematch_sport-1_soccer_sg-"][id*="_g-"]`,
+  scoped inside one country's own expanded content, e.g.
+  `#left_prematch_sport-1_soccer_sg-11058_england_g-170880_premier_league`,
+  confirmed to resolve to
+  `/competition/soccer/england/premierleague/1-11058-170880` (20 real
+  fixtures).
 
-Since every competition link uses `href="javascript:;"` (never a real
-navigation target), country/competition identity can never come from the
-link itself. Two design choices handle this without any further
-unconfirmed selectors:
+**`country_name_raw`/`competition_name_raw`** come from each control's own
+visible text (never prettified); **`source_group_id`/`source_competition_id`**
+are parsed from the confirmed ID pattern itself. Every control is
+rediscovered fresh by its own stable ID before each use — never a cached
+element reference or list position — since Bet9ja renders accordion
+content asynchronously and a competition page is not confirmed to keep
+the inventory's DOM nodes around.
 
-- **Navigation confirmed by URL, not a content diff.** Selecting a
-  competition is confirmed to move the page's own URL to
-  `/competition/soccer/...` — `selectCompetition` waits for exactly that
-  pathname prefix AND the confirmed `.sports-table__matchup` rows to have
-  rendered, rather than guessing at a "did the competition change" DOM
-  signal. A competition whose click doesn't produce that within the wait
-  window is reported `FAILED` (`CONTENT_DID_NOT_CHANGE`) in its own
-  `competition_results[]` entry, never merged with the previous
-  competition's fixtures.
-- **Country/competition identity** is read from that same resolved URL,
-  reusing `parser.js`'s already-confirmed `parseBet9jaCompetitionUrl` —
-  never guessed from the clicked link's own (always `javascript:;`) href
-  or its visible text.
+**Never guessing a click's destination.** Every competition control's
+`href` is confirmed `javascript:;`. This module never reads that value,
+assigns it to `location.href`, or calls `window.open()` with it — it only
+ever calls the control's own `.click()`. A one-time, capturing
+`preventDefault()` listener is attached immediately before every such
+click specifically to stop the anchor's own default `javascript:` action
+(the exact action Chrome's CSP blocked in Round 1) while leaving Bet9ja's
+real registered handler free to run.
 
-A competition page is not confirmed to keep the inventory's menu DOM
-nodes around at all, so this module never reuses an element reference
-across a navigation: each competition is identified by its stable visible
-label text, `history.back()` (never a guessed "back"/breadcrumb click)
-returns to the inventory page after each one, and the menu is
-re-discovered fresh before looking up the next label. A label that no
-longer resolves on re-discovery is reported
-`FAILED`/`LINK_NOT_FOUND_ON_REDISCOVERY` for that one competition only; a
-`history.back()` that never restores the menu is a safe stop
-(`COULD_NOT_RETURN_TO_INVENTORY`), preserving everything already
-captured rather than losing it. Two different menu labels resolving to
-the same destination URL are deduplicated at the destination level
-(`SKIPPED_DUPLICATE_DESTINATION`), on top of the existing per-fixture
-`fixture_id` deduplication.
+Selecting a competition waits for THREE confirmed conditions together —
+never a content-text diff alone (two competitions can share similar
+headings or both show no fixtures): the URL pathname moves to
+`/competition/soccer/...`, that URL differs from the previous
+competition's own resolved URL, and the confirmed `.sports-table` fixture
+root is present. A competition with zero fixture rows is recorded as
+`competitions_empty` — a confirmed, audited visit, not a failure.
 
-Every fixture is captured by the exact same `parser.js` engine
-**Capture fixtures** uses (never re-implemented here) — the same
+Every fixture is captured by the exact same `parser.js` engine **Capture
+fixtures** uses (never re-implemented here) — the same
 Soccer/pre-match/ordinary-1X2 scope, the same typed `unparsed_records`
-exclusions for 1UP/2UP, player markets, specials, live, Zoom, and virtual
-events, and the same `fixture_id` scheme, so a fixture legitimately
-reachable from more than one menu entry (e.g. both a Highlights listing
-and its own competition page) is deduplicated by `fixture_id`, not
+exclusions, and the same `fixture_id` scheme, so a fixture legitimately
+reachable from more than one competition control is deduplicated, not
 captured twice.
 
-### Output shape (`bet9ja-soccer-all-competitions-capture.v1`)
+### Output shape (`bet9ja-soccer-all-competitions-capture.v2`)
 
-`scope: 'SOCCER_ALL_DISCOVERED_COMPETITIONS'`,
-`competitions_available`/`competitions_visited`/`competitions_failed`,
-`fixtures_seen`/`fixtures_parsed`/`fixtures_unresolved`/
-`duplicates_skipped`, and `competition_results[]` — one entry per visited
-competition (`country`, `competition`, `capture_status` — `COMPLETE` or
-`FAILED`, `fixtures_seen`/`fixtures_parsed`/`fixtures_unresolved`,
-`failure_reason` — now also `SKIPPED_DUPLICATE_DESTINATION` and
-`LINK_NOT_FOUND_ON_REDISCOVERY` alongside `CONTENT_DID_NOT_CHANGE`).
-`fixtures[]` and `unparsed_records[]` carry every normalized `parser.js`
-fixture/exclusion field plus `source_country`/`source_competition`. Never
-`CAPTURE_OK` — capped at `CAPTURE_PARTIAL` — until one real end-to-end
-capture succeeds against the live account, mirroring the same
-permanent-cap pattern `ticket_parser.js`'s MYBETS profile uses.
+`capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS'`,
+`inventory_source_url`, `inventory_profile`, `soccer_accordion_found`,
+`coupons_route_confirmed`, `country_inventory_expanded` (+
+`country_inventory_expansion_reason` when `false` — e.g.
+`SHOW_MORE_CONTROL_ABSENT`), `countries_available`/`countries_visited`/
+`countries_failed`, `competitions_available`/`competitions_visited`/
+`competitions_empty`/`competitions_failed`, `duplicates_skipped`, and
+`competition_results[]` — one entry per attempted competition
+(`country_name_raw`, `competition_name_raw`, `source_group_id`,
+`source_competition_id`, `competition_control_id`, `resolved_url`,
+`route_confirmed`, `records_seen`/`records_parsed`/`records_unresolved`/
+`records_expected_unsupported`, `failure_reason` — one of
+`COUNTRY_CONTROL_NOT_FOUND_ON_REDISCOVERY`, `COUNTRY_EXPANSION_TIMEOUT`,
+`COUNTRY_COMPETITION_LIST_EMPTY`,
+`COMPETITION_CONTROL_NOT_FOUND_ON_REDISCOVERY`,
+`COMPETITION_ROUTE_TIMEOUT`, `COMPETITION_ROUTE_NOT_SOCCER`,
+`COMPETITION_CONTENT_TIMEOUT`, `WRONG_SURFACE_LIVE_COMPETITIONS`, or
+`null`). `fixtures[]` and `unparsed_records[]` carry every normalized
+`parser.js` field plus `source_country`/`source_competition`/
+`source_group_id`/`source_competition_id`.
+
+**`capture_status` is `CAPTURE_COMPLETE`, `CAPTURE_PARTIAL`, or
+`CAPTURE_FAILED`** — this module's own top status name deliberately
+differs from the other three buttons' `CAPTURE_OK`, per this round's
+explicit reconciliation rules. `CAPTURE_COMPLETE` requires: the Coupons
+route confirmed, the Soccer accordion found, the full country inventory
+expanded, every discovered country/competition visited or confirmed
+empty, zero failures, and the country-accounting invariant
+(`countries_available = countries_visited + countries_failed`) holding.
+`PARSER_VERSION` is deliberately NOT bumped past
+`-unverified` yet — this hierarchy is confirmed by DOM inspection, not
+yet by one real click-through succeeding end-to-end against the live
+account (see `SOCCER_ALL_COMPETITIONS_VALIDATION.md`).
 
 ### Safety
 
-The only element this module ever calls `.click()` on is a discovered
-competition-menu link (a real, confirmed candidate: `href="javascript:;"`
-and non-empty visible text) — never Cashout, never account controls,
-never anything outside the confirmed competition menu. Returning to the
-inventory page uses the browser's own `history.back()` navigation
-primitive, never a click on a guessed "back"/breadcrumb control. A
-dedicated "safety" test greps the compiled source for both guarantees,
-the same discipline used for `ticket_parser.js`.
+The only elements this module ever calls `.click()` on are: the confirmed
+Coupons entry control, the Soccer accordion toggle, a confirmed country
+toggle, a confirmed competition control, and (best effort, only to
+collapse a country this module itself opened) that same country's toggle
+again — never a price, selection, Cashout, Live Betting, or betslip
+control, and never the global `.menu-list.mt30` shortcuts menu. A
+dedicated "safety" test greps the compiled source for all of these
+guarantees, plus confirming `location.href` is never assigned and
+`window.open()` is never called.
 
 ## Capture settled bets
 
@@ -954,15 +977,17 @@ compiled source for this guarantee, the same discipline used for
 3. **Load unpacked** → select this `browser_extension/bet9ja_capture/`
    directory.
 4. Open a Bet9ja pre-match page, log in, click the extension icon, click
-   **Capture fixtures**. Try **Capture all Soccer fixtures** from either
-   `/sport/soccer/1` or `/sportPage/1/coupons` — the menu-scoping
-   selector is now confirmed, so expect `competitions_available` > 0 and
-   a walk through every discovered competition; report back
-   `competitions_visited`/`competitions_failed` and any
-   `competition_results[].failure_reason` so `PARSER_VERSION` can be
-   bumped off its `unverified-menu-selectors` tag once a real run
-   succeeds end-to-end. Open your "Open Bets"/"My Bets" page and
-   click **Capture open bets** — it will expand each ticket in turn and
+   **Capture fixtures**. Try **Capture all Soccer fixtures** from
+   `https://sports.bet9ja.com/popularCoupons/1` (or from the Sports
+   homepage, `/`, if `#coupons_sport-1_soccer` is present there too) —
+   expect `coupons_route_confirmed: true`, `countries_available` > 0, and
+   a walk through every discovered country and competition; report back
+   `countries_visited`/`countries_failed`,
+   `competitions_visited`/`competitions_failed`, and any
+   `competition_results[].failure_reason` so `PARSER_VERSION` can drop
+   its `-unverified` tag once a real run succeeds end-to-end. Open your
+   "Open Bets"/"My Bets" page and click **Capture open bets** — it will
+   expand each ticket in turn and
    walk every numbered pagination page automatically before downloading
    one combined file. Switch to Settled Bets (or just click **Capture
    settled bets** from Open Bets — it will activate the tab itself) to
@@ -1054,30 +1079,33 @@ synthetic HTML:
   accordion toggle or a verified numbered pagination item.
 
 `tests/soccer_walker.test.js` runs `soccer_walker.js` against a synthetic
-multi-competition jsdom harness modeling the Round 1 confirmed
-`.menu-list.mt30` structure, where a competition page renders WITHOUT the
-inventory's menu at all (exercising `history.back()` + re-discovery for
-real, not an in-place swap): no container found and an empty container
-each failing closed with their own distinct reason, walking every
-discovered competition via the confirmed structure and tagging fixtures
-with source country/competition read from the page's own resolved URL,
-working from both supported starting routes
-(`/sport/soccer/1`/`/sportPage/1/coupons`), deduplicating a fixture that
-legitimately appears under two competitions, two menu labels resolving to
-the same destination URL being deduplicated
-(`SKIPPED_DUPLICATE_DESTINATION`) rather than re-captured, a competition
-whose click never navigates being reported `FAILED`/`CONTENT_DID_NOT_CHANGE`
-without blocking later competitions, a label that no longer resolves on
-re-discovery (`LINK_NOT_FOUND_ON_REDISCOVERY`) never crashing the walk, a
-`history.back()` that never restores the menu being a safe stop
-(`COULD_NOT_RETURN_TO_INVENTORY`) that preserves everything already
-captured, unresolved fixtures still carrying source tagging, the
-permanent `CAPTURE_PARTIAL` cap (and unchanged `PARSER_VERSION`) pending
-one real end-to-end success, decorative/icon-only, non-`javascript:;`,
-and outside-the-confirmed-container links being excluded from discovery,
-and a safety test confirming `.click()` is only ever called on a
-discovered competition-menu link and that returning to the inventory page
-never clicks a guessed control.
+jsdom harness modeling the Round 2 confirmed pre-match Soccer accordion
+hierarchy (`#left_prematch_sport-1_soccer_label-toggle`, `_sg-..._label-
+toggle` country controls, `_sg-..._g-...` competition controls), plus a
+decoy `.menu-list.mt30` sidebar (mixing other sports, exactly like the
+real Round 1 defect) that must never be searched: `/popularCoupons/1`
+accepted directly as the starting route, a page with neither that route
+nor a coupons-entry control failing closed, landing on
+`/liveCompetitions` being an immediate named failure never treated as
+success, the coupons-entry control successfully resolving from elsewhere,
+no Soccer accordion found failing closed rather than falling back to the
+shortcuts menu, the global `.menu-list.mt30` sidebar never contributing
+discovered competitions, walking every country/competition and tagging
+fixtures with real identity fields (`source_group_id`/
+`source_competition_id`), "show more" clicked by stable ID suffix (never
+its changing visible text) revealing additional countries, an absent
+"show more" control not failing the capture but capping it below
+`CAPTURE_COMPLETE`, a country with zero competitions failing closed
+(`COUNTRY_COMPETITION_LIST_EMPTY`) without stopping remaining countries,
+a competition whose click never navigates being reported
+`COMPETITION_ROUTE_TIMEOUT` without blocking later competitions, a
+competition confirmed to have zero fixtures being recorded as
+`competitions_empty` (not a failure), a fixture reachable from more than
+one competition being deduplicated, a full clean multi-country run
+reporting `CAPTURE_COMPLETE`, the country-accounting invariant, and a
+safety test confirming the only raw `.click()` call site is inside the
+CSP-safe `clickSafely()` helper, that `location.href` is never assigned,
+`window.open()` is never called, and `.menu-list` is never referenced.
 
 `tests/settled_bets_parser.test.js` runs `settled_bets_parser.js` against
 a synthetic jsdom harness modeling the Round 1/Round 2 confirmed

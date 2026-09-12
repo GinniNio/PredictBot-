@@ -6,117 +6,126 @@
  * selected competition -- this file never re-implements fixture parsing,
  * only the navigation and aggregation around it.
  *
- * Scope (see README.md "Capture all Soccer fixtures"):
- *   - Soccer only. Pre-match only. Ordinary 1X2 only -- 1UP/2UP, player
- *     markets, specials, live, Zoom, and virtual events are still routed
- *     to parser.js's own typed `unparsed_records` exclusions, unchanged.
- *   - Read-only in the same sense as every other button in this
- *     extension: the only interaction is a client-side click on a
- *     competition-menu link already visible on the page -- no network
- *     requests of its own, no navigation away from the current tab.
- *   - Walks every competition link discovered in the Soccer competition
- *     menu, deduplicates fixtures by their stable `fixture_id` (a real
- *     fixture legitimately reachable from more than one menu entry --
- *     e.g. both a "Highlights" listing and its own competition page --
- *     is captured once, not once per entry it happened to appear under),
- *     and produces ONE combined envelope.
+ * ROUND 2 REWRITE (2026-09-12) -- SUPERSEDES ROUND 1 ENTIRELY.
  *
- * ROUND 1 REAL-DOM CORRECTION (2026-09-11): Round 0's discovery selector
- * (an unconfirmed `soccerMenuContainer`, kept deliberately `null`) was
- * exercised against two real capture runs from both supported starting
- * routes (`/sport/soccer/1` and `/sportPage/1/coupons`) and, as expected
- * for an unconfirmed placeholder, discovered zero competitions on both.
- * Live inspection then confirmed the real menu structure:
+ * Round 1 (`.menu-list.mt30` discovery, `/sport/soccer/1` /
+ * `/sportPage/1/coupons` as starting routes, `history.back()` to an
+ * unverified "inventory page") was run for real and failed completely:
+ * `.menu-list.mt30` turned out to be the general popular-shortcuts
+ * sidebar (mixing Soccer, tennis, NFL, NHL, and MLB shortcuts) -- NOT the
+ * Soccer competition inventory. Every discovered "competition" link's
+ * `href="javascript:;"` default action was blocked by the page's own
+ * Content Security Policy when clicked directly (Chrome correctly
+ * refusing to execute a `javascript:` URL that the intended application
+ * handler didn't intercept), and the one click that did appear to
+ * "succeed" landed on `/liveCompetitions` -- a live surface, not the
+ * pre-match inventory. This file's entire discovery/navigation strategy
+ * is replaced below; none of Round 1's selectors are reused.
  *
- *   <ul class="menu-list mt30">
- *     <li class="menu-list__item">
- *       <a class="menu-list__link" href="javascript:;">England Premier League</a>
- *     </li>
- *   </ul>
+ * CONFIRMED REAL HIERARCHY (live-DOM evidence, 2026-09-12):
  *
- * Discovery now uses `.menu-list.mt30 .menu-list__item > .menu-list__link`
- * (see SOCCER_MENU_SELECTORS below) -- but see PARSER_VERSION's own
- * comment for why this file's version string is NOT bumped yet: this
- * selector is confirmed by DOM inspection, not yet by one real successful
- * end-to-end capture (a real click actually landing on a competition page
- * and fixtures actually being parsed from it). That is this round's
- * explicit remaining gap -- see SOCCER_ALL_COMPETITIONS_VALIDATION.md.
+ *   Sports (/) -> pre-match Soccer accordion -> Coupons
+ *     -> /popularCoupons/1 -> country accordion -> competition link
+ *     -> /competition/soccer/{country}/{competition}/{ids}
  *
- * Every competition link uses `href="javascript:;"` (never a real
- * navigation target), so identity can never come from `href`. Selecting a
- * competition is confirmed to change the page's own URL to
- * `/competition/soccer/...` (parser.js's already-confirmed
- * `parseBet9jaCompetitionUrl` shape) -- `selectCompetition` below waits
- * for exactly that pathname prefix AND the confirmed `.sports-table__matchup`
- * rows to have rendered, rather than the old (also honestly working, but
- * less precise) "matchup fingerprint changed" heuristic Round 0 used.
+ *   - Entry surface: `#coupons_sport-1_soccer` resolves to
+ *     `/popularCoupons/1` (allow an optional trailing slash). Resolving
+ *     instead to `/liveCompetitions` means the walker landed on a LIVE
+ *     surface, never the pre-match inventory -- an immediate, named
+ *     failure (`WRONG_SURFACE_LIVE_COMPETITIONS`), never treated as
+ *     success.
+ *   - Pre-match Soccer accordion root: `#left_prematch_sport-1_soccer_label-toggle`.
+ *     Its owning `.accordion-item` is the ONLY boundary this module ever
+ *     searches inside for country/competition discovery -- never the
+ *     global `.menu-list.mt30` sidebar, which mixes multiple sports'
+ *     shortcuts and is not scoped to Soccer at all.
+ *   - "Show N A-Z more" countries: `[id$="_buttonmore-toggle"]`, scoped
+ *     inside the Soccer accordion -- matched by stable ID SUFFIX, never
+ *     by its visible text (the displayed count changes).
+ *   - Country toggles: `[id^="left_prematch_sport-1_soccer_sg-"][id$="_label-toggle"]`,
+ *     e.g. `#left_prematch_sport-1_soccer_sg-11058_england_label-toggle`.
+ *   - Competition controls: `[id^="left_prematch_sport-1_soccer_sg-"][id*="_g-"]`,
+ *     scoped inside one country's own expanded content, e.g.
+ *     `#left_prematch_sport-1_soccer_sg-11058_england_g-170880_premier_league`,
+ *     resolving on click to
+ *     `/competition/soccer/england/premierleague/1-11058-170880` (20 real
+ *     `.sports-table__matchup` rows confirmed present).
  *
- * STALE-NODE SAFETY: a competition page is not confirmed to keep the same
- * menu DOM nodes around (it may not render the menu at all, or may
- * re-render it with new elements even if visually identical) -- so this
- * module NEVER reuses a `<a>` element reference across a navigation. It
- * identifies a competition by its stable visible LABEL TEXT (the only
- * stable identifier available, since `href` is always `javascript:;`),
- * returns to the inventory page via `history.back()` after each
- * competition, and re-runs `discoverSoccerCompetitionLinks` fresh before
- * looking up the next link by label. A label that no longer resolves on
- * re-discovery (e.g. the live menu genuinely changed mid-walk) is reported
- * `FAILED`/`LINK_NOT_FOUND_ON_REDISCOVERY` for that one competition,
- * never a crash and never silently skipped.
+ * IDENTITY: `country_name_raw`/`competition_name_raw` are read from each
+ * control's own visible text (never prettified/translated); the stable
+ * `source_group_id`/`source_competition_id` are parsed from the
+ * confirmed ID pattern itself (the `sg-` and `g-` segments) -- the
+ * control's OWN ID, re-queried fresh every time, is the rediscovery key
+ * this module uses to survive Bet9ja re-rendering accordion content
+ * asynchronously; list position and visible text are never relied on for
+ * identity.
  *
- * DEDUPLICATION: two different menu labels can resolve to the same
- * destination URL (e.g. both a "Highlights"-style entry and a named
- * league entry landing on the same competition page). Destinations are
- * deduplicated by their sanitized resolved URL -- a second label
- * resolving to an already-visited destination is reported
- * `SKIPPED_DUPLICATE_DESTINATION` and never re-captured. Fixtures within
- * a single captured destination are additionally deduplicated by their
- * stable `fixture_id`, as before.
+ * NEVER GUESS A CLICK'S DESTINATION: every competition control's `href`
+ * is confirmed to be `javascript:;` (never a real navigation target).
+ * This module never reads that value, assigns it to `location.href`,
+ * calls `window.open()` with it, or otherwise constructs/dispatches a
+ * `javascript:` navigation manually -- it only ever calls the confirmed
+ * control's own `.click()`, which triggers Bet9ja's own registered
+ * application handler. A one-time, capturing `preventDefault()` listener
+ * is attached immediately before that click specifically to stop the
+ * anchor's default `javascript:` action itself from executing (the exact
+ * action Chrome's CSP blocked in Round 1) while leaving Bet9ja's own
+ * handler free to run.
  *
- * SAFETY: the ONLY element this module ever calls `.click()` on is a
- * competition-menu link discovered inside the confirmed
- * `SOCCER_MENU_SELECTORS.menuContainer` -- see the safety test in
+ * SAFETY: the ONLY elements this module ever calls `.click()` on are:
+ * the confirmed Coupons entry control, the Soccer accordion toggle, a
+ * confirmed country toggle, a confirmed competition control, and (best
+ * effort, only to collapse a country this module itself opened) a
+ * country's own toggle again. Never a price, selection, Cashout, Live
+ * Betting, or betslip control. See the safety test in
  * tests/soccer_walker.test.js, which greps this file's own source.
- * Returning to the inventory page uses the browser's own `history.back()`
- * navigation primitive, never a click on a guessed "back"/breadcrumb
- * control.
  */
 (function (root) {
   const Bet9jaCapture = typeof module !== 'undefined' && module.exports ? require('./parser.js') : root.Bet9jaCapture;
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  // NOT bumped this round on purpose: SOCCER_MENU_SELECTORS below is
-  // confirmed by live DOM inspection, but no real click has yet been
-  // exercised end-to-end against the live account (that would confirm
-  // the pathname-change wait and a real fixture actually being parsed
-  // from a real competition page). Per this project's evidence-only
-  // versioning discipline, the version string advances only after that
-  // one real successful capture -- see SOCCER_ALL_COMPETITIONS_VALIDATION.md.
-  const PARSER_VERSION = 'bet9ja-soccer-walker@0.1.0-unverified-menu-selectors';
+  // NOT bumped yet: this is a from-evidence rewrite of the navigation
+  // strategy, but no real click-through has yet succeeded end-to-end
+  // against the live account (see "What is NOT yet confirmed" in
+  // SOCCER_ALL_COMPETITIONS_VALIDATION.md). Per this project's
+  // evidence-only versioning discipline, the version string advances
+  // only after that one real successful capture.
+  const PARSER_VERSION = 'bet9ja-soccer-walker@0.2.0-round2-prematch-accordion-unverified';
 
-  // Confirmed via live inspection, Round 1 (see header comment above).
-  // Still exported as a mutable object so a future correction (or a test
-  // exercising a differently-shaped synthetic page) never requires
-  // touching any other code.
-  const SOCCER_MENU_SELECTORS = {
-    menuContainer: '.menu-list.mt30',
-    menuItem: '.menu-list__item',
-    competitionLink: '.menu-list__link',
-    matchup: '.sports-table__matchup',
-  };
-
+  const INVENTORY_PROFILE = 'BET9JA_PREMATCH_SOCCER_ACCORDION';
+  const START_ROUTE_PATTERN = /^\/popularCoupons\/1\/?$/;
+  const LIVE_COMPETITIONS_PATH = '/liveCompetitions';
   const COMPETITION_PATH_PREFIX = '/competition/soccer/';
 
-  const CONTENT_CHANGE_TIMEOUT_MS = 3000;
-  const CONTENT_CHANGE_POLL_INTERVAL_MS = 25;
-  const RETURN_TO_INVENTORY_TIMEOUT_MS = 3000;
-  const RETURN_TO_INVENTORY_POLL_INTERVAL_MS = 25;
-  // Real evidence (live inspection) found 18 matchups under one
-  // "Upcoming" view and multiple named competitions (Premier League,
-  // LaLiga, Serie A, Bundesliga, Ligue 1, ...) -- this cap is a generous
-  // multiple of any plausible real competition count, kept as a hard
-  // backstop against an unbounded loop, never relied upon normally.
-  const MAX_COMPETITIONS_SAFETY_CAP = 200;
+  // Confirmed via live inspection, 2026-09-12. See the header comment
+  // above for the full contract. Exported as a mutable object so a
+  // future correction never requires touching any other code, and so
+  // tests can exercise this logic against synthetic markup shaped like
+  // the confirmed real IDs.
+  const SELECTORS = {
+    couponsEntryControl: '#coupons_sport-1_soccer',
+    soccerAccordionToggle: '#left_prematch_sport-1_soccer_label-toggle',
+    accordionOpenClass: 'accordion-item--open',
+    showMoreCountriesSuffix: '[id$="_buttonmore-toggle"]',
+    countryTogglePattern: '[id^="left_prematch_sport-1_soccer_sg-"][id$="_label-toggle"]',
+    competitionControlPattern: '[id^="left_prematch_sport-1_soccer_sg-"][id*="_g-"]',
+    matchup: '.sports-table__matchup',
+    fixtureRoot: '.sports-table',
+  };
+
+  const COUNTRY_ID_PATTERN = /^left_prematch_sport-1_soccer_sg-([a-z0-9]+)_(.+)_label-toggle$/i;
+  const COMPETITION_ID_PATTERN = /^left_prematch_sport-1_soccer_sg-([a-z0-9]+)_(.+?)_g-([a-z0-9]+)_(.+)$/i;
+
+  const ROUTE_TIMEOUT_MS = 3000;
+  const ACCORDION_TIMEOUT_MS = 3000;
+  const POLL_INTERVAL_MS = 25;
+  const SHOW_MORE_SETTLE_MS = 500;
+  // Real evidence: 20 real matchups on one inspected competition page and
+  // multiple countries/competitions in the accordion -- these caps are
+  // generous multiples of any plausible real count, kept as hard
+  // backstops against an unbounded loop, never relied upon normally.
+  const MAX_COUNTRIES_SAFETY_CAP = 300;
+  const MAX_COMPETITIONS_PER_COUNTRY_SAFETY_CAP = 200;
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -136,30 +145,6 @@
     return (el.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
-  // A candidate competition link is confirmed real (`href="javascript:;"`,
-  // a client-side switch, not a real navigation target) and carries
-  // visible text -- a decorative or icon-only `.menu-list__link` with no
-  // label is excluded rather than treated as an unnamed competition.
-  function isCandidateCompetitionLink(el) {
-    const href = (el.getAttribute('href') || '').trim();
-    return href === 'javascript:;' && text(el).length > 0;
-  }
-
-  /**
-   * Always re-queries fresh -- never caches a NodeList/element reference
-   * across a navigation (see STALE-NODE SAFETY above). Scoped to the
-   * confirmed `.menu-list.mt30` container so this never matches another
-   * sport's competition picker or an unrelated site shortcut sharing the
-   * same `.menu-list__link` class.
-   */
-  function discoverSoccerCompetitionLinks(doc) {
-    const container = doc.querySelector(SOCCER_MENU_SELECTORS.menuContainer);
-    if (!container) return [];
-    return Array.from(
-      container.querySelectorAll(`${SOCCER_MENU_SELECTORS.menuItem} > ${SOCCER_MENU_SELECTORS.competitionLink}`)
-    ).filter(isCandidateCompetitionLink);
-  }
-
   function currentPathname(doc) {
     return (doc.defaultView && doc.defaultView.location && doc.defaultView.location.pathname) || '';
   }
@@ -168,84 +153,262 @@
     return (doc.defaultView && doc.defaultView.location && doc.defaultView.location.href) || fallback || '';
   }
 
+  function findOwningAccordionItem(el) {
+    return el ? el.closest('.accordion-item') : null;
+  }
+
+  function isAccordionOpen(el) {
+    const item = findOwningAccordionItem(el);
+    return !!item && item.classList.contains(SELECTORS.accordionOpenClass);
+  }
+
   /**
-   * The ONLY function in this file that ever calls .click() on a
-   * competition link. Waits for the confirmed navigation signal: the
-   * page's own pathname moving to `/competition/soccer/...` AND at least
-   * one confirmed `.sports-table__matchup` row having rendered -- never
-   * assumes the click succeeded just because it was dispatched.
+   * The ONLY safe way this module ever clicks a confirmed control whose
+   * `href` is `javascript:;`: a one-time, capturing listener neutralizes
+   * the anchor's own default `javascript:` action (the exact action
+   * Chrome's CSP blocked in Round 1 when this module clicked such a
+   * control directly with no such guard) while leaving Bet9ja's own
+   * registered application handler free to run.
    */
-  async function selectCompetition(doc, linkEl) {
-    linkEl.click();
-    const ready = await waitFor(
-      () => currentPathname(doc).startsWith(COMPETITION_PATH_PREFIX) && doc.querySelectorAll(SOCCER_MENU_SELECTORS.matchup).length > 0,
-      CONTENT_CHANGE_TIMEOUT_MS,
-      CONTENT_CHANGE_POLL_INTERVAL_MS
+  function clickSafely(el) {
+    const preventJavascriptHref = (event) => event.preventDefault();
+    el.addEventListener('click', preventJavascriptHref, { capture: true, once: true });
+    el.click();
+  }
+
+  function parseCountryId(id) {
+    const match = id.match(COUNTRY_ID_PATTERN);
+    if (!match) return null;
+    return { sourceGroupId: match[1], countrySlug: match[2] };
+  }
+
+  function parseCompetitionId(id) {
+    const match = id.match(COMPETITION_ID_PATTERN);
+    if (!match) return null;
+    return { sourceGroupId: match[1], countrySlug: match[2], sourceCompetitionId: match[3], competitionSlug: match[4] };
+  }
+
+  function findSoccerAccordionItem(doc) {
+    const toggle = doc.querySelector(SELECTORS.soccerAccordionToggle);
+    if (!toggle) return null;
+    return findOwningAccordionItem(toggle) || toggle.parentElement;
+  }
+
+  function discoverCountryToggles(soccerAccordionItem) {
+    if (!soccerAccordionItem) return [];
+    return Array.from(soccerAccordionItem.querySelectorAll(SELECTORS.countryTogglePattern)).filter(
+      (el) => !!parseCountryId(el.id)
     );
-    return { ok: ready, reason: ready ? null : 'CONTENT_DID_NOT_CHANGE' };
   }
 
-  // Reads country/competition identity from the page's OWN url after a
-  // click, reusing parser.js's already-confirmed
-  // parseBet9jaCompetitionUrl -- never guessed from the clicked link's own
-  // (always `javascript:;`) href or its visible text.
-  function readCompetitionIdentityFromUrl(doc) {
-    const href = currentHref(doc);
-    const info = Bet9jaCapture.parseBet9jaCompetitionUrl(href);
-    if (!info) return null;
-    return { country: info.countrySlug, competition: info.competitionSlug };
+  function discoverCompetitionControls(countryAccordionItem) {
+    if (!countryAccordionItem) return [];
+    return Array.from(countryAccordionItem.querySelectorAll(SELECTORS.competitionControlPattern)).filter(
+      (el) => !!parseCompetitionId(el.id)
+    );
   }
 
   /**
-   * Returns to the Soccer inventory page using the browser's own
-   * `history.back()` navigation primitive -- never a click on a guessed
-   * "back"/breadcrumb control -- and waits for the confirmed menu
-   * container to be discoverable again with at least one candidate link.
-   * Never assumes the previous page's own DOM nodes survived; the caller
-   * always re-runs discoverSoccerCompetitionLinks afterward.
+   * Confirms the tab is on (or reaches) the verified pre-match Soccer
+   * Coupons surface. Never falls back to treating any other route as
+   * usable -- landing on `/liveCompetitions` is an immediate, named
+   * failure, exactly the surface Round 1 silently (and wrongly) accepted.
    */
-  async function returnToInventory(doc) {
-    const win = doc.defaultView;
-    if (win && win.history && typeof win.history.back === 'function') {
-      win.history.back();
+  async function ensureOnCouponsSurface(doc) {
+    if (START_ROUTE_PATTERN.test(currentPathname(doc))) {
+      return { ok: true, reason: null };
     }
-    return waitFor(
-      () => discoverSoccerCompetitionLinks(doc).length > 0,
-      RETURN_TO_INVENTORY_TIMEOUT_MS,
-      RETURN_TO_INVENTORY_POLL_INTERVAL_MS
+    if (currentPathname(doc) === LIVE_COMPETITIONS_PATH) {
+      return { ok: false, reason: 'WRONG_SURFACE_LIVE_COMPETITIONS' };
+    }
+    const entryControl = doc.querySelector(SELECTORS.couponsEntryControl);
+    if (!entryControl) {
+      return { ok: false, reason: 'NOT_ON_POPULAR_COUPONS_PAGE' };
+    }
+    clickSafely(entryControl);
+    const resolved = await waitFor(
+      () => START_ROUTE_PATTERN.test(currentPathname(doc)) || currentPathname(doc) === LIVE_COMPETITIONS_PATH,
+      ROUTE_TIMEOUT_MS,
+      POLL_INTERVAL_MS
     );
+    if (!resolved) {
+      return { ok: false, reason: 'SOCCER_COUPONS_ROUTE_TIMEOUT' };
+    }
+    if (currentPathname(doc) === LIVE_COMPETITIONS_PATH) {
+      return { ok: false, reason: 'WRONG_SURFACE_LIVE_COMPETITIONS' };
+    }
+    return { ok: true, reason: null };
   }
 
-  function makeCompetitionResult({ country, competition, captureStatus, fixturesSeen, fixturesParsed, fixturesUnresolved, failureReason }) {
+  /**
+   * Opens the pre-match Soccer accordion (if not already open) and
+   * confirms at least one country control has actually rendered inside
+   * it -- never falls back to the global shortcuts menu if this
+   * accordion doesn't populate.
+   */
+  async function ensureSoccerAccordionOpen(doc) {
+    const toggle = doc.querySelector(SELECTORS.soccerAccordionToggle);
+    if (!toggle) {
+      return { ok: false, reason: 'PREMATCH_SOCCER_INVENTORY_NOT_READY', soccerAccordionFound: false };
+    }
+    if (!isAccordionOpen(toggle)) {
+      clickSafely(toggle);
+    }
+    const ready = await waitFor(() => discoverCountryToggles(findSoccerAccordionItem(doc)).length > 0, ACCORDION_TIMEOUT_MS, POLL_INTERVAL_MS);
+    if (!ready) {
+      return { ok: false, reason: 'PREMATCH_SOCCER_INVENTORY_NOT_READY', soccerAccordionFound: true };
+    }
+    return { ok: true, reason: null, soccerAccordionFound: true };
+  }
+
+  /**
+   * Clicks the "show N A-Z more" countries control by its stable ID
+   * SUFFIX only -- never by its visible text, which names a changing
+   * count. Absence of this control is not a failure: the walker simply
+   * continues with whatever countries are already available, and the
+   * caller records `country_inventory_expanded: false` so the resulting
+   * capture is correctly capped at CAPTURE_PARTIAL rather than presented
+   * as a false complete inventory.
+   */
+  async function expandCountryInventory(soccerAccordionItem) {
+    if (!soccerAccordionItem) {
+      return { expanded: false, reason: 'SOCCER_ACCORDION_NOT_FOUND' };
+    }
+    const showMoreEl = soccerAccordionItem.querySelector(SELECTORS.showMoreCountriesSuffix);
+    if (!showMoreEl) {
+      return { expanded: false, reason: 'SHOW_MORE_CONTROL_ABSENT' };
+    }
+    const beforeCount = discoverCountryToggles(soccerAccordionItem).length;
+    clickSafely(showMoreEl);
+    // A short, fixed settle window -- not a long wait keyed on the count
+    // growing, since the real page's own expansion mechanism (new DOM
+    // nodes vs. revealing already-present hidden ones) is not confirmed
+    // either way; whichever it turns out to be, this module always
+    // rediscovers fresh afterward rather than trusting a stale count.
+    await sleep(SHOW_MORE_SETTLE_MS);
+    void beforeCount; // kept for a future round that confirms which expansion mechanism is real
+    return { expanded: true, reason: null };
+  }
+
+  /**
+   * Expands one country (rediscovered fresh by its own stable id, never
+   * a cached element reference) and confirms at least one competition
+   * control has rendered inside it.
+   */
+  async function expandCountry(doc, countryId) {
+    const el = doc.getElementById(countryId);
+    if (!el) {
+      return { ok: false, reason: 'COUNTRY_CONTROL_NOT_FOUND_ON_REDISCOVERY', accordionItem: null };
+    }
+    const accordionItem = findOwningAccordionItem(el);
+    if (!isAccordionOpen(el)) {
+      clickSafely(el);
+    }
+    const opened = await waitFor(() => isAccordionOpen(el), ACCORDION_TIMEOUT_MS, POLL_INTERVAL_MS);
+    if (!opened) {
+      return { ok: false, reason: 'COUNTRY_EXPANSION_TIMEOUT', accordionItem };
+    }
+    const hasCompetitions = await waitFor(
+      () => discoverCompetitionControls(accordionItem).length > 0,
+      ACCORDION_TIMEOUT_MS,
+      POLL_INTERVAL_MS
+    );
+    if (!hasCompetitions) {
+      return { ok: false, reason: 'COUNTRY_COMPETITION_LIST_EMPTY', accordionItem };
+    }
+    return { ok: true, reason: null, accordionItem };
+  }
+
+  /** Best-effort collapse -- never required for correctness. */
+  function collapseCountry(doc, countryId) {
+    const el = doc.getElementById(countryId);
+    if (el && isAccordionOpen(el)) {
+      clickSafely(el);
+    }
+  }
+
+  /**
+   * Selects one competition (rediscovered fresh by its own stable id)
+   * and waits for all three confirmed conditions: the URL pathname moves
+   * to `/competition/soccer/...`, that URL differs from the previous
+   * competition's own resolved URL (never a content-text diff -- two
+   * competitions can share similar headings or both show no fixtures),
+   * and the confirmed `.sports-table` fixture root (or a confirmed empty
+   * state -- zero rows is itself a valid, auditable outcome) is present.
+   */
+  async function selectCompetition(doc, competitionId, previousResolvedPath) {
+    const el = doc.getElementById(competitionId);
+    if (!el) {
+      return { ok: false, reason: 'COMPETITION_CONTROL_NOT_FOUND_ON_REDISCOVERY' };
+    }
+    clickSafely(el);
+
+    const routeReady = await waitFor(
+      () => currentPathname(doc).startsWith(COMPETITION_PATH_PREFIX) && currentPathname(doc) !== previousResolvedPath,
+      ROUTE_TIMEOUT_MS,
+      POLL_INTERVAL_MS
+    );
+    if (!routeReady) {
+      if (currentPathname(doc) === LIVE_COMPETITIONS_PATH) {
+        return { ok: false, reason: 'WRONG_SURFACE_LIVE_COMPETITIONS' };
+      }
+      if (currentPathname(doc).startsWith(COMPETITION_PATH_PREFIX) === false && currentPathname(doc) !== previousResolvedPath) {
+        return { ok: false, reason: 'COMPETITION_ROUTE_NOT_SOCCER' };
+      }
+      return { ok: false, reason: 'COMPETITION_ROUTE_TIMEOUT' };
+    }
+
+    const contentReady = await waitFor(() => !!doc.querySelector(SELECTORS.fixtureRoot), ROUTE_TIMEOUT_MS, POLL_INTERVAL_MS);
+    if (!contentReady) {
+      return { ok: false, reason: 'COMPETITION_CONTENT_TIMEOUT' };
+    }
+
+    return { ok: true, reason: null, resolvedPath: currentPathname(doc), resolvedHref: currentHref(doc) };
+  }
+
+  function makeCompetitionResult({
+    countryNameRaw,
+    competitionNameRaw,
+    sourceGroupId,
+    sourceCompetitionId,
+    competitionControlId,
+    resolvedUrl,
+    routeConfirmed,
+    recordsSeen,
+    recordsParsed,
+    recordsUnresolved,
+    recordsExpectedUnsupported,
+    failureReason,
+  }) {
     return {
-      country: country || null,
-      competition: competition || null,
-      capture_status: captureStatus,
-      fixtures_seen: fixturesSeen,
-      fixtures_parsed: fixturesParsed,
-      fixtures_unresolved: fixturesUnresolved,
+      country_name_raw: countryNameRaw || null,
+      competition_name_raw: competitionNameRaw || null,
+      source_group_id: sourceGroupId || null,
+      source_competition_id: sourceCompetitionId || null,
+      competition_control_id: competitionControlId || null,
+      resolved_url: resolvedUrl || null,
+      route_confirmed: !!routeConfirmed,
+      records_seen: recordsSeen || 0,
+      records_parsed: recordsParsed || 0,
+      records_unresolved: recordsUnresolved || 0,
+      records_expected_unsupported: recordsExpectedUnsupported || 0,
       failure_reason: failureReason || null,
     };
   }
 
-  function emptyFailedEnvelope(envelopeBase, reasons) {
+  function emptyEnvelopeShape() {
     return {
-      envelope: {
-        ...envelopeBase,
-        capture_status: 'CAPTURE_FAILED',
-        capture_status_reasons: reasons,
-        scope: 'SOCCER_ALL_DISCOVERED_COMPETITIONS',
-        competitions_available: 0,
-        competitions_visited: 0,
-        competitions_failed: 0,
-        fixtures_seen: 0,
-        fixtures_parsed: 0,
-        fixtures_unresolved: 0,
-        duplicates_skipped: 0,
-        competition_results: [],
-        fixtures: [],
-        unparsed_records: [],
-      },
+      countries_available: 0,
+      countries_visited: 0,
+      countries_failed: 0,
+      competitions_available: 0,
+      competitions_visited: 0,
+      competitions_empty: 0,
+      competitions_failed: 0,
+      duplicates_skipped: 0,
+      competition_results: [],
+      fixtures: [],
+      unparsed_records: [],
     };
   }
 
@@ -257,124 +420,156 @@
   async function captureAllSoccerCompetitions(doc, context) {
     const capturedAtUtc = context.capturedAtUtc;
     const envelopeBase = {
-      schema_version: 'bet9ja-soccer-all-competitions-capture.v1',
+      schema_version: 'bet9ja-soccer-all-competitions-capture.v2',
       capture_id: Bet9jaIds.captureId(capturedAtUtc),
       captured_at_utc: capturedAtUtc,
+      capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS',
       source_url: Bet9jaCapture.sanitizeSourceUrl(context.sourceUrl),
-      page_title: context.pageTitle,
+      inventory_profile: INVENTORY_PROFILE,
       parser_version: PARSER_VERSION,
     };
 
-    const initialLinks = discoverSoccerCompetitionLinks(doc);
-    const competitionsAvailable = initialLinks.length;
-
-    if (competitionsAvailable === 0) {
-      const containerFound = !!doc.querySelector(SOCCER_MENU_SELECTORS.menuContainer);
-      return emptyFailedEnvelope(envelopeBase, [
-        containerFound ? 'NO_COMPETITIONS_DISCOVERED' : 'SOCCER_MENU_CONTAINER_NOT_FOUND',
-      ]);
+    const couponsResult = await ensureOnCouponsSurface(doc);
+    if (!couponsResult.ok) {
+      return {
+        envelope: {
+          ...envelopeBase,
+          capture_status: 'CAPTURE_FAILED',
+          capture_status_reasons: [couponsResult.reason],
+          inventory_source_url: Bet9jaCapture.sanitizeSourceUrl(currentHref(doc, context.sourceUrl)),
+          soccer_accordion_found: false,
+          coupons_route_confirmed: false,
+          country_inventory_expanded: false,
+          countries_available: 0,
+          ...emptyEnvelopeShape(),
+        },
+      };
     }
 
-    // Identify each candidate by its stable visible label -- never by a
-    // cached element reference, which a navigation may invalidate (see
-    // STALE-NODE SAFETY above). Two menu items sharing the exact same
-    // label are only ever visited once; this is a plausible real gap
-    // (e.g. an ambiguous label), not silently guessed around.
-    const labels = [];
-    const seenLabels = new Set();
-    for (const el of initialLinks) {
-      const label = text(el);
-      if (!seenLabels.has(label)) {
-        seenLabels.add(label);
-        labels.push(label);
-      }
+    const inventorySourceUrl = Bet9jaCapture.sanitizeSourceUrl(currentHref(doc, context.sourceUrl));
+
+    const accordionResult = await ensureSoccerAccordionOpen(doc);
+    if (!accordionResult.ok) {
+      return {
+        envelope: {
+          ...envelopeBase,
+          capture_status: 'CAPTURE_FAILED',
+          capture_status_reasons: [accordionResult.reason],
+          inventory_source_url: inventorySourceUrl,
+          soccer_accordion_found: accordionResult.soccerAccordionFound,
+          coupons_route_confirmed: true,
+          country_inventory_expanded: false,
+          ...emptyEnvelopeShape(),
+        },
+      };
     }
-    const cappedLabels = labels.slice(0, MAX_COMPETITIONS_SAFETY_CAP);
+
+    const soccerAccordionItem = findSoccerAccordionItem(doc);
+    const expandResult = await expandCountryInventory(soccerAccordionItem);
+    const countryInventoryExpanded = expandResult.expanded;
+    const countryInventoryExpansionReason = expandResult.expanded ? null : expandResult.reason;
+
+    const countryToggles = discoverCountryToggles(soccerAccordionItem);
+    const countries = [];
+    const seenCountryIds = new Set();
+    for (const el of countryToggles) {
+      const parsed = parseCountryId(el.id);
+      if (!parsed || seenCountryIds.has(el.id)) continue;
+      seenCountryIds.add(el.id);
+      countries.push({
+        countryId: el.id,
+        countryNameRaw: text(el),
+        sourceGroupId: parsed.sourceGroupId,
+      });
+    }
+    const countriesAvailable = countries.length;
+
+    if (countriesAvailable === 0) {
+      return {
+        envelope: {
+          ...envelopeBase,
+          capture_status: 'CAPTURE_FAILED',
+          capture_status_reasons: ['NO_COUNTRIES_DISCOVERED'],
+          inventory_source_url: inventorySourceUrl,
+          soccer_accordion_found: true,
+          coupons_route_confirmed: true,
+          country_inventory_expanded: countryInventoryExpanded,
+          country_inventory_expansion_reason: countryInventoryExpansionReason,
+          ...emptyEnvelopeShape(),
+        },
+      };
+    }
+
+    const cappedCountries = countries.slice(0, MAX_COUNTRIES_SAFETY_CAP);
 
     const fixtures = [];
     const unparsedRecords = [];
     const competitionResults = [];
     const seenFixtureIds = new Set();
-    const seenDestinationUrls = new Set();
-    let fixturesSeen = 0;
-    let fixturesParsed = 0;
-    let fixturesUnresolved = 0;
-    let duplicatesSkipped = 0;
+    let countriesVisited = 0;
+    let countriesFailed = 0;
+    let competitionsAvailable = 0;
     let competitionsVisited = 0;
+    let competitionsEmpty = 0;
     let competitionsFailed = 0;
-    let stoppedEarlyReason = null;
+    let duplicatesSkipped = 0;
+    let previousResolvedPath = currentPathname(doc);
 
-    for (let i = 0; i < cappedLabels.length; i += 1) {
-      const label = cappedLabels[i];
-
-      // Always re-discover immediately before use -- never a reference
-      // held from a previous iteration or from the initial discovery
-      // pass, since an intervening navigation may have invalidated it.
-      const freshLinks = discoverSoccerCompetitionLinks(doc);
-      const linkEl = freshLinks.find((el) => text(el) === label);
-      if (!linkEl) {
-        competitionsFailed += 1;
+    for (const country of cappedCountries) {
+      const expand = await expandCountry(doc, country.countryId);
+      if (!expand.ok) {
+        countriesFailed += 1;
         competitionResults.push(
           makeCompetitionResult({
-            country: null,
-            competition: null,
-            captureStatus: 'FAILED',
-            fixturesSeen: 0,
-            fixturesParsed: 0,
-            fixturesUnresolved: 0,
-            failureReason: 'LINK_NOT_FOUND_ON_REDISCOVERY',
+            countryNameRaw: country.countryNameRaw,
+            sourceGroupId: country.sourceGroupId,
+            failureReason: expand.reason,
           })
         );
         continue;
       }
 
-      const { ok, reason } = await selectCompetition(doc, linkEl);
-      if (!ok) {
-        competitionsFailed += 1;
-        competitionResults.push(
-          makeCompetitionResult({
-            country: null,
-            competition: null,
-            captureStatus: 'FAILED',
-            fixturesSeen: 0,
-            fixturesParsed: 0,
-            fixturesUnresolved: 0,
-            failureReason: reason,
-          })
-        );
-        // A click that never changed the page is not a navigation --
-        // still on the inventory page, so no need to return to it.
-        continue;
+      const competitionEls = discoverCompetitionControls(expand.accordionItem);
+      const competitionEntries = [];
+      const seenCompetitionIds = new Set();
+      for (const el of competitionEls) {
+        const parsed = parseCompetitionId(el.id);
+        if (!parsed || seenCompetitionIds.has(el.id)) continue;
+        seenCompetitionIds.add(el.id);
+        competitionEntries.push({
+          competitionId: el.id,
+          competitionNameRaw: text(el),
+          sourceCompetitionId: parsed.sourceCompetitionId,
+        });
       }
+      competitionsAvailable += competitionEntries.length;
+      const cappedCompetitions = competitionEntries.slice(0, MAX_COMPETITIONS_PER_COUNTRY_SAFETY_CAP);
 
-      const identity = readCompetitionIdentityFromUrl(doc);
-      const resolvedHref = currentHref(doc, context.sourceUrl);
-      const destinationKey = Bet9jaCapture.sanitizeSourceUrl(resolvedHref);
+      let countryHadAnySuccess = false;
+      for (const competition of cappedCompetitions) {
+        const selectResult = await selectCompetition(doc, competition.competitionId, previousResolvedPath);
+        if (!selectResult.ok) {
+          competitionsFailed += 1;
+          competitionResults.push(
+            makeCompetitionResult({
+              countryNameRaw: country.countryNameRaw,
+              competitionNameRaw: competition.competitionNameRaw,
+              sourceGroupId: country.sourceGroupId,
+              sourceCompetitionId: competition.sourceCompetitionId,
+              competitionControlId: competition.competitionId,
+              failureReason: selectResult.reason,
+            })
+          );
+          continue;
+        }
 
-      if (seenDestinationUrls.has(destinationKey)) {
-        duplicatesSkipped += 0; // fixture-level counter is separate; see competition-level result below
-        competitionResults.push(
-          makeCompetitionResult({
-            country: identity ? identity.country : null,
-            competition: identity ? identity.competition : null,
-            captureStatus: 'SKIPPED_DUPLICATE_DESTINATION',
-            fixturesSeen: 0,
-            fixturesParsed: 0,
-            fixturesUnresolved: 0,
-          })
-        );
-      } else {
-        seenDestinationUrls.add(destinationKey);
-
+        previousResolvedPath = selectResult.resolvedPath;
         const { envelope: subEnvelope } = Bet9jaCapture.captureFromDocument(doc, {
-          sourceUrl: resolvedHref,
+          sourceUrl: selectResult.resolvedHref,
           pageTitle: context.pageTitle,
           capturedAtUtc,
           previousIndex: {},
         });
-
-        fixturesSeen += subEnvelope.coverage.records_seen;
-        fixturesUnresolved += subEnvelope.coverage.records_unresolved;
 
         let compFixturesParsed = 0;
         for (const fixture of subEnvelope.fixtures) {
@@ -385,62 +580,93 @@
           seenFixtureIds.add(fixture.fixture_id);
           fixtures.push({
             ...fixture,
-            source_country: identity ? identity.country : null,
-            source_competition: identity ? identity.competition : null,
+            source_country: country.countryNameRaw,
+            source_competition: competition.competitionNameRaw,
+            source_group_id: country.sourceGroupId,
+            source_competition_id: competition.sourceCompetitionId,
           });
           compFixturesParsed += 1;
         }
-        fixturesParsed += compFixturesParsed;
-
         for (const record of subEnvelope.unparsed_records) {
           unparsedRecords.push({
             ...record,
-            source_country: identity ? identity.country : null,
-            source_competition: identity ? identity.competition : null,
+            source_country: country.countryNameRaw,
+            source_competition: competition.competitionNameRaw,
+            source_group_id: country.sourceGroupId,
+            source_competition_id: competition.sourceCompetitionId,
           });
         }
 
+        const recordsSeen = subEnvelope.coverage.records_seen;
+        if (recordsSeen === 0) {
+          competitionsEmpty += 1;
+        } else {
+          competitionsVisited += 1;
+        }
+        countryHadAnySuccess = true;
+
         competitionResults.push(
           makeCompetitionResult({
-            country: identity ? identity.country : null,
-            competition: identity ? identity.competition : null,
-            captureStatus: 'COMPLETE',
-            fixturesSeen: subEnvelope.coverage.records_seen,
-            fixturesParsed: compFixturesParsed,
-            fixturesUnresolved: subEnvelope.coverage.records_unresolved,
+            countryNameRaw: country.countryNameRaw,
+            competitionNameRaw: competition.competitionNameRaw,
+            sourceGroupId: country.sourceGroupId,
+            sourceCompetitionId: competition.sourceCompetitionId,
+            competitionControlId: competition.competitionId,
+            resolvedUrl: Bet9jaCapture.sanitizeSourceUrl(selectResult.resolvedHref),
+            routeConfirmed: true,
+            recordsSeen,
+            recordsParsed: compFixturesParsed,
+            recordsUnresolved: subEnvelope.coverage.records_unresolved,
+            recordsExpectedUnsupported: subEnvelope.coverage.records_expected_unsupported,
           })
         );
-        competitionsVisited += 1;
       }
 
-      // Always return to the inventory page after a successful
-      // navigation -- including after the LAST competition, so the page
-      // is left in a predictable, re-usable state, not stranded on
-      // whichever competition the walk happened to end on. A failed
-      // return is a safe-stop, not something to guess past.
-      {
-        const restored = await returnToInventory(doc);
-        if (!restored) {
-          stoppedEarlyReason = 'COULD_NOT_RETURN_TO_INVENTORY';
-          break;
-        }
+      if (countryHadAnySuccess || cappedCompetitions.length === 0) {
+        countriesVisited += 1;
+      } else {
+        countriesFailed += 1;
+      }
+
+      collapseCountry(doc, country.countryId);
+    }
+
+    // Best-effort return to the verified Coupons route -- never required
+    // for the correctness of the capture that already happened. Uses the
+    // browser's own history navigation, never a guessed click, and its
+    // outcome is not re-verified here (a future capture re-confirms the
+    // route itself via ensureOnCouponsSurface).
+    if (!START_ROUTE_PATTERN.test(currentPathname(doc))) {
+      const win = doc.defaultView;
+      if (win && win.history && typeof win.history.back === 'function') {
+        win.history.back();
       }
     }
 
-    const statusReasons = ['MENU_SELECTORS_CONFIRMED_VIA_INSPECTION_PENDING_REAL_CAPTURE'];
+    const statusReasons = [];
+    if (!countryInventoryExpanded) statusReasons.push(`COUNTRY_INVENTORY_NOT_FULLY_EXPANDED_${countryInventoryExpansionReason}`);
+    if (countriesFailed > 0) statusReasons.push('SOME_COUNTRIES_FAILED');
     if (competitionsFailed > 0) statusReasons.push('SOME_COMPETITIONS_FAILED');
-    if (stoppedEarlyReason) statusReasons.push(stoppedEarlyReason);
+
+    const countriesInvariantHolds = countriesAvailable === countriesVisited + countriesFailed;
+    if (!countriesInvariantHolds) statusReasons.unshift('COUNTRY_ACCOUNTING_INVARIANT_VIOLATED');
 
     let captureStatus;
-    if (fixtures.length === 0 && unparsedRecords.length === 0) {
+    if (fixtures.length === 0 && unparsedRecords.length === 0 && competitionsEmpty === 0) {
       captureStatus = 'CAPTURE_FAILED';
       statusReasons.unshift('NO_USABLE_OUTPUT');
+    } else if (
+      countryInventoryExpanded &&
+      countriesFailed === 0 &&
+      competitionsFailed === 0 &&
+      countriesInvariantHolds
+    ) {
+      // Every discovered country and competition was successfully
+      // visited (or confirmed empty), the full country inventory was
+      // expanded, and no accounting invariant failed -- per the explicit
+      // CAPTURE_COMPLETE bar this module was asked to enforce.
+      captureStatus = 'CAPTURE_COMPLETE';
     } else {
-      // Never CAPTURE_OK -- the navigation flow itself has no real
-      // end-to-end successful capture yet (see PARSER_VERSION's own
-      // comment), so even a clean run cannot yet be called fully
-      // validated. Same permanent-cap pattern as ticket_parser.js's
-      // MYBETS profile and settled_bets_parser.js.
       captureStatus = 'CAPTURE_PARTIAL';
     }
 
@@ -449,13 +675,18 @@
         ...envelopeBase,
         capture_status: captureStatus,
         capture_status_reasons: statusReasons,
-        scope: 'SOCCER_ALL_DISCOVERED_COMPETITIONS',
+        inventory_source_url: inventorySourceUrl,
+        soccer_accordion_found: true,
+        coupons_route_confirmed: true,
+        country_inventory_expanded: countryInventoryExpanded,
+        country_inventory_expansion_reason: countryInventoryExpansionReason,
+        countries_available: countriesAvailable,
+        countries_visited: countriesVisited,
+        countries_failed: countriesFailed,
         competitions_available: competitionsAvailable,
         competitions_visited: competitionsVisited,
+        competitions_empty: competitionsEmpty,
         competitions_failed: competitionsFailed,
-        fixtures_seen: fixturesSeen,
-        fixtures_parsed: fixturesParsed,
-        fixtures_unresolved: fixturesUnresolved,
         duplicates_skipped: duplicatesSkipped,
         competition_results: competitionResults,
         fixtures,
@@ -464,7 +695,13 @@
     };
   }
 
-  const api = { captureAllSoccerCompetitions, SOCCER_MENU_SELECTORS, PARSER_VERSION };
+  const api = {
+    captureAllSoccerCompetitions,
+    SELECTORS,
+    PARSER_VERSION,
+    parseCountryId,
+    parseCompetitionId,
+  };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {
