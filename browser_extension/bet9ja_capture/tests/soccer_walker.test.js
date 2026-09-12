@@ -94,14 +94,17 @@ function pageHtml({
   omitHeadings = false,
   countryRenderDelayMs = 0,
   countriesNeverRender = false,
+  mismatchAttributionForIds = [],
 }) {
   const countriesHtml = countries.map((c) => countryAccordionHtml(c)).join('');
   const rowsById = {};
   const labelsById = {};
+  const countryLabelsById = {};
   for (const c of countries) {
     for (const comp of c.competitions) {
       rowsById[comp.checkboxId] = comp.rows || [];
       labelsById[comp.checkboxId] = comp.label;
+      countryLabelsById[comp.checkboxId] = c.label;
     }
   }
   const showLeaguesBtn = showLeaguesMissing
@@ -128,9 +131,11 @@ function pageHtml({
       <script>
         const ROWS_BY_ID = ${JSON.stringify(rowsById)};
         const LABELS_BY_ID = ${JSON.stringify(labelsById)};
+        const COUNTRY_LABELS_BY_ID = ${JSON.stringify(countryLabelsById)};
         const MAX_SELECTABLE = ${JSON.stringify(maxSimultaneousSelectable === Infinity ? null : maxSimultaneousSelectable)};
         const CONTENT_NEVER_UPDATES = ${JSON.stringify(contentNeverUpdates)};
         const OMIT_HEADINGS = ${JSON.stringify(omitHeadings)};
+        const MISMATCH_ATTRIBUTION_FOR_IDS = ${JSON.stringify(mismatchAttributionForIds)};
         const results = document.getElementById('results');
         const limitNotice = document.getElementById('limit-notice');
         const soccerRoot = document.getElementById('soccer-root');
@@ -172,15 +177,30 @@ function pageHtml({
         const showLeaguesBtn = document.querySelector('.competitions__filter-btn.check-coupon');
         if (showLeaguesBtn) {
           showLeaguesBtn.addEventListener('click', () => {
-            if (CONTENT_NEVER_UPDATES) return;
+            if (CONTENT_NEVER_UPDATES) {
+              // Realistic "stuck" behavior: a persistent, never-clearing
+              // loading indicator -- matching the real screenshot's own
+              // evidence (Bet9ja still rendering when the extension gave
+              // up), never silent no-op inaction.
+              results.innerHTML = '<div class="loading-spinner">Loading...</div>';
+              return;
+            }
             const checked = Array.from(document.querySelectorAll('.sportpage__cb-input:checked'));
             // Real evidence: the rendered content includes the
             // competition heading IMMEDIATELY BEFORE its own fixture
             // table -- one .sports-table PER selected competition, each
-            // preceded by a heading naming it (never one combined table).
+            // preceded by a "Soccer > Country > Competition" breadcrumb
+            // heading (never one combined table).
             const html = checked
               .map((cb) => {
-                const heading = OMIT_HEADINGS ? '' : '<div class="heading">' + (LABELS_BY_ID[cb.id] || '') + '</div>';
+                // A genuinely UNRELATED name -- not a suffixed variant of
+                // the real one -- so neither an exact nor a substring
+                // match against any candidate's own name can succeed.
+                const competitionLabel = MISMATCH_ATTRIBUTION_FOR_IDS.indexOf(cb.id) !== -1
+                  ? 'Some Unrelated League Entirely'
+                  : (LABELS_BY_ID[cb.id] || '');
+                const breadcrumb = 'Soccer > ' + (COUNTRY_LABELS_BY_ID[cb.id] || '') + ' > ' + competitionLabel;
+                const heading = OMIT_HEADINGS ? '' : '<div class="heading">' + breadcrumb + '</div>';
                 const rowsHtml = (ROWS_BY_ID[cb.id] || []).join('');
                 return heading + '<div class="sports-table">' + rowsHtml + '</div>';
               })
@@ -341,7 +361,12 @@ test('country discovery uses DIRECT children only -- a nested .accordion-item in
   assert.equal(envelope.countries_available, 2, 'the nested accordion-item must never be counted as a third top-level country');
 });
 
-test('multiple countries and competitions with no selection limit all land in ONE batch', async () => {
+test('ROUND 8 regression: every competition is selected and shown SEQUENTIALLY, one per batch -- never all selected together into one render', async () => {
+  // Models the real defect at a smaller, fast-to-test scale: a real run
+  // selected all 374 discovered competitions into ONE batch before ever
+  // clicking Show Leagues, and Bet9ja was still rendering when the
+  // capture gave up. "Capture everything in one go" must mean one user
+  // click automating many small batches, never one enormous render.
   const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND, SPAIN] }));
   const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
   assert.equal(envelope.capture_status, 'CAPTURE_COMPLETE');
@@ -350,34 +375,28 @@ test('multiple countries and competitions with no selection limit all land in ON
   assert.equal(envelope.competitions_available, 4);
   assert.equal(envelope.competitions_captured, 4);
   assert.equal(envelope.fixtures.length, 4);
-  assert.equal(envelope.batch_results.length, 1);
-  assert.equal(envelope.batch_results[0].competition_ids.length, 4);
+  // Four competitions -> four SEPARATE batches, each holding exactly one.
+  assert.equal(envelope.batch_results.length, 4);
+  for (const batch of envelope.batch_results) {
+    assert.equal(batch.competition_ids.length, 1, 'no batch may ever hold more than one competition (Round 8 fix)');
+  }
 });
 
-test('a selection limit reached mid-run splits the run into two batches, both captured, Clear all runs between them', async () => {
+test('Clear all is verified between EVERY batch, not just when a real Bet9ja selection limit is hit', async () => {
   const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND, SPAIN], maxSimultaneousSelectable: 2 }));
   const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
   assert.equal(envelope.capture_status, 'CAPTURE_COMPLETE');
   assert.equal(envelope.competitions_available, 4);
   assert.equal(envelope.competitions_captured, 4);
   assert.equal(envelope.fixtures.length, 4);
-  assert.equal(envelope.batch_results.length, 2);
-  assert.equal(envelope.batch_results[0].competition_ids.length, 2);
-  assert.equal(envelope.batch_results[1].competition_ids.length, 2);
-  // Every fixture in batch 2 must be precisely attributed to ONE of
-  // batch 2's own competitions (via the resolved per-table heading),
-  // never batch 1's leftover selection -- proof Clear all actually ran
-  // and was verified between batches, AND proof attribution is precise
-  // rather than "every competition in this batch".
-  const batch2Fixtures = envelope.fixtures.filter((f) => f.source_batch_index === 1);
-  assert.equal(batch2Fixtures.length, 2);
-  for (const f of batch2Fixtures) {
+  assert.equal(envelope.batch_results.length, 4);
+  // Every fixture is precisely attributed to its OWN single competition
+  // (via the resolved per-table heading) -- proof Clear all actually ran
+  // and was verified before the next batch's selection began.
+  for (const f of envelope.fixtures) {
     assert.equal(f.source_competition_ids_in_batch.length, 1);
-    assert.ok(envelope.batch_results[1].competition_ids.includes(f.source_competition_ids_in_batch[0]));
     assert.equal(f.resolved_source_competition_id, f.source_competition_ids_in_batch[0]);
   }
-  // No competition in this run was left attribution-unresolved -- the
-  // heading-based resolver mapped every table to exactly one competition.
   assert.ok(!envelope.capture_status_reasons.includes('SOME_COMPETITIONS_ATTRIBUTION_UNRESOLVED'));
 });
 
@@ -401,18 +420,44 @@ test('multi-competition batch: each fixture is attributed to its OWN competition
   }
 });
 
-test('a batch whose fixture tables render with no heading at all is COMPETITION_ATTRIBUTION_UNRESOLVED for every competition in it, never guessed as captured', async () => {
+test('a page with no rendered Soccer breadcrumb heading at all fails the whole run closed with SPORT_CONTEXT_CONFLICT (the page-level gate), never a per-competition attribution failure', async () => {
+  // Omitting every heading removes parser.js's OWN page-level
+  // confirmation signal (a rendered heading beginning with "Soccer >"),
+  // which is a stricter, earlier gate than per-table attribution --
+  // this must fail the run at that gate, not be mistaken for a
+  // per-competition COMPETITION_ATTRIBUTION_UNRESOLVED case.
   const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND], omitHeadings: true }));
   const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
   assert.equal(envelope.fixtures.length, 0);
   assert.equal(envelope.competitions_captured, 0);
-  assert.ok(envelope.capture_status_reasons.includes('SOME_COMPETITIONS_ATTRIBUTION_UNRESOLVED'));
-  for (const id of ['1209691', '2000001', '2000002']) {
+  assert.ok(envelope.capture_status_reasons.includes('STOPPED_EARLY_SPORT_CONTEXT_CONFLICT'));
+  const nigeria = envelope.competition_results.find((r) => r.source_competition_id === '1209691');
+  assert.equal(nigeria.outcome, 'BATCH_FAILED');
+  assert.equal(nigeria.failure_reason, 'SPORT_CONTEXT_CONFLICT');
+  // England's competitions were never even attempted once the run
+  // stopped closed -- honestly labeled, never silently absent and never
+  // counted as "failed".
+  for (const id of ['2000001', '2000002']) {
     const result = envelope.competition_results.find((r) => r.source_competition_id === id);
-    assert.equal(result.outcome, 'COMPETITION_ATTRIBUTION_UNRESOLVED');
-    assert.equal(result.failure_reason, 'COMPETITION_ATTRIBUTION_UNRESOLVED');
+    assert.equal(result.outcome, 'NOT_ATTEMPTED_AFTER_EARLY_STOP');
   }
-  assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
+});
+
+test('one competition whose own heading cannot be uniquely attributed is COMPETITION_ATTRIBUTION_UNRESOLVED, and does NOT invalidate a correctly attributed competition processed in a different batch', async () => {
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND], mismatchAttributionForIds: ['2000001'] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  // Nigeria and Championship both resolve correctly and are captured.
+  assert.equal(envelope.competitions_captured, 2);
+  const nigeria = envelope.competition_results.find((r) => r.source_competition_id === '1209691');
+  const championship = envelope.competition_results.find((r) => r.source_competition_id === '2000002');
+  assert.equal(nigeria.outcome, 'CAPTURED_IN_BATCH');
+  assert.equal(championship.outcome, 'CAPTURED_IN_BATCH');
+  // Premier League's own heading was rendered with an unrelated name --
+  // its table cannot be uniquely mapped, so it alone is unresolved.
+  const premierLeague = envelope.competition_results.find((r) => r.source_competition_id === '2000001');
+  assert.equal(premierLeague.outcome, 'COMPETITION_ATTRIBUTION_UNRESOLVED');
+  assert.ok(!envelope.fixtures.some((f) => f.resolved_source_competition_id === '2000001'));
+  assert.ok(envelope.capture_status_reasons.includes('SOME_COMPETITIONS_ATTRIBUTION_UNRESOLVED'));
 });
 
 test('a competition with a missing label is SELECTION_FAILED and does not stop the run', async () => {
@@ -478,27 +523,32 @@ test('a Clear all that never resets selections is a safe stop after the batch it
 });
 
 test('cancellation before the second batch is a safe stop with resume_metadata, never a failure', async () => {
-  let calls = 0;
-  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND, SPAIN], maxSimultaneousSelectable: 2 }));
+  const doc = docFromHtml(pageHtml({ countries: [NIGERIA, ENGLAND, SPAIN] }));
+  // Robust against exact shouldCancel() call-count bookkeeping (which
+  // changed with Round 8's multi-pass inventory stabilization and
+  // one-competition-per-batch cap): cancel once the first batch's own
+  // Show Leagues button has actually been clicked, not by counting
+  // predicate calls.
+  let showLeaguesClicks = 0;
+  doc.querySelector('.competitions__filter-btn.check-coupon').addEventListener('click', () => {
+    showLeaguesClicks += 1;
+  });
   const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, {
     ...BASE_CONTEXT,
-    shouldCancel: () => {
-      calls += 1;
-      // shouldCancel is checked once per country during discovery (3),
-      // once per batch attempt, and once per competition selection
-      // attempt within a batch. Let discovery (3) and the first batch's
-      // own selections (Nigeria, England PL, then the England
-      // Championship attempt that hits the limit and finalizes the
-      // batch: 4 more) fully complete, cancel once the second batch is
-      // about to start.
-      return calls > 7;
-    },
+    shouldCancel: () => showLeaguesClicks >= 1,
   });
   assert.equal(envelope.capture_status, 'CAPTURE_PARTIAL');
   assert.ok(envelope.capture_status_reasons.some((r) => r.startsWith('STOPPED_EARLY_USER_CANCELLED')));
   assert.ok(envelope.resume_metadata.can_resume);
-  assert.ok(envelope.competitions_captured >= 1);
+  // The one competition whose batch already rendered before cancellation
+  // is genuinely completed; the rest are honestly NOT_ATTEMPTED, never
+  // silently absent and never counted as failed.
+  assert.equal(envelope.competitions_captured, 1);
+  assert.equal(envelope.competitions_failed, 0);
   assert.ok(envelope.competitions_skipped_by_early_stop >= 1);
+  assert.equal(envelope.resume_metadata.last_completed_competition_id, '1209691');
+  const notAttempted = envelope.competition_results.filter((r) => r.outcome === 'NOT_ATTEMPTED_AFTER_EARLY_STOP');
+  assert.equal(notAttempted.length, envelope.competitions_skipped_by_early_stop);
 });
 
 test('reconciliation: competitions_available accounts for every competition (captured + empty + failed + skipped by cap/early-stop)', async () => {

@@ -73,37 +73,59 @@
  * `country_name_raw`/`competition_name_raw` are read from each control's
  * own visible text, never prettified.
  *
- * BATCHING: Bet9ja enforces some maximum number of simultaneously
- * selected competitions, surfaced via a "Maximum selection limit
- * reached!" notification -- but neither the exact limit nor that
- * notification's own selector was exposed in the inspected DOM (marked
- * [UNVERIFIED] in SOCCER_ALL_COMPETITIONS_VALIDATION.md). This module
- * never invents a fixed batch size: it selects competitions one at a
- * time, watching each checkbox's own `.checked` state, and treats EITHER
- * a selection that doesn't stick OR any visible element whose text
- * matches the limit-notification wording as "this batch is full" --
- * finalizing (Show Leagues) the current batch and deferring that
- * competition to the next one, discovered operationally rather than
- * guessed at.
+ * BATCHING (Round 8 correction): a real run selected all 374 discovered
+ * competitions into ONE giant batch before ever clicking Show Leagues --
+ * nothing had capped batch size below Bet9ja's own (still unconfirmed)
+ * selection limit, and the screenshot showed Bet9ja still rendering
+ * multiple leagues when the capture gave up waiting. `MAX_COMPETITIONS_
+ * PER_BATCH` deliberately caps every batch at exactly ONE competition for
+ * this first reliable loop -- "capture everything in one go" means one
+ * user click automating many small batches, never one enormous render.
+ * Bet9ja's own selection limit (surfaced via a "Maximum selection limit
+ * reached!" notification whose exact wording/selector is [UNVERIFIED],
+ * see SOCCER_ALL_COMPETITIONS_VALIDATION.md) is still watched
+ * operationally (a selection that doesn't stick, or that notification's
+ * text becoming visible), but with the cap at 1 it should never actually
+ * need to fire in practice. Only once a real run completes reliably at
+ * batch size 1 should this cap ever be raised, and only from that same
+ * evidence bar -- never lowered or raised blindly by a future edit.
  *
- * ATTRIBUTION CAVEAT -- READ BEFORE TRUSTING PER-COMPETITION FIXTURE
- * COUNTS: parser.js resolves each row's sport (and therefore whether it's
- * in scope at all) either from an id-embedded `sport-N` segment on the
- * row itself, or from the page's own URL matching
+ * SPORT CONTEXT (Round 6, corrected Round 8): parser.js resolves each
+ * row's sport either from an id-embedded `sport-N` segment on the row
+ * itself, or from the page's own URL matching
  * `/competition/{sport}/{country}/{competition}/` -- confirmed only for
- * single-competition competition pages. On this combined
- * `/sportPage/1/competitions` page the URL never changes and it is
- * NOT YET CONFIRMED whether Bet9ja repeats the `sport-N` id segment on
- * every row here too, nor whether multiple selected competitions'
- * fixtures render as visually/structurally distinguishable groups at
- * all. Rather than guess a row-to-competition mapping, this module never
- * attributes an individual fixture to one specific competition when a
- * batch contains more than one: every fixture instead carries
- * `source_batch_index` and the full list of that batch's
- * `source_competition_ids_in_batch`/`source_competitions_raw_in_batch`.
- * Each competition is still classified (captured/empty/failed/deferred)
- * at the BATCH level in `competition_results[]`, and each
- * `batch_results[]` entry carries its own honest
+ * single-competition competition pages, and neither is available on
+ * `/sportPage/1/competitions`. This module passes a trusted
+ * `forced_sport_context` claim that parser.js independently re-verifies
+ * against the page's own route, a page-level visible sport heading, AND
+ * (Round 8) at least one rendered competition heading beginning with
+ * "Soccer >" -- a real capture hit a false `SPORT_CONTEXT_CONFLICT` when
+ * the only available signal was a competition breadcrumb (e.g.
+ * "Soccer > Italy > Serie A"), which can never equal "SOCCER" exactly;
+ * the breadcrumb PREFIX is now its own separate corroborating signal,
+ * kept deliberately apart from attribution (below) so a change to one
+ * can never silently affect the other.
+ *
+ * ATTRIBUTION: each rendered competition's heading is a confirmed
+ * "Soccer > {country} > {competition}" breadcrumb (live single- and
+ * multi-league evidence). `makeTableCompetitionResolver` parses that
+ * breadcrumb's own last segment and matches it exactly against the
+ * batch's own known competition names, falling back to a substring
+ * search over the whole heading text for resilience if a heading isn't
+ * breadcrumb-shaped. A table that cannot be uniquely mapped is retained
+ * as `COMPETITION_ATTRIBUTION_UNRESOLVED` (parser.js's own gate, ahead of
+ * every other row classification) rather than guessed -- and, since
+ * `MAX_COMPETITIONS_PER_BATCH` keeps every batch to exactly one
+ * competition, this now means only THAT one competition is affected,
+ * never a whole multi-competition batch. Every fixture still carries
+ * `source_batch_index` and `source_competition_ids_in_batch`/
+ * `source_competitions_raw_in_batch` (single-element in the normal case);
+ * `competition_results[]` classifies every discovered competition
+ * individually (`CAPTURED_IN_BATCH`/`BATCH_EMPTY`/
+ * `COMPETITION_ATTRIBUTION_UNRESOLVED`/`SELECTION_FAILED`/`BATCH_FAILED`/
+ * `NOT_ATTEMPTED_AFTER_EARLY_STOP` -- the last one only for a competition
+ * genuinely never reached after an early stop, never confused with a
+ * real failure), and each `batch_results[]` entry carries its own honest
  * records_seen/records_parsed/records_unresolved/
  * records_expected_unsupported straight from that one
  * `captureFromDocument` call -- nothing here invents a per-competition
@@ -121,15 +143,19 @@
   const Bet9jaCapture = typeof module !== 'undefined' && module.exports ? require('./parser.js') : root.Bet9jaCapture;
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
 
-  // NOT bumped to a non-"-unverified" tag yet: two real captures against
-  // the live account both reached the correct route but never got past
-  // country discovery (NO_COUNTRIES_DISCOVERED, root-cause fixed this
-  // round -- see the header comment's "CLIENT-RENDER TIMING" section and
-  // SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 7 section). This fix
-  // itself has not yet been exercised against the live account. Per this
-  // project's evidence-only versioning discipline, the version string
-  // advances only after one real successful capture.
-  const PARSER_VERSION = 'bet9ja-soccer-walker@0.4.1-round7-inventory-root-and-timing-fix-unverified';
+  // NOT bumped to a non-"-unverified" tag yet: a real run got past
+  // country/competition discovery for the first time (Round 7's own fix
+  // confirmed working -- 102-103 countries, 368-374 competitions) but
+  // then hit three further real defects (all fixed this round -- see
+  // SOCCER_ALL_COMPETITIONS_VALIDATION.md's Round 8 section): every
+  // competition selected into one enormous batch, `.sports-table`
+  // existing while its rows were still loading, and a false
+  // `SPORT_CONTEXT_CONFLICT` from comparing a competition breadcrumb
+  // against an exact "SOCCER" match. This round's fixes have not yet
+  // been exercised against the live account. Per this project's
+  // evidence-only versioning discipline, the version string advances
+  // only after one real successful capture.
+  const PARSER_VERSION = 'bet9ja-soccer-walker@0.4.2-round8-batching-readiness-and-sport-context-fix-unverified';
 
   const INVENTORY_PROFILE = 'BET9JA_SPORTPAGE_COMPETITIONS_SELECTOR';
   const START_ROUTE_PATTERN = /^\/sportPage\/1\/competitions\/?$/;
@@ -210,6 +236,12 @@
   // the real page, not as two independently-invented timeouts.
   const SOCCER_COMPETITIONS_ROOT_TIMEOUT_MS = 10000;
   const SOCCER_COMPETITIONS_ROOT_POLL_MS = 100;
+  // Real evidence: two consecutive real runs discovered different totals
+  // (102/368, then 103/374) even after the country root itself had
+  // already stabilized -- a bounded number of full re-discovery passes,
+  // not a single snapshot, is what `discoverStableInventory` uses to
+  // confirm both totals actually stopped changing.
+  const INVENTORY_STABILIZATION_MAX_PASSES = 5;
   // Real evidence: 100+ countries and (per the retired per-competition
   // walker's own real capture) dozens of competitions per country are
   // plausible; this is a generous multiple of any plausible real total,
@@ -217,7 +249,19 @@
   // normally. Any competition beyond the cap is explicitly counted as
   // `competitions_skipped_by_safety_cap`, never silently dropped.
   const MAX_TOTAL_COMPETITIONS_SAFETY_CAP = 2000;
-  const MAX_BATCHES_SAFETY_CAP = 200;
+  const MAX_BATCHES_SAFETY_CAP = 2000;
+
+  // ROUND 8 CORRECTION: a real run selected all 374 discovered
+  // competitions into ONE batch before ever clicking Show Leagues,
+  // because nothing capped batch size below Bet9ja's own (still
+  // unconfirmed) selection limit. Bet9ja was still rendering multiple
+  // leagues when the capture gave up waiting -- "capture everything in
+  // one go" was meant to describe one user click automating 374 batches,
+  // never one single enormous Bet9ja render. Deliberately conservative
+  // for the first reliable loop: exactly one competition per batch. Once
+  // a real run completes reliably, this can be safely raised -- never
+  // lowered blindly by a future edit without that same evidence bar.
+  const MAX_COMPETITIONS_PER_BATCH = 1;
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -362,28 +406,75 @@
     return nested;
   }
 
+  // Real evidence, 2026-09-12: a rendered competition heading is a
+  // breadcrumb shaped "Soccer > {country} > {competition}" (e.g.
+  // "Soccer > Italy > Serie A"). This is used ONLY for per-table
+  // ATTRIBUTION here -- kept entirely separate from parser.js's own
+  // page-level sport-context gate (`validateForcedSportContext`), which
+  // never parses this breadcrumb into a country/competition, only checks
+  // its "Soccer >" prefix as a coarse corroborating signal. A change to
+  // one must never silently affect the other.
+  const COMPETITION_BREADCRUMB_PATTERN = /^soccer\s*>\s*(.+)$/i;
+
+  /**
+   * Parses a confirmed "Soccer > {country} > {competition}" breadcrumb
+   * into its segments. Returns `null` for anything not shaped like that
+   * (never guessed) -- the caller falls back to whole-text substring
+   * matching in that case, for resilience against an unconfirmed heading
+   * shape.
+   */
+  function parseCompetitionBreadcrumb(headingRaw) {
+    const match = (headingRaw || '').trim().match(COMPETITION_BREADCRUMB_PATTERN);
+    if (!match) return null;
+    const rest = match[1].split('>').map((s) => s.trim()).filter(Boolean);
+    if (rest.length === 0) return null;
+    return {
+      // "Soccer > Country > Competition" -> competition is the LAST
+      // segment; "Soccer > Competition" (no country segment) is also
+      // accepted, since it's not confirmed every real heading carries a
+      // country -- country then stays unconfirmed rather than guessed.
+      country: rest.length >= 2 ? rest[rest.length - 2] : null,
+      competition: rest[rest.length - 1],
+    };
+  }
+
   /**
    * Builds a `resolve_table_competition` function (parser.js's own
    * contract -- see its header comment) scoped to exactly the
-   * competitions selected in ONE batch. A table's heading is matched
-   * against each candidate's own `competitionNameRaw` (never the other
-   * way around, since the heading's exact format is unconfirmed but a
-   * competition's own display name is known verbatim from discovery) --
-   * resolved only when EXACTLY ONE candidate's name appears in the
-   * heading text; zero or multiple matches is an honest
-   * `{resolved: false}`, never a guess at which one is more likely.
+   * competitions selected in ONE batch. Tries the confirmed breadcrumb
+   * shape first (exact match against the breadcrumb's own last segment,
+   * the competition name) -- tighter than a substring search, since it
+   * isolates the competition name from Sport/Country noise. Falls back
+   * to substring-matching the WHOLE heading text against each
+   * candidate's own `competitionNameRaw` for resilience if the heading
+   * isn't breadcrumb-shaped. Either way, resolved only when EXACTLY ONE
+   * candidate matches; zero or multiple is an honest `{resolved: false}`,
+   * never a guess at which one is more likely.
    */
   function makeTableCompetitionResolver(currentBatch) {
+    function uniqueMatch(predicate) {
+      const matches = currentBatch.filter(predicate);
+      return matches.length === 1 ? matches[0] : null;
+    }
+
     return (tableEl) => {
       const headingRaw = resolveNearestCompetitionHeadingRaw(tableEl);
       if (!headingRaw) return { resolved: false };
-      const normalizedHeading = normalizeForMatch(headingRaw);
-      const matches = currentBatch.filter((c) => {
-        const normalizedName = normalizeForMatch(c.competitionNameRaw);
-        return normalizedName && normalizedHeading.includes(normalizedName);
-      });
-      if (matches.length !== 1) return { resolved: false };
-      const match = matches[0];
+
+      const breadcrumb = parseCompetitionBreadcrumb(headingRaw);
+      let match = null;
+      if (breadcrumb) {
+        const normalizedBreadcrumbCompetition = normalizeForMatch(breadcrumb.competition);
+        match = uniqueMatch((c) => normalizedBreadcrumbCompetition && normalizedBreadcrumbCompetition === normalizeForMatch(c.competitionNameRaw));
+      }
+      if (!match) {
+        const normalizedHeading = normalizeForMatch(headingRaw);
+        match = uniqueMatch((c) => {
+          const normalizedName = normalizeForMatch(c.competitionNameRaw);
+          return normalizedName && normalizedHeading.includes(normalizedName);
+        });
+      }
+      if (!match) return { resolved: false };
       return {
         resolved: true,
         sourceCompetitionId: match.checkboxId,
@@ -409,8 +500,14 @@
   }
 
   /**
-   * Expands one country's accordion (if not already open) and confirms
-   * at least one competition row has actually rendered inside it.
+   * Expands one country's accordion (if not already open) and waits for
+   * its OWN competition COUNT to stop changing across two consecutive
+   * polls -- not merely become non-zero. ROUND 8 CORRECTION: two real
+   * captures against the same live account discovered different totals
+   * (102 countries / 368 competitions, then 103 / 374) -- a `> 0` check
+   * on the country root already made this mistake once (Round 7); the
+   * same asynchronous-rendering behavior evidently also applies one
+   * level down, per country.
    */
   async function expandCountryAccordion(countryItem) {
     const toggle = countryItem.querySelector(SELECTORS.accordionToggle);
@@ -424,21 +521,91 @@
     if (!opened) {
       return { ok: false, reason: 'COUNTRY_EXPANSION_TIMEOUT' };
     }
-    const hasCompetitions = await waitFor(
-      () => discoverCompetitionsInCountry(countryItem).length > 0,
-      ACCORDION_TIMEOUT_MS,
-      POLL_INTERVAL_MS
-    );
-    if (!hasCompetitions) {
-      return { ok: false, reason: 'COUNTRY_COMPETITION_LIST_EMPTY' };
+    const deadline = Date.now() + ACCORDION_TIMEOUT_MS;
+    let previousCount = null;
+    while (Date.now() < deadline) {
+      const currentCount = discoverCompetitionsInCountry(countryItem).length;
+      if (currentCount > 0 && currentCount === previousCount) {
+        return { ok: true, reason: null };
+      }
+      previousCount = currentCount;
+      await sleep(POLL_INTERVAL_MS);
     }
-    return { ok: true, reason: null };
+    const finalCount = discoverCompetitionsInCountry(countryItem).length;
+    return { ok: false, reason: finalCount === 0 ? 'COUNTRY_COMPETITION_LIST_EMPTY' : 'COUNTRY_COMPETITION_LIST_UNSTABLE' };
+  }
+
+  /** One full discovery pass: expand every country, enumerate every competition. */
+  async function discoverAllCompetitionsOnePass(competitionsRoot, shouldCancel) {
+    const countryItems = discoverCountryAccordions(competitionsRoot);
+    let countriesVisited = 0;
+    let countriesFailed = 0;
+    const allCompetitions = [];
+    for (const countryItem of countryItems) {
+      if (shouldCancel()) break;
+      const countryNameRaw = text(countryItem.querySelector(SELECTORS.accordionText));
+      const expand = await expandCountryAccordion(countryItem);
+      if (!expand.ok) {
+        countriesFailed += 1;
+        continue;
+      }
+      countriesVisited += 1;
+      for (const entry of discoverCompetitionsInCountry(countryItem)) {
+        allCompetitions.push({ ...entry, countryNameRaw });
+      }
+    }
+    return { countryItems, countriesVisited, countriesFailed, allCompetitions };
+  }
+
+  /**
+   * ROUND 8 CORRECTION: stabilizing the country ROOT (Round 7) before its
+   * children finish materializing turned out to be insufficient -- real
+   * evidence showed two different totals across consecutive real runs.
+   * Re-runs the ENTIRE discovery pass (every country re-expanded, every
+   * competition list re-enumerated) until two CONSECUTIVE full passes
+   * agree on BOTH the country count and the total competition count,
+   * bounded by a fixed number of attempts rather than a single "looks
+   * stable" snapshot.
+   */
+  async function discoverStableInventory(competitionsRoot, shouldCancel) {
+    let previousSignature = null;
+    let lastResult = null;
+    for (let attempt = 0; attempt < INVENTORY_STABILIZATION_MAX_PASSES; attempt += 1) {
+      const result = await discoverAllCompetitionsOnePass(competitionsRoot, shouldCancel);
+      lastResult = result;
+      const signature = `${result.countryItems.length}:${result.allCompetitions.length}`;
+      if (previousSignature === signature) {
+        return { ok: true, result };
+      }
+      previousSignature = signature;
+      if (shouldCancel()) {
+        // A genuine user cancellation stops further stabilization
+        // attempts and uses whatever was found so far -- best-effort,
+        // never a hard failure.
+        return { ok: true, result };
+      }
+    }
+    return { ok: false, reason: 'SOCCER_COMPETITION_INVENTORY_UNSTABLE', result: lastResult };
   }
 
   function getFixtureFingerprint(doc) {
     return Array.from(doc.querySelectorAll(SELECTORS.matchup))
       .map((el) => text(el))
       .join('|');
+  }
+
+  // [UNVERIFIED] exact selector for a loading indicator on this page --
+  // the screenshot showed `.sports-table` elements existing while their
+  // rows were still loading, but no specific indicator markup was
+  // captured. Matched by a common class-name pattern rather than a
+  // guessed exact class; `.hidden`/`[hidden]` is respected the same way
+  // `isLimitNotificationVisible`'s own notification element is, since
+  // `offsetParent`-based visibility has no meaning in jsdom (no layout
+  // engine) and would make every candidate look permanently invisible in
+  // tests.
+  function isLoadingIndicatorVisible(doc) {
+    const candidates = doc.querySelectorAll('[class*="loading" i], [class*="spinner" i], [class*="skeleton" i]');
+    return Array.from(candidates).some((el) => !el.hidden);
   }
 
   /**
@@ -480,17 +647,20 @@
   }
 
   /**
-   * Clicks "Show Leagues" and waits for the combined fixture output to
-   * render. A batch's real result can legitimately be textually
-   * IDENTICAL to whatever was already on screen -- a genuinely empty
-   * batch (no matchup rows either before or after), or a batch whose
-   * fixtures happen to duplicate the previous batch's -- so "the
-   * fingerprint never changed" is not, by itself, proof the click did
-   * nothing. Only when there was never any `.sports-table` root present
-   * either before or after the click is that treated as a hard failure;
-   * otherwise this is reported honestly as `contentChangeConfirmed:
-   * false` rather than forced into either a false failure or a blindly
-   * trusted success.
+   * ROUND 8 CORRECTION: the screenshot from a real run showed
+   * `.sports-table` elements that already EXISTED while Bet9ja was still
+   * rendering their rows -- the old check (fixture text changed, OR the
+   * table's mere presence flipped) accepted a table that existed but
+   * whose content was still loading, so a capture could run against
+   * half-rendered content. Clicks "Show Leagues" and now waits for BOTH:
+   * (1) no loading indicator visible, AND (2) the matchup ROW COUNT
+   * itself to stop changing across two consecutive polls (not merely
+   * become non-zero) -- the same stability discipline already used for
+   * the country inventory. A batch stably settling at ZERO rows is
+   * accepted as a confirmed-empty result (there is no confirmed
+   * "empty-state" element to check for instead), not a failure. Only a
+   * genuine bounded timeout without ever reaching that stable state is a
+   * hard failure.
    */
   async function showLeaguesAndWait(doc) {
     const button = doc.querySelector(SELECTORS.showLeaguesButton);
@@ -498,26 +668,24 @@
       return { ok: false, reason: 'SHOW_LEAGUES_BUTTON_NOT_FOUND' };
     }
     const before = getFixtureFingerprint(doc);
-    const rootPresentBefore = !!doc.querySelector(SELECTORS.fixtureRoot);
     button.click();
-    // Two independent signals, whichever fires first: the fixture text
-    // itself changing (the common case), or the `.sports-table` root's
-    // very presence flipping (absent -> present, e.g. a genuinely empty
-    // batch's first-ever render) -- both are real evidence of an update,
-    // so neither needs to wait out the full timeout when the other is
-    // available quickly.
-    const contentChanged = await waitFor(() => {
-      if (getFixtureFingerprint(doc) !== before) return true;
-      return !!doc.querySelector(SELECTORS.fixtureRoot) !== rootPresentBefore;
-    }, SHOW_LEAGUES_CONTENT_TIMEOUT_MS, POLL_INTERVAL_MS);
-    if (contentChanged) {
-      return { ok: true, reason: null, contentChangeConfirmed: true };
+
+    const deadline = Date.now() + SHOW_LEAGUES_CONTENT_TIMEOUT_MS;
+    let previousCount = null;
+    while (Date.now() < deadline) {
+      if (isLoadingIndicatorVisible(doc)) {
+        // Still loading -- any stability observed so far doesn't count.
+        previousCount = null;
+      } else {
+        const currentCount = doc.querySelectorAll(SELECTORS.matchup).length;
+        if (previousCount !== null && currentCount === previousCount) {
+          return { ok: true, reason: null, contentChangeConfirmed: getFixtureFingerprint(doc) !== before };
+        }
+        previousCount = currentCount;
+      }
+      await sleep(POLL_INTERVAL_MS);
     }
-    const rootPresentAfter = !!doc.querySelector(SELECTORS.fixtureRoot);
-    if (!rootPresentBefore && !rootPresentAfter) {
-      return { ok: false, reason: 'SHOW_LEAGUES_CONTENT_TIMEOUT' };
-    }
-    return { ok: true, reason: null, contentChangeConfirmed: false };
+    return { ok: false, reason: 'SHOW_LEAGUES_CONTENT_TIMEOUT' };
   }
 
   /** Clicks "Clear all" and confirms every selection actually reset before the next batch. */
@@ -621,24 +789,27 @@
     const competitionsRoot = inventoryReady.root;
 
     // --- Phase 1: discovery -- expand every country, enumerate every
-    // competition checkbox. No selection happens yet.
-    const countryItems = discoverCountryAccordions(competitionsRoot);
-    let countriesVisited = 0;
-    let countriesFailed = 0;
-    const allCompetitions = [];
-    for (const countryItem of countryItems) {
-      if (shouldCancel()) break;
-      const countryNameRaw = text(countryItem.querySelector(SELECTORS.accordionText));
-      const expand = await expandCountryAccordion(countryItem);
-      if (!expand.ok) {
-        countriesFailed += 1;
-        continue;
-      }
-      countriesVisited += 1;
-      for (const entry of discoverCompetitionsInCountry(countryItem)) {
-        allCompetitions.push({ ...entry, countryNameRaw });
-      }
+    // competition checkbox, and keep re-discovering until BOTH totals
+    // stop changing across consecutive full passes. No selection happens
+    // yet.
+    const stableInventory = await discoverStableInventory(competitionsRoot, shouldCancel);
+    if (!stableInventory.ok) {
+      const partial = stableInventory.result;
+      return {
+        envelope: {
+          ...envelopeBase,
+          capture_status: 'CAPTURE_FAILED',
+          capture_status_reasons: [stableInventory.reason],
+          inventory_source_url: inventorySourceUrl,
+          competitions_route_confirmed: true,
+          countries_available: partial ? partial.countryItems.length : 0,
+          countries_visited: partial ? partial.countriesVisited : 0,
+          countries_failed: partial ? partial.countriesFailed : 0,
+          ...emptyEnvelopeShape(),
+        },
+      };
     }
+    const { countryItems, countriesVisited, countriesFailed, allCompetitions } = stableInventory.result;
     const countriesAvailable = countryItems.length;
 
     if (allCompetitions.length === 0) {
@@ -686,17 +857,24 @@
       const currentBatch = [];
       let stuckWithNoSelection = false;
 
-      while (remaining.length > 0) {
+      while (remaining.length > 0 && currentBatch.length < MAX_COMPETITIONS_PER_BATCH) {
         if (shouldCancel()) {
           earlyStopReason = 'USER_CANCELLED';
+          // Nothing in this partially-filled batch was ever shown/parsed
+          // -- put it back at the front of `remaining` so it is reported
+          // as NOT_ATTEMPTED_AFTER_EARLY_STOP below, never silently lost.
+          remaining.unshift(...currentBatch);
           break batchLoop;
         }
         const candidate = remaining[0];
         const selectResult = await selectCompetition(doc, candidate.checkboxId);
         if (selectResult.outcome === 'SELECTED') {
+          // NOT recorded as "completed" here -- a checkbox sticking is
+          // merely a successful selection, not a confirmed capture. See
+          // the per-competition classification block below, the ONLY
+          // place `lastCompletedCheckboxId` is ever updated.
           currentBatch.push(candidate);
           remaining.shift();
-          lastCompletedCheckboxId = candidate.checkboxId;
         } else if (selectResult.outcome === 'LIMIT_REACHED') {
           if (currentBatch.length === 0) {
             // Never even one competition could be selected in this
@@ -856,6 +1034,14 @@
           outcome = 'CAPTURED_IN_BATCH';
           competitionsCaptured += 1;
         }
+        if (outcome === 'CAPTURED_IN_BATCH' || outcome === 'BATCH_EMPTY') {
+          // The ONLY place this is ever set -- a genuinely confirmed
+          // capture or a confirmed-empty result, never a mere checkbox
+          // selection. Iteration order within `currentBatch` (batch size
+          // 1 in practice) means this always ends up naming the last
+          // competition actually completed, never one merely attempted.
+          lastCompletedCheckboxId = comp.checkboxId;
+        }
         competitionResults.push({
           country_name_raw: comp.countryNameRaw || null,
           competition_name_raw: comp.competitionNameRaw || null,
@@ -896,6 +1082,20 @@
     }
     if (remaining.length > 0) {
       competitionsSkippedByEarlyStop += remaining.length;
+      // Every competition never even selected/attempted after an early
+      // stop gets its own explicit, honestly-named result row -- never
+      // silently absent from competition_results[], and never counted as
+      // "failed" (it was never genuinely attempted at all).
+      for (const comp of remaining) {
+        competitionResults.push({
+          country_name_raw: comp.countryNameRaw || null,
+          competition_name_raw: comp.competitionNameRaw || null,
+          source_competition_id: comp.checkboxId || null,
+          batch_index: null,
+          outcome: 'NOT_ATTEMPTED_AFTER_EARLY_STOP',
+          failure_reason: null,
+        });
+      }
     }
 
     const statusReasons = [];

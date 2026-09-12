@@ -623,9 +623,13 @@ function forcedSportRowHtml({ eventId, home, away }) {
   return `<div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>19:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="${idBase}"><div class="sports-table__home txt-cut">${home}</div><div class="sports-table__away txt-cut">${away}</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-1">1.95</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-X">3.40</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-2">4.20</li></ul></div></div>`;
 }
 
-function sportPageCompetitionsDoc({ title = 'Soccer - Competitions' } = {}) {
+function sportPageCompetitionsDoc({
+  title = 'Soccer - Competitions',
+  breadcrumb = 'Soccer > Nigeria > Professional Football League',
+} = {}) {
+  const heading = breadcrumb ? `<div class="heading">${breadcrumb}</div>` : '';
   return docFromHtml(
-    `<html><head><title>${title}</title></head><body><div class="sports-table">${forcedSportRowHtml({ eventId: '1', home: 'Enyimba', away: 'Rivers United' })}</div></body></html>`
+    `<html><head><title>${title}</title></head><body>${heading}<div class="sports-table">${forcedSportRowHtml({ eventId: '1', home: 'Enyimba', away: 'Rivers United' })}</div></body></html>`
   );
 }
 
@@ -705,6 +709,35 @@ test('forced sport context: a conflicting heading (a different sport) fails clos
   assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
 });
 
+test('forced sport context (Round 8 regression): a page-level "Soccer" heading plus a rendered "Soccer > Italy > Serie A" competition breadcrumb does NOT cause SPORT_CONTEXT_CONFLICT', () => {
+  // This is the exact real-capture defect: the page-level heading check
+  // requires an EXACT "soccer" match, which a competition breadcrumb
+  // (always carrying a country/competition suffix) can never satisfy on
+  // its own -- the fix recognizes the breadcrumb PREFIX as its own
+  // separate corroborating signal instead of comparing the full
+  // breadcrumb string against "SOCCER".
+  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions', breadcrumb: 'Soccer > Italy > Serie A' });
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+  });
+  assert.equal(envelope.forced_sport_context_applied, true);
+  assert.ok(!envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+  assert.equal(envelope.fixtures[0].sport, 'SOCCER');
+});
+
+test('forced sport context: a page-level "Soccer" heading with NO rendered competition breadcrumb at all still fails closed', () => {
+  const doc = sportPageCompetitionsDoc({ title: 'Soccer - Competitions', breadcrumb: null });
+  const { envelope } = parser.captureFromDocument(doc, {
+    ...BASE_CONTEXT,
+    sourceUrl: 'https://sports.bet9ja.com/sportPage/1/competitions',
+    forced_sport_context: VALID_FORCED_SPORT_CONTEXT,
+  });
+  assert.equal(envelope.forced_sport_context_applied, false);
+  assert.ok(envelope.capture_status_reasons.includes('SPORT_CONTEXT_CONFLICT'));
+});
+
 test('forced sport context: ordinary captureFromDocument() calls (no forced_sport_context) are completely unaffected', () => {
   const { envelope } = capture('bet9ja_desktop_real_sample.html');
   assert.equal(envelope.forced_sport_context_applied, false);
@@ -720,7 +753,7 @@ test('forced sport context: never overrides a row that already resolved its own 
   // context, this row's own resolved sport must never be silently
   // replaced.
   const idBase = 'home_highlights_sport-2_event-1';
-  const html = `<html><head><title>Soccer - Competitions</title></head><body><div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>19:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="${idBase}"><div class="sports-table__home txt-cut">Team A</div><div class="sports-table__away txt-cut">Team B</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-1">1.95</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-X">3.40</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-2">4.20</li></ul></div></div></div></body></html>`;
+  const html = `<html><head><title>Soccer - Competitions</title></head><body><div class="heading">Soccer &gt; Armenia &gt; Premier League</div><div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__time txt-c"><span>19:00</span></div><div class="sports-table__td sports-table__matchup pr10" id="${idBase}"><div class="sports-table__home txt-cut">Team A</div><div class="sports-table__away txt-cut">Team B</div></div><div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0"><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-1">1.95</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-X">3.40</li><li class="sports-table__odds-item dib pt10" id="${idBase}_odds_market-1x2_sign-2">4.20</li></ul></div></div></div></body></html>`;
   const doc = docFromHtml(html);
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
@@ -737,9 +770,11 @@ test('forced sport context: never overrides a row that already resolved its own 
 // page) ----------------------------------------------------------------
 
 function twoTablePage() {
+  const headingA = `<div class="heading">Soccer &gt; Nigeria &gt; Professional Football League</div>`;
   const tableA = `<div class="sports-table" data-table="A">${forcedSportRowHtml({ eventId: 'a1', home: 'Enyimba', away: 'Rivers United' })}</div>`;
+  const headingB = `<div class="heading">Soccer &gt; England &gt; Premier League</div>`;
   const tableB = `<div class="sports-table" data-table="B">${forcedSportRowHtml({ eventId: 'b1', home: 'Arsenal', away: 'Chelsea' })}</div>`;
-  return docFromHtml(`<html><head><title>Soccer - Competitions</title></head><body>${tableA}${tableB}</body></html>`);
+  return docFromHtml(`<html><head><title>Soccer - Competitions</title></head><body>${headingA}${tableA}${headingB}${tableB}</body></html>`);
 }
 
 test('per-table attribution: a resolver that uniquely maps each table tags its fixtures with that table\'s own competition, never the other table\'s', () => {
@@ -793,7 +828,7 @@ test('per-table attribution: a table the resolver cannot uniquely map is retaine
 
 test('per-table attribution: attribution failure overrides an otherwise-valid row -- never both a fixture AND an unresolved record for the same row', () => {
   const doc = docFromHtml(
-    `<html><head><title>Soccer - Competitions</title></head><body><div class="sports-table">${forcedSportRowHtml({ eventId: '1', home: 'Enyimba', away: 'Rivers United' })}</div></body></html>`
+    `<html><head><title>Soccer - Competitions</title></head><body><div class="heading">Soccer &gt; Nigeria &gt; Professional Football League</div><div class="sports-table">${forcedSportRowHtml({ eventId: '1', home: 'Enyimba', away: 'Rivers United' })}</div></body></html>`
   );
   const { envelope } = parser.captureFromDocument(doc, {
     ...BASE_CONTEXT,
@@ -819,7 +854,7 @@ test('per-table attribution: table_attribution_summary exposes one entry per tab
   const emptyTableHtml = `<div class="sports-table" data-table="C"></div>`;
   const resolvedTableHtml = `<div class="sports-table" data-table="A">${forcedSportRowHtml({ eventId: 'a1', home: 'Enyimba', away: 'Rivers United' })}</div>`;
   const doc = docFromHtml(
-    `<html><head><title>Soccer - Competitions</title></head><body>${resolvedTableHtml}${emptyTableHtml}</body></html>`
+    `<html><head><title>Soccer - Competitions</title></head><body><div class="heading">Soccer &gt; Nigeria &gt; Professional Football League</div>${resolvedTableHtml}${emptyTableHtml}</body></html>`
   );
   const resolver = (table) => {
     const which = table.getAttribute('data-table');

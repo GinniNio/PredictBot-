@@ -775,21 +775,21 @@ readiness confirmation and discovery.
   happens through its own `<label>`, matching the site's normal UI
   behaviour — never a raw `.click()` on the checkbox itself.
 
-**Batching without a guessed limit.** Bet9ja enforces some maximum number
-of simultaneously selected competitions, surfaced via a "Maximum
-selection limit reached!" notification — but neither the exact limit nor
-that notification's own selector was exposed by the inspection that found
-this page (`[UNVERIFIED]` in `SOCCER_ALL_COMPETITIONS_VALIDATION.md`).
-This module never invents a fixed batch size: it selects competitions one
-at a time, watching each checkbox's own `.checked` state, and treats
-EITHER a selection that doesn't stick OR any visible text matching the
-limit-notification wording as "this batch is full" — finalizing (Show
-Leagues) the current batch and deferring that competition to the next
-one.
+**Batching (Round 8 correction — one competition per batch).** A real run
+selected all 374 discovered competitions into ONE batch before ever
+clicking Show Leagues — nothing capped batch size below Bet9ja's own
+(still `[UNVERIFIED]`, surfaced via a "Maximum selection limit reached!"
+notification) selection limit, and the live screenshot showed Bet9ja
+still rendering multiple leagues when the capture gave up waiting.
+`MAX_COMPETITIONS_PER_BATCH` now caps every batch at exactly ONE
+competition for this first reliable loop — "capture everything in one
+go" means one user click automating many small batches, never one
+enormous render. Raising it is deferred until a real run completes
+reliably at batch size 1.
 
-**Trusted Soccer classification (Round 6).** `parser.js` resolves each
-row's sport either from an id-embedded `sport-N` segment on the row
-itself, or from the page's own URL matching
+**Trusted Soccer classification (Round 6, corrected Round 8).**
+`parser.js` resolves each row's sport either from an id-embedded
+`sport-N` segment on the row itself, or from the page's own URL matching
 `/competition/{sport}/{country}/{competition}/` — confirmed only for
 single-competition competition pages, and neither is confirmed for
 `/sportPage/1/competitions`. Rather than let real Soccer fixtures fall
@@ -797,40 +797,82 @@ through to `UNSUPPORTED_SPORT` on this route, `soccer_walker.js` passes a
 trusted CLAIM — `forced_sport_context: {forced_sport_hint: 'SOCCER',
 forced_sport_source: 'SPORTPAGE_ROUTE_ID', forced_sport_source_value:
 '1', capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS'}` — that `parser.js`
-independently re-verifies (the URL really is
-`/sportPage/1/competitions`, a visible "Soccer" signal really is on the
-page, and the claim's own fields are internally consistent) before ever
-trusting it. Any disagreement fails the WHOLE capture closed with
-`SPORT_CONTEXT_CONFLICT` rather than silently guessing; a row that
-already resolved its own sport (an id-embedded segment, even one this
-file has no mapping for) is never overridden by the forced hint. See
-`SPORT_CONTEXT_CONFLICT`-related tests in `tests/parser.test.js`.
+independently re-verifies before ever trusting it: the URL really is
+`/sportPage/1/competitions`, a page-level visible "Soccer" signal is
+present, AND (Round 8) at least one rendered competition heading begins
+with "Soccer >". A real capture hit a false conflict when the ONLY
+available signal was a competition breadcrumb (e.g.
+"Soccer > Italy > Serie A") — comparing that full breadcrumb against an
+exact "SOCCER" match can never succeed, so the breadcrumb PREFIX is now
+checked as its own separate, additional confirming signal, never
+substituting for the page-level check and never used to attribute one
+specific competition (that stays entirely in the attribution logic
+below). Any disagreement among all of these still fails the WHOLE capture
+closed with `SPORT_CONTEXT_CONFLICT`; a row that already resolved its own
+sport (an id-embedded segment, even one this file has no mapping for) is
+never overridden by the forced hint.
 
-**Per-table competition attribution (Round 6).** A batch containing more
-than one competition renders more than one `.sports-table` on the same
-page, and live testing confirmed each table's own competition heading
-renders IMMEDIATELY BEFORE its table. `soccer_walker.js` builds a
-resolver, scoped to exactly the batch's own selected competitions, that
-matches each table's nearest-preceding-element text against each
-candidate's own known `competitionNameRaw`; `parser.js` calls it once per
-table and only trusts a match when EXACTLY ONE candidate's name appears
-in that heading. A table that cannot be uniquely mapped keeps its rows
-OUT of `fixtures[]` entirely — they are retained as
-`unparsed_records` with reason `COMPETITION_ATTRIBUTION_UNRESOLVED`,
-overriding even an otherwise-valid row, so a fixture is never mislabeled
-under the wrong competition. This is the reason **every discovered
-competition is classified individually** (`competition_results[].outcome`
-— see below), never assumed captured merely because the batch as a whole
-produced some fixtures: a resolved table with rows is
-`CAPTURED_IN_BATCH`, a resolved table with zero rows is a confirmed
-`BATCH_EMPTY`, and a competition whose table never resolved at all is
-`COMPETITION_ATTRIBUTION_UNRESOLVED` — three genuinely different, honestly
-distinguished outcomes a batch-wide classification could never tell
-apart. Every fixture that IS captured carries a single, confirmed
-`resolved_source_competition_id` (never a batch-wide list) — see
-`SOCCER_ALL_COMPETITIONS_VALIDATION.md`'s Round 6 section for exactly what
-real evidence this heading-matching heuristic still needs before it can be
-trusted at scale.
+**Per-table competition attribution (Round 6, sharpened Round 8).** Live
+testing confirmed each competition's own heading is a
+"Soccer > {country} > {competition}" breadcrumb rendered IMMEDIATELY
+BEFORE its table. `soccer_walker.js` builds a resolver, scoped to exactly
+the batch's own selected competitions, that parses that breadcrumb's own
+last segment and matches it EXACTLY against each candidate's own known
+`competitionNameRaw` (falling back to a substring search over the whole
+heading text for resilience if it isn't breadcrumb-shaped) — `parser.js`
+calls it once per table and only trusts a match when EXACTLY ONE
+candidate's name matches. A table that cannot be uniquely mapped keeps
+its rows OUT of `fixtures[]` entirely — retained as `unparsed_records`
+with reason `COMPETITION_ATTRIBUTION_UNRESOLVED`, overriding even an
+otherwise-valid row. Since batches are now capped at one competition
+(above), an unresolved table now affects only THAT ONE competition, never
+a whole multi-competition batch. Every discovered competition is
+classified individually (`competition_results[].outcome` — see below),
+never assumed captured merely because a batch produced some fixtures: a
+resolved table with rows is `CAPTURED_IN_BATCH`, a resolved table with
+zero rows is a confirmed `BATCH_EMPTY`, a table that never resolved is
+`COMPETITION_ATTRIBUTION_UNRESOLVED`, and a competition genuinely never
+reached after an early stop is `NOT_ATTEMPTED_AFTER_EARLY_STOP` (Round
+8 — see "Failure and resume accounting" below) — four genuinely
+different, honestly distinguished outcomes a batch-wide classification
+could never tell apart. Every fixture that IS captured carries a single,
+confirmed `resolved_source_competition_id`.
+
+**Waiting for genuinely rendered content, not just an existing table
+(Round 8).** A real screenshot showed `.sports-table` elements that
+already EXISTED while Bet9ja was still rendering their rows — the old
+check (fixture text changed, or the table's mere presence flipped)
+accepted a table whose content was still loading. `showLeaguesAndWait`
+now waits for BOTH: no loading indicator visible (`[UNVERIFIED]` exact
+selector, matched by a common class-name pattern) AND the matchup ROW
+COUNT to stop changing across two consecutive polls — the same stability
+discipline already used for the country inventory. A stable zero-row
+result is accepted as a confirmed-empty outcome (there is no confirmed
+empty-state element to check for instead); only a genuine bounded timeout
+without ever reaching that stable state is `SHOW_LEAGUES_CONTENT_TIMEOUT`.
+
+**Inventory stabilization, twice over (Round 8).** Two real runs
+discovered different totals (102 countries/368 competitions, then
+103/374) even though Round 7's own country-root stabilization had
+already "succeeded" — asynchronous rendering evidently also happens one
+level down, per country. `expandCountryAccordion` now waits for a
+country's OWN competition count to stop changing (not merely become
+non-zero), and the ENTIRE discovery pass (every country re-expanded,
+every competition re-enumerated) is repeated until two CONSECUTIVE full
+passes agree on BOTH the country count and the total competition count
+(`SOCCER_COMPETITION_INVENTORY_UNSTABLE` if it never settles within a
+bounded number of attempts).
+
+**Failure and resume accounting (Round 8).** `resume_metadata.
+last_completed_competition_id` previously updated on a mere successful
+CHECKBOX selection, not a confirmed capture — a failed first batch could
+have pointed resume metadata at a competition that was only ever
+selected, never actually captured. It now updates ONLY when a
+competition is classified `CAPTURED_IN_BATCH` or `BATCH_EMPTY`. Every
+competition never even attempted after an early stop (including one
+selected but never shown before a cancellation) gets its own explicit
+`NOT_ATTEMPTED_AFTER_EARLY_STOP` result row — never silently absent from
+`competition_results[]`, and never counted as failed.
 
 Every fixture is captured by the exact same `parser.js` engine **Capture
 fixtures** uses (never re-implemented here) — the same
@@ -860,7 +902,9 @@ from `parser.js`), and `competition_results[]` — one entry per
 discovered competition (`country_name_raw`, `competition_name_raw`,
 `source_competition_id`, `batch_index`, `outcome` — one of
 `CAPTURED_IN_BATCH`, `BATCH_EMPTY`, `COMPETITION_ATTRIBUTION_UNRESOLVED`,
-`BATCH_FAILED`, `SELECTION_FAILED` — `failure_reason`). `fixtures[]` and
+`BATCH_FAILED`, `SELECTION_FAILED`, `NOT_ATTEMPTED_AFTER_EARLY_STOP`
+(Round 8 — a competition genuinely never reached after an early stop,
+never confused with a real failure) — `failure_reason`). `fixtures[]` and
 `unparsed_records[]` carry every normalized `parser.js` field (including
 `forced_sport_context_applied` and, on `fixtures[]` only,
 `resolved_source_competition_id`) plus `source_batch_index`/
@@ -1183,28 +1227,32 @@ batch capture reporting `CAPTURE_COMPLETE` (including proof the Popular
 sibling block's own decoy checkbox is never discovered as a real
 competition), direct-child-only discovery never double-counting a nested
 accordion item as a third top-level country,
-multiple countries/competitions with no limit landing in one batch, a
-selection limit reached mid-run splitting into two batches (both
-captured, `Clear all` verified between them, each batch's fixtures tagged
-with only ITS OWN competition ids), a competition with a missing label
-being `SELECTION_FAILED` without stopping the run, a country whose
-accordion never opens being `countries_failed` without stopping other
-countries, Show Leagues never updating its output being a safe stop (not
-a crash) when there is truly no evidence anything rendered, a missing
-Show Leagues/Clear all button failing safely, cancellation before the
-second batch being a safe stop with `resume_metadata`, the
-competition-accounting invariant, a competition with zero configured
-fixture rows being a confirmed `BATCH_EMPTY` outcome rather than a
-failure, cross-batch duplicate fixtures deduplicated by `fixture_id` and
-counted (never double-counted), a multi-competition batch where each
-fixture is attributed to its OWN competition via the nearest heading
-(never to every competition in the batch), a batch whose tables render
-with no heading at all being `COMPETITION_ATTRIBUTION_UNRESOLVED` for
-every competition in it rather than guessed captured, and a safety test
-(comments stripped first) confirming every `.click()` call site is a
-country toggle, a competition's own label, or the Show Leagues/Clear all
-buttons — never the checkbox itself, never a raw
-`location.href`/`window.open()` navigation.
+**(Round 8)** every competition selected and shown SEQUENTIALLY, one per
+batch, never all selected together into one giant render, `Clear all`
+verified between EVERY batch transition (not just when a real Bet9ja
+limit is hit), a competition with a missing label being
+`SELECTION_FAILED` without stopping the run, a country whose accordion
+never opens being `countries_failed` without stopping other countries,
+Show Leagues never updating its output (a persistent loading indicator
+that never clears) being a safe stop rather than a crash, a missing Show
+Leagues/Clear all button failing safely, cancellation before the second
+batch being a safe stop with `resume_metadata` pointing only at the last
+GENUINELY completed competition, the competition-accounting invariant, a
+competition with zero configured fixture rows being a confirmed
+`BATCH_EMPTY` outcome rather than a failure, cross-batch duplicate
+fixtures deduplicated by `fixture_id` and counted (never double-counted),
+a multi-competition run where each fixture is attributed to its OWN
+competition via the nearest "Soccer > Country > Competition" breadcrumb
+heading (never to every competition in the batch), a page with no
+rendered Soccer breadcrumb heading at all failing the WHOLE run closed
+with `SPORT_CONTEXT_CONFLICT` (the page-level gate) rather than a
+per-competition attribution failure, one competition whose own heading
+cannot be uniquely attributed being `COMPETITION_ATTRIBUTION_UNRESOLVED`
+without invalidating a correctly attributed competition processed in a
+different batch, and a safety test (comments stripped first) confirming
+every `.click()` call site is a country toggle, a competition's own
+label, or the Show Leagues/Clear all buttons — never the checkbox
+itself, never a raw `location.href`/`window.open()` navigation.
 
 `tests/parser.test.js` additionally covers the trusted forced-sport
 context and per-table attribution added in Round 6:
@@ -1220,7 +1268,11 @@ uniquely map being retained as `COMPETITION_ATTRIBUTION_UNRESOLVED`
 rather than guessed, attribution failure overriding an otherwise-valid
 row (never both a fixture AND an unresolved record for the same row),
 and `table_attribution_summary` exposing one entry per table (including a
-resolved-but-empty one) or `null` on an ordinary call.
+resolved-but-empty one) or `null` on an ordinary call. **(Round 8)** a
+page-level "Soccer" heading plus a rendered "Soccer > Italy > Serie A"
+competition breadcrumb NOT causing `SPORT_CONTEXT_CONFLICT` (the exact
+real-capture defect this round fixed), and a page-level heading with no
+rendered competition breadcrumb at all still failing closed.
 
 `tests/settled_bets_parser.test.js` runs `settled_bets_parser.js` against
 a synthetic jsdom harness modeling the Round 1/Round 2 confirmed

@@ -228,14 +228,51 @@
     return '';
   }
 
+  // ROUND 8 CORRECTION: a real capture hit `SPORT_CONTEXT_CONFLICT` on a
+  // page that WAS genuinely Soccer, because the only signal available was
+  // a rendered competition breadcrumb heading (e.g. "Soccer > Italy >
+  // Serie A") -- and this file's own page-level check requires an EXACT
+  // "soccer" match, which a breadcrumb (always carrying a country/
+  // competition suffix) can never satisfy. The fix is NOT to loosen that
+  // exact-match check into a substring match (that would risk accepting
+  // "Soccer News" or similar) -- it's to recognize the breadcrumb PREFIX
+  // shape as its own, separate, corroborating signal: a rendered heading
+  // that BEGINS WITH "Soccer >" is real evidence the page is genuinely
+  // showing Soccer competitions, checked independently of (and in
+  // addition to, never instead of) the page-level heading check above.
+  // This is deliberately a coarse PREFIX check only -- it never attempts
+  // to extract a country or competition name (that parsing is
+  // `soccer_walker.js`'s own per-table attribution logic, kept
+  // completely separate so a change to one can never silently affect the
+  // other).
+  const SOCCER_BREADCRUMB_PREFIX_PATTERN = /^soccer\s*>/i;
+
+  function pageHasSoccerBreadcrumbHeading(doc) {
+    if (!doc) return false;
+    const tables = doc.querySelectorAll(BET9JA_DESKTOP_SELECTORS.root);
+    for (const table of Array.from(tables)) {
+      const prev = table.previousElementSibling;
+      if (!prev) continue;
+      const direct = text(prev);
+      const candidateText = direct || (prev.firstElementChild ? text(prev.firstElementChild) : '');
+      if (SOCCER_BREADCRUMB_PREFIX_PATTERN.test(candidateText.trim())) return true;
+    }
+    return false;
+  }
+
   /**
    * Returns `{active: false}` when the caller passed no
    * `forced_sport_context` at all (ordinary captureFromDocument calls are
    * completely unaffected). Otherwise `{active: true, ok, sportHint}` --
-   * `ok` is only true when the caller's claim, the page's own URL, AND an
-   * independently-resolved visible sport heading all agree; any
-   * disagreement is `{active: true, ok: false}`, the whole-capture
-   * `SPORT_CONTEXT_CONFLICT` gate.
+   * `ok` is only true when the caller's claim, the page's own URL, an
+   * independently-resolved page-level visible sport heading, AND at
+   * least one rendered competition heading beginning with "Soccer >" all
+   * agree; any disagreement is `{active: true, ok: false}`, the
+   * whole-capture `SPORT_CONTEXT_CONFLICT` gate. The page-level heading
+   * and the per-table breadcrumb are two INDEPENDENT signals -- neither
+   * substitutes for the other, and neither is ever used to attribute one
+   * specific competition (that stays entirely in
+   * `resolve_table_competition`/`table_attribution_summary`).
    */
   function validateForcedSportContext(doc, context) {
     const forced = context.forced_sport_context;
@@ -264,6 +301,9 @@
     // here would reject its own valid title-based match.
     const headingRaw = resolveVisibleSportHeadingRaw(doc);
     if (!headingRaw) {
+      return { active: true, ok: false, sportHint: null };
+    }
+    if (!pageHasSoccerBreadcrumbHeading(doc)) {
       return { active: true, ok: false, sportHint: null };
     }
     return { active: true, ok: true, sportHint: forced.forced_sport_hint };

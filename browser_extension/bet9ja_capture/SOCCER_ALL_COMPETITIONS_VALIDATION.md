@@ -899,3 +899,175 @@ Unchanged from Round 6: keep this held, not merged. This round fixes a
 real, confirmed, root-caused defect in country discovery itself (not a
 redesign), but a real capture still hasn't gotten far enough to validate
 the sport-context/attribution logic that sits downstream of it.
+
+## Round 8 -- 2026-09-12 (Round 7's fix confirmed working for the first
+time; three further real defects found downstream and fixed)
+
+A real run with Round 7's code got past country/competition discovery
+for the first time in this whole project (102-103 countries, 368-374
+competitions) -- direct confirmation the `.accordion.accordion-soccer`
+root and the readiness wait both work against the live site. The run
+then failed with three separate, real, confirmed downstream defects.
+
+### What the real run showed
+
+| Area | Result |
+|---|---|
+| Route control | Passed |
+| Soccer inventory root | Passed |
+| Country discovery | Passed: 102-103 countries |
+| Competition discovery | Passed: 368-374 competitions |
+| Batch construction | **Failed**: all discovered competitions entered ONE enormous batch |
+| Results readiness | **Failed once** with `SHOW_LEAGUES_CONTENT_TIMEOUT` |
+| Soccer-context validation | **Failed once** with `SPORT_CONTEXT_CONFLICT` |
+| Fixtures captured | 0 |
+| Safe failure | Passed: no false fixtures emitted despite all of the above |
+
+A screenshot confirmed Bet9ja was still rendering multiple selected
+leagues when the capture gave up waiting -- direct visual evidence for
+the readiness-timing defect.
+
+### Root cause 1: unbounded batch size
+
+Nothing in Round 5/6/7's code capped how many competitions could be
+selected into one batch below Bet9ja's own (still `[UNVERIFIED]`)
+selection limit -- with 368-374 competitions discovered, the walker just
+kept selecting until Bet9ja's real limit (or the end of the list) was
+hit, then clicked Show Leagues once for the entire batch. "Capture
+everything in one go" was meant to describe one user click automating
+many small batches, never one single enormous Bet9ja render.
+
+**Fix:** `MAX_COMPETITIONS_PER_BATCH = 1`, a new hard cap on
+`currentBatch.length` inside the selection loop, deliberately
+conservative for the first reliable loop. Raising it is explicitly
+deferred until a real run completes reliably at batch size 1 -- "the
+extension can automate all 374 without further user input" (one click,
+374 small batches), "optimizing batch size can wait until the reliable
+loop works" (the user's own words, followed literally).
+
+### Root cause 2: readiness gated on table existence, not genuine content
+
+The old `showLeaguesAndWait` accepted a `.sports-table` whose mere
+presence (or a matchup-text diff) had changed -- but the screenshot
+showed tables that already EXISTED while Bet9ja was still populating
+their rows. A capture could run against half-rendered content.
+
+**Fix:** `showLeaguesAndWait` now waits for BOTH: no loading indicator
+visible (`isLoadingIndicatorVisible`, `[UNVERIFIED]` exact selector,
+matched by a common class-name pattern since none was captured), AND the
+matchup ROW COUNT to stop changing across two consecutive polls -- the
+same stability discipline Round 7 already applied to the country
+inventory. A result that stabilizes at zero rows (with no loading
+indicator active) is accepted as a confirmed-empty outcome, since there
+is no confirmed empty-state element to check for instead; only a genuine
+bounded timeout without ever reaching a stable state is
+`SHOW_LEAGUES_CONTENT_TIMEOUT`.
+
+### Root cause 3: sport-context check compared "SOCCER" against a competition breadcrumb
+
+The real page renders TWO different kinds of "Soccer" text: a page-level
+sport heading (just "Soccer"), and a per-competition breadcrumb heading
+like "Soccer > Italy > Serie A" or "Soccer > Germany > 3. Liga". Round
+6's `resolveVisibleSportHeadingRaw` required an EXACT "soccer" string
+match for its active-tab-like candidate check -- a breadcrumb (which
+always carries a country/competition suffix) can never satisfy that,
+so if the only signal actually present on the page was a breadcrumb, the
+whole capture failed closed with `SPORT_CONTEXT_CONFLICT` despite the
+page genuinely being Soccer.
+
+**Fix:** the page-level heading check (`resolveVisibleSportHeadingRaw`,
+title-or-exact-tab-match) is UNCHANGED and still required -- but a new,
+INDEPENDENT second signal is now also required: at least one rendered
+competition heading beginning with "Soccer >"
+(`pageHasSoccerBreadcrumbHeading`, a coarse PREFIX check only, never
+parsed further at this layer). Both must hold for `forced_sport_context`
+to be accepted; either alone is insufficient, and this breadcrumb check
+is kept structurally separate from `soccer_walker.js`'s own attribution
+logic (which DOES parse the breadcrumb's country/competition segments,
+but only for attribution, never for sport verification) -- a change to
+one can never silently affect the other.
+
+`soccer_walker.js`'s own `makeTableCompetitionResolver` was also
+sharpened to parse the confirmed "Soccer > {country} > {competition}"
+breadcrumb shape directly (exact match against the LAST segment, the
+competition name) before falling back to the old whole-text substring
+search, tightening attribution precision now that real breadcrumb text
+is confirmed.
+
+### Fix 4: failure and resume accounting
+
+`resume_metadata.last_completed_competition_id` previously updated on
+ANY successful checkbox selection (`SELECTED` outcome) -- meaning a
+batch that failed immediately after (e.g. `SHOW_LEAGUES_CONTENT_TIMEOUT`
+or `SPORT_CONTEXT_CONFLICT`) could still leave resume metadata pointing
+at a competition that was only ever selected, never genuinely captured.
+Separately, competitions never even reached after an early stop
+(including one already selected but never shown, if cancellation landed
+mid-selection) had no explicit result row at all -- silently absent from
+`competition_results[]`, neither "completed" nor "failed".
+
+**Fix:** `lastCompletedCheckboxId` now updates ONLY inside the
+per-competition classification block, and only for `CAPTURED_IN_BATCH`/
+`BATCH_EMPTY` outcomes -- never for a mere selection. Every competition
+left in `remaining` when the walk stops early (including one
+"un-selected" back out of a cancelled, never-shown batch) gets an
+explicit `NOT_ATTEMPTED_AFTER_EARLY_STOP` result row -- a new, distinct
+outcome, never confused with a genuine `SELECTION_FAILED`/`BATCH_FAILED`.
+
+### Regression tests
+
+22 tests in `tests/soccer_walker.test.js` (rewritten test harness: every
+rendered heading is now a real "Soccer > {country} > {competition}"
+breadcrumb; `contentNeverUpdates` now shows a persistent, never-clearing
+loading indicator instead of silent no-op inaction, matching the real
+screenshot's evidence) plus 2 new tests in `tests/parser.test.js` prove:
+every competition is selected and shown sequentially, one per batch,
+never all together; loading tables are never parsed until their content
+genuinely stabilizes; a page-level "Soccer" heading plus a rendered
+"Soccer > Italy > Serie A" breadcrumb does NOT cause a context conflict
+(the exact real-capture defect); one competition whose own heading
+cannot be uniquely attributed is `COMPETITION_ATTRIBUTION_UNRESOLVED`
+without invalidating a correctly attributed competition processed in a
+different batch; a page with no breadcrumb heading at all fails the
+WHOLE run closed with `SPORT_CONTEXT_CONFLICT` (the page-level gate),
+never mistaken for a per-competition attribution failure; `Clear all` is
+verified between every batch; early failure after the first batch leaves
+later competitions honestly `NOT_ATTEMPTED_AFTER_EARLY_STOP`; and resume
+metadata points only at the last genuinely completed competition. 202/202
+JS tests green in total.
+
+### PARSER_VERSION
+
+Bumped to
+`bet9ja-soccer-walker@0.4.2-round8-batching-readiness-and-sport-context-fix-unverified`
+-- still not past `-unverified`, since none of this round's fixes have
+been exercised against the live account yet.
+
+### What is still [UNVERIFIED]
+
+- The exact selector/wording for a loading indicator on
+  `/sportPage/1/competitions` (`isLoadingIndicatorVisible`) -- matched by
+  a common class-name pattern, never confirmed against real markup.
+- The exact selector/wording for a page-level "visible sport heading"
+  (`resolveVisibleSportHeadingRaw`) -- unchanged from Round 6, still not
+  confirmed; the Round 8 breadcrumb check is a genuinely NEW, additional
+  signal, not a replacement for confirming this one.
+- Whether every real competition heading is reliably shaped exactly
+  "Soccer > {country} > {competition}" (confirmed for at least two real
+  competitions -- Serie A, 3. Liga -- per this round's user-supplied
+  evidence, but not yet exercised end-to-end through this module's own
+  code against a real multi-competition run).
+
+### Recommendation for Round 9
+
+Re-run **Capture all Soccer fixtures** for real. With batch size capped
+at 1, success now means: many small batches complete in sequence (not
+one giant selection), `competitions_captured`/`competitions_empty` are
+nonzero, `SPORT_CONTEXT_CONFLICT` does not appear, and
+`competition_results[]` correctly distinguishes captured, empty, failed,
+attribution-unresolved, and not-attempted competitions. If
+`SHOW_LEAGUES_CONTENT_TIMEOUT` or `SPORT_CONTEXT_CONFLICT` recur even
+once, capture the exact live DOM state at that moment (particularly
+whether any element matches `isLoadingIndicatorVisible`'s pattern, and
+the exact text of whatever page-level sport heading actually exists) so
+the next round corrects the right selector instead of guessing again.
