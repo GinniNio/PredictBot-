@@ -220,3 +220,144 @@ test('every session function returns a NEW object -- the input session is never 
   assert.deepEqual(original.inventory, originalInventorySnapshot);
   assert.deepEqual(original.fixtures_by_competition, {});
 });
+
+// --- Round 13: monotonic ledger transitions, provenance, and export-time
+// consistency validation (real evidence: an assembled session export
+// showed 37 CONFIRMED_EMPTY competitions that also had fixtures attached) --
+
+test('a completed competition later reported empty (COMPLETED -> CONFIRMED_EMPTY) is refused -- the ledger stays COMPLETED', () => {
+  let s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE] });
+  s = session.applyBatchDelta(s, {
+    competitionResults: [{ source_competition_id: '1209691', outcome: 'CAPTURED_IN_BATCH', batch_index: 0 }],
+    fixtures: [fixture('f1', '1209691', 'Enyimba')],
+    unparsedRecords: [],
+  });
+  assert.equal(s.inventory[0].status, 'COMPLETED');
+  // A later, stale/incorrect batch tries to reclassify the SAME
+  // competition as empty -- this must never be allowed to downgrade it.
+  s = session.applyBatchDelta(s, {
+    competitionResults: [{ source_competition_id: '1209691', outcome: 'BATCH_EMPTY', batch_index: 5 }],
+    fixtures: [],
+    unparsedRecords: [],
+  });
+  assert.equal(s.inventory[0].status, 'COMPLETED');
+  assert.equal(session.allFixtures(s).length, 1);
+});
+
+test('a completed competition can never be downgraded to FAILED either (COMPLETED -> FAILED refused)', () => {
+  let s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE] });
+  s = session.applyBatchDelta(s, {
+    competitionResults: [{ source_competition_id: '1209691', outcome: 'CAPTURED_IN_BATCH', batch_index: 0 }],
+    fixtures: [fixture('f1', '1209691', 'Enyimba')],
+    unparsedRecords: [],
+  });
+  s = session.applyBatchDelta(s, {
+    competitionResults: [{ source_competition_id: '1209691', outcome: 'BATCH_FAILED', batch_index: 9 }],
+    fixtures: [],
+    unparsedRecords: [],
+  });
+  assert.equal(s.inventory[0].status, 'COMPLETED');
+});
+
+test('fixtures present for an "empty" ledger entry: applyCompetitionResults refuses the CONFIRMED_EMPTY write when fixtures already exist for that id, even from PENDING/FAILED', () => {
+  let s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE] });
+  // Fixtures land under this id via a batch delta that (hypothetically,
+  // defensively) never itself reported a competitionResult -- session
+  // now holds a fixture for a still-PENDING id, an inconsistent state
+  // this test manufactures directly to prove the guard catches it.
+  s = session.mergeFixtures(s, [fixture('f1', '1209691', 'Enyimba')]);
+  assert.equal(s.inventory[0].status, 'PENDING');
+  s = session.applyCompetitionResults(s, [{ source_competition_id: '1209691', outcome: 'BATCH_EMPTY', batch_index: 0 }]);
+  assert.equal(s.inventory[0].status, 'PENDING'); // refused -- fixtures already exist
+});
+
+test('stale content after selection: a FAILED competition (e.g. COMPETITION_STALE_CONTENT_SUSPECTED) can still transition to COMPLETED or CONFIRMED_EMPTY on a genuine retry', () => {
+  let s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [BOTSWANA_LEAGUE] });
+  s = session.applyBatchDelta(s, {
+    competitionResults: [{ source_competition_id: '1838204', outcome: 'COMPETITION_STALE_CONTENT_SUSPECTED', batch_index: 3 }],
+    fixtures: [],
+    unparsedRecords: [],
+  });
+  assert.equal(s.inventory[0].status, 'FAILED');
+  s = session.applyBatchDelta(s, {
+    competitionResults: [{ source_competition_id: '1838204', outcome: 'CAPTURED_IN_BATCH', batch_index: 4 }],
+    fixtures: [fixture('f1', '1838204', 'Gaborone United')],
+    unparsedRecords: [],
+  });
+  assert.equal(s.inventory[0].status, 'COMPLETED');
+});
+
+test('session merge preserves the strongest valid status: applying an outcome that maps to no ledger status (e.g. an unrecognized/future outcome) never disturbs the existing entry', () => {
+  let s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE] });
+  s = session.applyBatchDelta(s, {
+    competitionResults: [{ source_competition_id: '1209691', outcome: 'CAPTURED_IN_BATCH', batch_index: 0 }],
+    fixtures: [fixture('f1', '1209691', 'Enyimba')],
+    unparsedRecords: [],
+  });
+  s = session.applyCompetitionResults(s, [{ source_competition_id: '1209691', outcome: 'SOME_FUTURE_OUTCOME_THIS_MODULE_DOES_NOT_KNOW' }]);
+  assert.equal(s.inventory[0].status, 'COMPLETED');
+});
+
+test('every ledger transition records provenance (segment_index, batch_index, updated_at_utc, fixture_count)', () => {
+  let s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE] });
+  assert.equal(s.inventory[0].segment_index, null);
+  assert.equal(s.inventory[0].fixture_count, 0);
+  s = session.applyBatchDelta(
+    s,
+    {
+      competitionResults: [{ source_competition_id: '1209691', outcome: 'CAPTURED_IN_BATCH', batch_index: 19 }],
+      fixtures: [fixture('f1', '1209691', 'Enyimba'), fixture('f2', '1209691', 'Enyimba')],
+      unparsedRecords: [],
+    },
+    { segmentIndex: 1 }
+  );
+  const entry = s.inventory[0];
+  assert.equal(entry.status, 'COMPLETED');
+  assert.equal(entry.segment_index, 1);
+  assert.equal(entry.batch_index, 19);
+  assert.equal(entry.fixture_count, 2);
+  assert.ok(entry.updated_at_utc);
+});
+
+test('export-time ledger/fixture consistency: buildAssembledEnvelope throws SESSION_LEDGER_FIXTURE_CONFLICT if a CONFIRMED_EMPTY id somehow still has fixtures attached', () => {
+  let s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE] });
+  // Manufacture the exact reported inconsistency directly (bypassing the
+  // write-time guards) to prove the export-time backstop catches it
+  // independently, per this file's own "two independent safeguards"
+  // header comment.
+  s = { ...s, inventory: s.inventory.map((e) => ({ ...e, status: 'CONFIRMED_EMPTY' })) };
+  s = session.mergeFixtures(s, [fixture('f1', '1209691', 'Enyimba')]);
+  assert.throws(
+    () => session.buildAssembledEnvelope(s),
+    (err) => err.code === 'SESSION_LEDGER_FIXTURE_CONFLICT' && err.conflicts.length === 1 && err.conflicts[0].competition_id === '1209691'
+  );
+});
+
+test('validateLedgerFixtureConsistency returns an empty array for a genuinely consistent session', () => {
+  let s = session.createSession({ sessionId: 's1', capturedAtUtc: 't', inventory: [NIGERIA_LEAGUE, PREMIER_LEAGUE] });
+  s = session.applyBatchDelta(s, {
+    competitionResults: [
+      { source_competition_id: '1209691', outcome: 'CAPTURED_IN_BATCH', batch_index: 0 },
+      { source_competition_id: '2000001', outcome: 'BATCH_EMPTY', batch_index: 1 },
+    ],
+    fixtures: [fixture('f1', '1209691', 'Enyimba')],
+    unparsedRecords: [],
+  });
+  assert.deepEqual(session.validateLedgerFixtureConsistency(s), []);
+  assert.doesNotThrow(() => session.buildAssembledEnvelope(s));
+});
+
+test('isTransitionAllowed is exported and matches the documented transition table exactly', () => {
+  assert.equal(session.isTransitionAllowed('PENDING', 'COMPLETED'), true);
+  assert.equal(session.isTransitionAllowed('PENDING', 'CONFIRMED_EMPTY'), true);
+  assert.equal(session.isTransitionAllowed('PENDING', 'FAILED'), true);
+  assert.equal(session.isTransitionAllowed('FAILED', 'COMPLETED'), true);
+  assert.equal(session.isTransitionAllowed('FAILED', 'CONFIRMED_EMPTY'), true);
+  assert.equal(session.isTransitionAllowed('COMPLETED', 'CONFIRMED_EMPTY'), false);
+  assert.equal(session.isTransitionAllowed('COMPLETED', 'FAILED'), false);
+  assert.equal(session.isTransitionAllowed('CONFIRMED_EMPTY', 'COMPLETED'), false);
+  assert.equal(session.isTransitionAllowed('CONFIRMED_EMPTY', 'FAILED'), false);
+  // A same-status "transition" is always a no-op, never a violation.
+  assert.equal(session.isTransitionAllowed('COMPLETED', 'COMPLETED'), true);
+  assert.equal(session.isTransitionAllowed('CONFIRMED_EMPTY', 'CONFIRMED_EMPTY'), true);
+});

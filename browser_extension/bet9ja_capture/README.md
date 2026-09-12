@@ -984,6 +984,51 @@ never silently unaccounted for. A filtered run is never reported
 `CAPTURE_COMPLETE` (that status claims the WHOLE inventory succeeded,
 which a deliberately-partial resume/retry segment never claims).
 
+**Ledger/fixture consistency (Round 13).** A real assembled session
+export showed 37 competitions marked `CONFIRMED_EMPTY` that ALSO had
+real fixtures attached under the same id -- a competition can never
+honestly be both. Two independent, deliberately overlapping safeguards
+now exist:
+
+- **Monotonic ledger transitions.** `soccer_session.js`'s
+  `applyCompetitionResults` only ever applies
+  `PENDING -> {COMPLETED, CONFIRMED_EMPTY, FAILED}` or
+  `FAILED -> {COMPLETED, CONFIRMED_EMPTY}`; a same-status write is a
+  no-op, and everything else -- `COMPLETED -> CONFIRMED_EMPTY` (the exact
+  shape of the reported defect), `COMPLETED -> FAILED`, or either out of
+  `CONFIRMED_EMPTY` -- is silently refused (never throws; a malformed or
+  stale delta must never crash the session). A `CONFIRMED_EMPTY` write is
+  ALSO refused outright if the competition already has any fixtures
+  recorded in the session, independent of the transition check. Every
+  successful transition now records its own provenance --
+  `segment_index`, `batch_index`, `updated_at_utc`, `fixture_count` (this
+  transition's own contribution, not a running total) -- on the ledger
+  entry itself, so a future inconsistency can be traced to the exact
+  run/batch that caused it.
+- **Export-time validation.** `buildAssembledEnvelope` independently
+  checks, at export time, that no `CONFIRMED_EMPTY` competition id has
+  any fixtures attached (`validateLedgerFixtureConsistency`) -- a final
+  backstop that THROWS a `SESSION_LEDGER_FIXTURE_CONFLICT` error (never
+  silently produces a self-contradictory file) even if some future edit
+  ever bypassed the transition guard above. popup.js's "Download current
+  results" catches this and surfaces it plainly, leaving the saved
+  session untouched either way -- a conflict is exactly what the
+  ledger's own provenance fields exist to diagnose, which clearing the
+  session would destroy.
+
+One plausible root cause this round also closes: `showLeaguesAndWait`'s
+own `contentChangeConfirmed` signal (whether Show Leagues' output
+actually changed from what was already on screen) previously fingerprinted
+only matchup-row TEXT, which can never detect a change into or out of a
+genuinely empty render (zero rows before, zero rows after, indistinguishable
+whether or not anything really happened). The fingerprint now also
+includes the `.sports-table` COUNT, using only already-confirmed
+selectors -- never a guessed new one. A zero-row batch whose content
+change is NOT confirmed is no longer classified `BATCH_EMPTY` at all; it
+gets its own honest, distinct outcome, `COMPETITION_STALE_CONTENT_SUSPECTED`
+(mapped to ledger status `FAILED`, retryable), rather than a confirmed
+result the page's own state couldn't actually support.
+
 ### Output shape (`bet9ja-soccer-all-competitions-capture.v3`)
 
 `capture_scope: 'SOCCER_ALL_PREMATCH_COMPETITIONS'`,
@@ -1029,7 +1074,10 @@ discovered competition (`country_name_raw`, `competition_name_raw`,
 `CAPTURED_IN_BATCH`, `BATCH_EMPTY`, `COMPETITION_ATTRIBUTION_UNRESOLVED`,
 `COMPETITION_CONTENT_UNRESOLVED` (Round 11 — content never rendered at
 all, distinct from an attribution failure — see "Trusted Soccer
-classification" above), `BATCH_FAILED` (Round 11: also covers a
+classification" above), `COMPETITION_STALE_CONTENT_SUSPECTED` (Round 13
+— a zero-row table whose content change could not be confirmed, so it is
+never called a confirmed empty result — see "Ledger/fixture consistency"
+above), `BATCH_FAILED` (Round 11: also covers a
 `SHOW_LEAGUES_CONTENT_TIMEOUT` that didn't recover after one retry),
 `SELECTION_FAILED`, `NOT_ATTEMPTED_AFTER_EARLY_STOP`
 (Round 8 — a competition genuinely never reached after an early stop,

@@ -34,8 +34,35 @@
  * `CONFIRMED_EMPTY` (resolved with zero fixtures -- a real, audited
  * result, not a failure), `FAILED` (attempted and did not resolve --
  * covers `BATCH_FAILED`/`SELECTION_FAILED`/
- * `COMPETITION_ATTRIBUTION_UNRESOLVED`/`COMPETITION_CONTENT_UNRESOLVED`
- * from soccer_walker.js's own `competition_results[].outcome`).
+ * `COMPETITION_ATTRIBUTION_UNRESOLVED`/`COMPETITION_CONTENT_UNRESOLVED`/
+ * `COMPETITION_STALE_CONTENT_SUSPECTED` from soccer_walker.js's own
+ * `competition_results[].outcome`).
+ *
+ * ROUND 13 CORRECTION (real evidence: an assembled session export showed
+ * 37 competitions marked `CONFIRMED_EMPTY` that ALSO had real fixtures
+ * attached under the same id -- a competition can never honestly be
+ * both). Two independent safeguards now exist, deliberately overlapping
+ * rather than relying on either alone:
+ *   1. LEDGER TRANSITIONS ARE MONOTONIC (`isTransitionAllowed` below) --
+ *      once a competition is `COMPLETED` or `CONFIRMED_EMPTY`, NOTHING
+ *      ever downgrades it again (a same-status "transition" is a no-op,
+ *      not a downgrade). Only `PENDING -> {COMPLETED, CONFIRMED_EMPTY,
+ *      FAILED}` and `FAILED -> {COMPLETED, CONFIRMED_EMPTY}` are ever
+ *      applied; anything else (including `COMPLETED -> CONFIRMED_EMPTY`,
+ *      the exact shape of the reported defect) is silently refused by
+ *      `applyCompetitionResults` -- a delta that can never happen from a
+ *      well-behaved caller, but one this module never trusts blindly.
+ *   2. EVERY LEDGER TRANSITION IS RECORDED WITH PROVENANCE
+ *      (`segment_index`, `batch_index`, `updated_at_utc`, `fixture_count`
+ *      -- see `applyCompetitionResults`), so a future inconsistency can
+ *      be traced to the exact run/batch that caused it instead of being
+ *      diagnosed blind from the assembled file alone.
+ * `buildAssembledEnvelope` ALSO independently validates, at export time,
+ * that no `CONFIRMED_EMPTY` id has any fixtures attached
+ * (`validateLedgerFixtureConsistency`) -- a final backstop that throws a
+ * `SESSION_LEDGER_FIXTURE_CONFLICT` error rather than ever producing a
+ * self-contradictory file, even if some future edit ever bypassed the
+ * transition guard above.
  */
 (function (root) {
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
@@ -56,7 +83,29 @@
     SELECTION_FAILED: 'FAILED',
     COMPETITION_ATTRIBUTION_UNRESOLVED: 'FAILED',
     COMPETITION_CONTENT_UNRESOLVED: 'FAILED',
+    COMPETITION_STALE_CONTENT_SUSPECTED: 'FAILED',
   };
+
+  // ROUND 13: the only ledger status changes this module will ever apply
+  // -- see this file's own header comment. A status not listed as a key
+  // here (there are none today -- every real status can still, in
+  // principle, need a FAILED retry path) has no allowed outgoing
+  // transitions; `COMPLETED` and `CONFIRMED_EMPTY` are both listed with
+  // an EMPTY allowed-set, meaning they are terminal: nothing this module
+  // does ever downgrades a genuinely confirmed result.
+  const ALLOWED_LEDGER_TRANSITIONS = {
+    PENDING: new Set(['COMPLETED', 'CONFIRMED_EMPTY', 'FAILED']),
+    FAILED: new Set(['COMPLETED', 'CONFIRMED_EMPTY']),
+    COMPLETED: new Set(),
+    CONFIRMED_EMPTY: new Set(),
+  };
+
+  /** A same-status "transition" is a no-op, never a violation -- re-applying an identical outcome (e.g. a delta drained twice) must never be treated as a downgrade attempt. */
+  function isTransitionAllowed(fromStatus, toStatus) {
+    if (fromStatus === toStatus) return true;
+    const allowed = ALLOWED_LEDGER_TRANSITIONS[fromStatus];
+    return !!allowed && allowed.has(toStatus);
+  }
 
   function nowIso() {
     return new Date().toISOString();
@@ -78,6 +127,14 @@
       country: discovered.country || null,
       competition: discovered.competition || null,
       status: 'PENDING',
+      // Provenance (Round 13, see this file's own header comment) --
+      // null/0 until this entry's first genuine transition away from
+      // PENDING; `applyCompetitionResults` is the only place these ever
+      // change.
+      segment_index: null,
+      batch_index: null,
+      updated_at_utc: null,
+      fixture_count: 0,
     };
   }
 
@@ -171,23 +228,52 @@
    * `OUTCOME_TO_LEDGER_STATUS` coming back `undefined` and are correctly
    * left untouched -- this run never genuinely attempted them, so their
    * prior ledger status (whatever it already honestly was) stands.
+   *
+   * ROUND 13: every other write is now gated by TWO independent checks,
+   * both silently refusing the write (never throwing -- a malformed or
+   * stale delta must never crash the whole session) rather than trusting
+   * the caller: `isTransitionAllowed` (see this file's own header
+   * comment -- `COMPLETED`/`CONFIRMED_EMPTY` are terminal) and, for a
+   * `CONFIRMED_EMPTY` target specifically, that this competition has NO
+   * fixtures already recorded in the session (defense in depth alongside
+   * the transition guard -- `COMPLETED -> CONFIRMED_EMPTY` is already
+   * blocked there, but a competition could in principle reach
+   * `CONFIRMED_EMPTY` some other way while fixtures already exist under
+   * its id; this closes that gap too). `options.segmentIndex` and each
+   * result's own `batch_index` are recorded as this transition's
+   * provenance; `options.fixtureCountByCompetition` (built by
+   * `applyBatchDelta` from this SAME delta's own fixtures) is recorded as
+   * `fixture_count` -- this transition's own contribution, not a running
+   * total.
    */
-  function applyCompetitionResults(session, competitionResults) {
+  function applyCompetitionResults(session, competitionResults, options = {}) {
+    const segmentIndex = options.segmentIndex != null ? options.segmentIndex : null;
+    const fixtureCountByCompetition = options.fixtureCountByCompetition || {};
     const byId = new Map(session.inventory.map((entry) => [entry.competition_id, entry]));
+    const timestamp = nowIso();
     for (const result of competitionResults || []) {
       const id = result.source_competition_id;
       if (!id) continue;
       const newStatus = OUTCOME_TO_LEDGER_STATUS[result.outcome];
       if (!newStatus) continue;
       const existing = byId.get(id);
-      if (existing) {
-        byId.set(id, { ...existing, status: newStatus });
-      }
+      if (!existing) continue;
+      if (!isTransitionAllowed(existing.status, newStatus)) continue;
+      if (newStatus === 'CONFIRMED_EMPTY' && (session.fixtures_by_competition[id] || []).length > 0) continue;
+      if (existing.status === newStatus) continue; // no-op: nothing new to record
+      byId.set(id, {
+        ...existing,
+        status: newStatus,
+        segment_index: segmentIndex,
+        batch_index: result.batch_index != null ? result.batch_index : null,
+        updated_at_utc: timestamp,
+        fixture_count: fixtureCountByCompetition[id] || 0,
+      });
     }
     return {
       ...session,
       inventory: session.inventory.map((entry) => byId.get(entry.competition_id) || entry),
-      updated_at_utc: nowIso(),
+      updated_at_utc: timestamp,
     };
   }
 
@@ -235,10 +321,30 @@
    * `mergeUnparsedRecords` for one batch's own delta -- exactly what a
    * `soccer_walker.js` `onBatchComplete` callback hands the caller, so a
    * session can be saved after EVERY batch, not only when the whole
-   * capture finishes.
+   * capture finishes. `options.segmentIndex` (which run/segment this
+   * delta came from -- popup.js's own `sessionObj.segments.length + 1`)
+   * is recorded as provenance on every ledger transition this delta
+   * causes (Round 13, see `applyCompetitionResults`'s own comment).
+   * Applies competition-result classification BEFORE merging fixtures --
+   * the "no fixtures already exist" guard inside
+   * `applyCompetitionResults` deliberately still only sees fixtures from
+   * PRIOR deltas at that point (this delta's own fixture COUNT is passed
+   * separately via `fixtureCountByCompetition`, for provenance only, not
+   * as another copy of the guard) -- the guard's purpose is catching a
+   * STALE re-confirmation of a competition already settled by an earlier
+   * delta, not this same delta's own internally-consistent report.
    */
-  function applyBatchDelta(session, { competitionResults, fixtures, unparsedRecords }) {
-    let next = applyCompetitionResults(session, competitionResults || []);
+  function applyBatchDelta(session, { competitionResults, fixtures, unparsedRecords }, options = {}) {
+    const fixtureCountByCompetition = {};
+    for (const fixture of fixtures || []) {
+      const id = fixture.resolved_source_competition_id;
+      if (!id) continue;
+      fixtureCountByCompetition[id] = (fixtureCountByCompetition[id] || 0) + 1;
+    }
+    let next = applyCompetitionResults(session, competitionResults || [], {
+      segmentIndex: options.segmentIndex,
+      fixtureCountByCompetition,
+    });
     next = mergeFixtures(next, fixtures || []);
     next = mergeUnparsedRecords(next, unparsedRecords || []);
     return next;
@@ -270,8 +376,50 @@
     return session.inventory.filter((entry) => entry.status !== 'PENDING').length;
   }
 
-  /** The full "Download current results" file -- every completed segment's fixtures, plus the complete competition-status ledger. */
+  /**
+   * Round 13's final backstop (see this file's own header comment): a
+   * `CONFIRMED_EMPTY` competition id must have ZERO fixtures attached in
+   * the session. Returns an array of `{competition_id, fixture_count}`
+   * conflicts -- empty means consistent. Independent of, and in addition
+   * to, the transition guard in `applyCompetitionResults` -- this checks
+   * the session's ACTUAL current state at export time, not merely
+   * whether every individual write along the way was itself valid.
+   */
+  function validateLedgerFixtureConsistency(session) {
+    const confirmedEmptyIds = new Set(session.inventory.filter((entry) => entry.status === 'CONFIRMED_EMPTY').map((entry) => entry.competition_id));
+    const conflicts = [];
+    for (const [competitionId, fixturesForCompetition] of Object.entries(session.fixtures_by_competition)) {
+      if (confirmedEmptyIds.has(competitionId) && fixturesForCompetition.length > 0) {
+        conflicts.push({ competition_id: competitionId, fixture_count: fixturesForCompetition.length });
+      }
+    }
+    return conflicts;
+  }
+
+  /**
+   * The full "Download current results" file -- every completed
+   * segment's fixtures, plus the complete competition-status ledger.
+   * THROWS (never silently exports a self-contradictory file) with
+   * `err.code === 'SESSION_LEDGER_FIXTURE_CONFLICT'` and `err.conflicts`
+   * populated if `validateLedgerFixtureConsistency` finds any conflict --
+   * see this file's own header comment. The caller (popup.js) is
+   * expected to catch this and surface it, never to clear the session on
+   * its own -- the ledger's own provenance fields on each conflicting
+   * entry are exactly what's needed to trace which segment/batch caused
+   * it.
+   */
   function buildAssembledEnvelope(session) {
+    const conflicts = validateLedgerFixtureConsistency(session);
+    if (conflicts.length > 0) {
+      const err = new Error(
+        `SESSION_LEDGER_FIXTURE_CONFLICT: ${conflicts.length} competition id(s) are CONFIRMED_EMPTY but still have fixtures attached (${conflicts
+          .map((c) => c.competition_id)
+          .join(', ')})`
+      );
+      err.code = 'SESSION_LEDGER_FIXTURE_CONFLICT';
+      err.conflicts = conflicts;
+      throw err;
+    }
     return {
       schema_version: SESSION_SCHEMA_VERSION,
       capture_session_id: session.capture_session_id,
@@ -314,6 +462,8 @@
     buildAssembledEnvelope,
     buildSegmentEnvelope,
     inventoryFingerprint,
+    validateLedgerFixtureConsistency,
+    isTransitionAllowed,
   };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

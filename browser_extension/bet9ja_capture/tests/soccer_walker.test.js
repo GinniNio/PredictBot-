@@ -115,6 +115,17 @@ function pageHtml({
   // the same run can still succeed normally, proving one permanently
   // stuck competition never stops the whole run.
   neverUpdatesForIds = [],
+  // ROUND 13: Show Leagues clicks made while ONLY these ids are selected
+  // leave `results.innerHTML` COMPLETELY UNCHANGED from whatever it
+  // already was (stale leftover content from whatever batch ran before
+  // this one) -- modeling a real capture defect (37 competitions marked
+  // CONFIRMED_EMPTY that also had real fixtures attached) where Show
+  // Leagues silently failed to re-render at all for a specific
+  // competition. Unlike `neverUpdatesForIds` (a loading spinner, an
+  // honest "still working" signal), this simulates the page looking
+  // done -- just wrong -- which is exactly what `contentChangeConfirmed`
+  // exists to catch.
+  doNotUpdateForIds = [],
 }) {
   const countriesHtml = countries.map((c) => countryAccordionHtml(c)).join('');
   const rowsById = {};
@@ -159,6 +170,7 @@ function pageHtml({
         const SLOW_FIRST_SHOW_LEAGUES_FOR_IDS = ${JSON.stringify(slowFirstShowLeaguesForIds)};
         const OMIT_TABLE_FOR_IDS = ${JSON.stringify(omitTableForIds)};
         const NEVER_UPDATES_FOR_IDS = ${JSON.stringify(neverUpdatesForIds)};
+        const DO_NOT_UPDATE_FOR_IDS = ${JSON.stringify(doNotUpdateForIds)};
         const alreadySlowedIds = new Set();
         const results = document.getElementById('results');
         const limitNotice = document.getElementById('limit-notice');
@@ -212,6 +224,11 @@ function pageHtml({
             const checked = Array.from(document.querySelectorAll('.sportpage__cb-input:checked'));
             if (checked.some((cb) => NEVER_UPDATES_FOR_IDS.indexOf(cb.id) !== -1)) {
               results.innerHTML = '<div class="loading-spinner">Loading...</div>';
+              return;
+            }
+            if (checked.some((cb) => DO_NOT_UPDATE_FOR_IDS.indexOf(cb.id) !== -1)) {
+              // Deliberately leaves results.innerHTML exactly as it
+              // already was -- no loading indicator, no re-render at all.
               return;
             }
             const isFirstSlowClick = checked.some(
@@ -298,6 +315,14 @@ const SPAIN = {
   label: 'Spain',
   competitions: [
     { checkboxId: '3000001', label: 'LaLiga', rows: [fixtureRow({ eventId: '4', home: 'Real Madrid', away: 'Barcelona' })] },
+  ],
+};
+
+const BOTSWANA = {
+  countrySlug: 'botswana',
+  label: 'Botswana',
+  competitions: [
+    { checkboxId: '1838204', label: 'Premier League', rows: [fixtureRow({ eventId: '5', home: 'Gaborone United', away: 'Township Rollers' })] },
   ],
 };
 
@@ -873,4 +898,24 @@ test('discoveryOnly: runs discovery but walks nothing -- no competition is ever 
   assert.equal(envelope.batch_results.length, 0);
   assert.equal(envelope.fixtures.length, 0);
   assert.equal(doc.querySelectorAll('.sportpage__cb-input:checked').length, 0);
+});
+
+test('ROUND 13 (real-capture regression): a batch whose Show Leagues click never genuinely re-renders (stale leftover content) is COMPETITION_STALE_CONTENT_SUSPECTED, never a confirmed BATCH_EMPTY', async () => {
+  // Real evidence: an assembled session export showed 37 competitions
+  // marked CONFIRMED_EMPTY that also had real fixtures attached under
+  // the same id. A batch that reads zero rows because Show Leagues
+  // simply never updated the page (stale content, still showing the
+  // PRIOR batch's own empty render) must never be confused with a
+  // genuinely confirmed empty result.
+  const emptyComp = { countrySlug: 'nowhere', label: 'Nowhere', competitions: [{ checkboxId: '9999', label: 'Off Season League', rows: [] }] };
+  const doc = docFromHtml(pageHtml({ countries: [emptyComp, BOTSWANA], doNotUpdateForIds: ['1838204'] }));
+  const { envelope } = await soccerWalker.captureAllSoccerCompetitions(doc, BASE_CONTEXT);
+  const nowhere = envelope.competition_results.find((r) => r.source_competition_id === '9999');
+  const botswana = envelope.competition_results.find((r) => r.source_competition_id === '1838204');
+  assert.equal(nowhere.outcome, 'BATCH_EMPTY'); // first batch: genuinely, confirmably empty
+  assert.equal(botswana.outcome, 'COMPETITION_STALE_CONTENT_SUSPECTED'); // second: stale, never confirmed
+  assert.equal(botswana.failure_reason, 'COMPETITION_STALE_CONTENT_SUSPECTED');
+  assert.ok(envelope.capture_status_reasons.includes('SOME_COMPETITIONS_STALE_CONTENT_SUSPECTED'));
+  const botswanaBatch = envelope.batch_results.find((b) => b.competition_ids.includes('1838204'));
+  assert.equal(botswanaBatch.content_change_confirmed, false);
 });

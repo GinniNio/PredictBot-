@@ -660,10 +660,30 @@
     return { ok: false, reason: 'SOCCER_COMPETITION_INVENTORY_UNSTABLE', result: lastResult };
   }
 
+  // ROUND 13 CORRECTION (real evidence: an assembled session export
+  // showed 37 competitions marked CONFIRMED_EMPTY that also had real
+  // fixtures attached under the same id -- one plausible cause is a
+  // batch whose Show Leagues click never genuinely re-rendered at all,
+  // silently reusing stale content). The original fingerprint (matchup
+  // text only) can never detect a change into or out of a GENUINELY
+  // empty render: zero matchup rows before a click and zero matchup rows
+  // after look identical whether or not anything actually happened.
+  // Including the `.sports-table` COUNT alongside the matchup text fixes
+  // the common case (an empty batch following a non-empty one, or the
+  // very first batch of a run) without guessing at any new selector --
+  // both signals are already-confirmed selectors this file uses
+  // elsewhere. This does NOT fully solve two back-to-back GENUINELY
+  // empty competitions rendering identically indistinguishable content
+  // -- that remains an honest, accepted limitation (see
+  // `contentChangeConfirmed`'s own caller) rather than a guessed fix,
+  // pending a confirmed empty-state selector this page has never yet
+  // exposed.
   function getFixtureFingerprint(doc) {
-    return Array.from(doc.querySelectorAll(SELECTORS.matchup))
+    const tableCount = doc.querySelectorAll(SELECTORS.fixtureRoot).length;
+    const matchupText = Array.from(doc.querySelectorAll(SELECTORS.matchup))
       .map((el) => text(el))
       .join('|');
+    return `${tableCount}:${matchupText}`;
   }
 
   // [UNVERIFIED] exact selector for a loading indicator on this page --
@@ -1329,8 +1349,31 @@
           outcome = anyTableRenderedInBatch ? 'COMPETITION_ATTRIBUTION_UNRESOLVED' : 'COMPETITION_CONTENT_UNRESOLVED';
           competitionsFailed += 1;
         } else if (attribution.row_count === 0) {
-          outcome = 'BATCH_EMPTY';
-          competitionsEmpty += 1;
+          // ROUND 13 CORRECTION (real evidence: an assembled session
+          // export showed 37 competitions marked CONFIRMED_EMPTY that
+          // ALSO had real fixtures attached -- a competition cannot
+          // honestly be both). `getFixtureFingerprint`'s own before/after
+          // comparison (`showResult.contentChangeConfirmed`) is the one
+          // machine-verifiable signal already computed for this exact
+          // page: it is false when Show Leagues' output never actually
+          // changed from what was already on screen -- e.g. stale
+          // leftover content from a PRIOR competition's render, which
+          // would make a "zero rows" reading dishonest rather than a
+          // genuine confirmed-empty result. There is still no confirmed
+          // empty-state DOM element for this page ([UNVERIFIED] -- never
+          // guessed at), so this is the best available corroborating
+          // signal, not a replacement for one. A zero-row table with
+          // UNCONFIRMED content change is therefore never called
+          // BATCH_EMPTY -- it is its own honest, distinct "don't know"
+          // outcome instead, never silently folded into a confirmed
+          // result.
+          if (showResult.contentChangeConfirmed) {
+            outcome = 'BATCH_EMPTY';
+            competitionsEmpty += 1;
+          } else {
+            outcome = 'COMPETITION_STALE_CONTENT_SUSPECTED';
+            competitionsFailed += 1;
+          }
         } else {
           outcome = 'CAPTURED_IN_BATCH';
           competitionsCaptured += 1;
@@ -1350,7 +1393,11 @@
           batch_index: batchIndex,
           outcome,
           failure_reason:
-            outcome === 'COMPETITION_ATTRIBUTION_UNRESOLVED' || outcome === 'COMPETITION_CONTENT_UNRESOLVED' ? outcome : null,
+            outcome === 'COMPETITION_ATTRIBUTION_UNRESOLVED' ||
+            outcome === 'COMPETITION_CONTENT_UNRESOLVED' ||
+            outcome === 'COMPETITION_STALE_CONTENT_SUSPECTED'
+              ? outcome
+              : null,
         };
         competitionResults.push(batchResult);
         batchCompetitionResults.push(batchResult);
@@ -1416,6 +1463,9 @@
     }
     if (competitionResults.some((r) => r.outcome === 'COMPETITION_CONTENT_UNRESOLVED')) {
       statusReasons.push('SOME_COMPETITIONS_CONTENT_UNRESOLVED');
+    }
+    if (competitionResults.some((r) => r.outcome === 'COMPETITION_STALE_CONTENT_SUSPECTED')) {
+      statusReasons.push('SOME_COMPETITIONS_STALE_CONTENT_SUSPECTED');
     }
     if (competitionsSkippedBySafetyCap > 0) statusReasons.push('COMPETITIONS_SKIPPED_BY_SAFETY_CAP');
     if (competitionsSkippedByFilter > 0) statusReasons.push('COMPETITIONS_SKIPPED_BY_RESUME_FILTER');

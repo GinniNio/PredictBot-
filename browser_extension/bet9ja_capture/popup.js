@@ -349,7 +349,7 @@ async function discoverSoccerInventory(tabId, tabUrl, tabTitle, capturedAtUtc) {
 }
 
 /** Drains every batch delta queued in the page since the last poll and persists them immediately -- so a crash, cancel, or closed popup loses at most the one batch in flight. `sessionRef` is a plain {current} box so this can be called repeatedly on an interval while sharing one evolving session object with the caller. */
-async function drainAndPersistSoccerDeltas(tabId, sessionRef) {
+async function drainAndPersistSoccerDeltas(tabId, sessionRef, segmentIndex) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
@@ -359,7 +359,7 @@ async function drainAndPersistSoccerDeltas(tabId, sessionRef) {
     if (deltas.length === 0) return;
     let next = sessionRef.current;
     for (const delta of deltas) {
-      next = Bet9jaSoccerSession.applyBatchDelta(next, delta);
+      next = Bet9jaSoccerSession.applyBatchDelta(next, delta, { segmentIndex });
     }
     sessionRef.current = next;
     await saveSoccerSession(next);
@@ -415,11 +415,19 @@ async function runCheckpointedSoccerSegment(mode) {
 
   const filterIds = mode === 'retry' ? Bet9jaSoccerSession.failedCompetitionIds(sessionObj) : Bet9jaSoccerSession.pendingCompetitionIds(sessionObj);
   if (filterIds.length === 0) {
-    return { sessionObj, envelope: null };
+    return { sessionObj, envelope: null, segmentIndex: null };
   }
 
+  // Computed ONCE, up front, and reused for every ledger transition THIS
+  // run causes AND for its own eventual segment file's own segment_index
+  // (see handleCheckpointedSoccerAction below) -- never recomputed
+  // mid-run, so every provenance record this run writes agrees with each
+  // other even though `sessionObj.segments` itself isn't appended to
+  // until the run finishes.
+  const segmentIndex = (sessionObj.segments ? sessionObj.segments.length : 0) + 1;
+
   const sessionRef = { current: sessionObj };
-  soccerProgressIntervalId = setInterval(() => drainAndPersistSoccerDeltas(couponsTab.id, sessionRef), 1000);
+  soccerProgressIntervalId = setInterval(() => drainAndPersistSoccerDeltas(couponsTab.id, sessionRef, segmentIndex), 1000);
 
   let envelope = null;
   try {
@@ -439,10 +447,10 @@ async function runCheckpointedSoccerSegment(mode) {
     soccerProgressIntervalId = null;
     // Catches anything queued between the last poll and this run ending
     // -- never rely on the poll interval alone to have caught the last batch.
-    await drainAndPersistSoccerDeltas(couponsTab.id, sessionRef);
+    await drainAndPersistSoccerDeltas(couponsTab.id, sessionRef, segmentIndex);
   }
 
-  return { sessionObj: sessionRef.current, envelope };
+  return { sessionObj: sessionRef.current, envelope, segmentIndex };
 }
 
 async function handleCheckpointedSoccerAction(mode) {
@@ -459,7 +467,7 @@ async function handleCheckpointedSoccerAction(mode) {
     mode === 'new' ? 'Starting new capture...' : mode === 'retry' ? 'Retrying failed competitions...' : 'Resuming capture...'
   );
   try {
-    const { sessionObj, envelope } = await runCheckpointedSoccerSegment(mode);
+    const { sessionObj, envelope, segmentIndex } = await runCheckpointedSoccerSegment(mode);
     renderSoccerSessionSummary(sessionObj);
 
     if (!envelope) {
@@ -469,8 +477,10 @@ async function handleCheckpointedSoccerAction(mode) {
 
     // "Each run can download a small segment file" -- exactly what THIS
     // run captured (never the whole session; see "Download current
-    // results" below for the cumulative file).
-    const segmentIndex = (sessionObj.segments ? sessionObj.segments.length : 0) + 1;
+    // results" below for the cumulative file). Reuses the SAME
+    // segmentIndex this run already used for every ledger transition it
+    // caused (see runCheckpointedSoccerSegment's own comment) rather than
+    // recomputing it here.
     const segmentEnvelope = Bet9jaSoccerSession.buildSegmentEnvelope(sessionObj, segmentIndex, {
       competitionResults: envelope.competition_results,
       fixtures: envelope.fixtures,
@@ -514,10 +524,28 @@ soccerDownloadButton.addEventListener('click', async () => {
     setSoccerAllStatus('error', 'No saved session to download.');
     return;
   }
-  const assembled = Bet9jaSoccerSession.buildAssembledEnvelope(sessionObj);
-  const filename = `bet9ja-soccer-all-${sessionObj.capture_session_id}.json`;
-  await triggerDownload(filename, JSON.stringify(assembled, null, 2));
-  setSoccerAllStatus('ok', `Saved: ${filename}`);
+  // buildAssembledEnvelope throws SESSION_LEDGER_FIXTURE_CONFLICT rather
+  // than ever producing a self-contradictory file (Round 13, see
+  // soccer_session.js's own header comment) -- caught here and surfaced
+  // plainly. The session is deliberately left untouched either way: a
+  // conflict is exactly the kind of thing that needs the ledger's own
+  // per-entry provenance (segment_index/batch_index) to diagnose, which
+  // clearing the session would destroy.
+  try {
+    const assembled = Bet9jaSoccerSession.buildAssembledEnvelope(sessionObj);
+    const filename = `bet9ja-soccer-all-${sessionObj.capture_session_id}.json`;
+    await triggerDownload(filename, JSON.stringify(assembled, null, 2));
+    setSoccerAllStatus('ok', `Saved: ${filename}`);
+  } catch (err) {
+    if (err && err.code === 'SESSION_LEDGER_FIXTURE_CONFLICT') {
+      setSoccerAllStatus(
+        'error',
+        `${err.message}\nExport blocked -- session left untouched. Do not clear the session; the ledger's own provenance fields on the conflicting entries are needed to diagnose this.`
+      );
+      return;
+    }
+    setSoccerAllStatus('error', `Could not build the assembled export: ${err && err.message ? err.message : String(err)}`);
+  }
 });
 
 soccerClearSessionButton.addEventListener('click', async () => {
