@@ -39,6 +39,19 @@ stake used inside the EV formula." ``pricing``, ``forecast`` and
 ``decision`` sub-objects are each null when not computed/applicable, and
 ``pricing`` and ``forecast`` are always kept as two distinct objects —
 market profitability is never conflated with forecast quality.
+
+``market_comparison`` (new, additive field; ``null`` unless an admitted
+forecast exists) reports the priced market's own de-vigged probability
+against that independent forecast's probability, per outcome
+(``model_probability``, ``market_implied_probability``, ``offered_odds``,
+``model_point_ev``, ``probability_difference``) — a research measurement,
+computed strictly after both layers already have their own results, never
+fed back into either one. It is never a recommendation: no outcome is
+selected or named "best." Currently populated only for ``category:
+"soccer"`` (the only category with an admitted forecast, see
+``adapters/soccer_1x2_elo_v1``), via the fixed ``home_win``/``draw``/
+``away_win`` <-> ``home``/``draw``/``away`` correspondence every soccer
+1X2 request already uses for ``market_prices``.
 """
 
 from __future__ import annotations
@@ -80,6 +93,57 @@ def _failure(code: str, field: str | None, reason: str) -> dict[str, Any]:
     return {"code": code, "field": field, "reason": reason}
 
 
+# Fixed correspondence between an admitted forecast's own outcome ids
+# (home_win/draw/away_win -- docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md
+# section 1's canonical vocabulary) and this platform's own market_prices
+# convention (home/draw/away -- see tests/test_cli_integration.py's
+# THREE_WAY_REQUEST and every other example in this repo). Scoped to
+# soccer 1X2 only; a future adapter/market with a different outcome
+# vocabulary would need its own mapping, never guessed from string
+# similarity.
+_SOCCER_1X2_OUTCOME_MAP = {"home_win": "home", "draw": "draw", "away_win": "away"}
+
+
+def _market_comparison(forecast: dict[str, Any], pricing: dict[str, Any]) -> dict[str, Any] | None:
+    """Independent-forecast-vs-market comparison, computed strictly AFTER
+    both layer 1 (pricing) and layer 2 (forecast) have already produced
+    their own results -- this function reads them, it never feeds either
+    one back into the other. Returns ``None`` when there is no admitted
+    forecast to compare (forecast_available is False) or the priced
+    market does not use the home/draw/away vocabulary this comparison
+    understands.
+
+    Every value here is a research measurement, never a recommendation:
+    no outcome is selected, named "best", or singled out — the full H/D/A
+    comparison is always returned together. ``market_implied_probability``
+    is the pricing engine's own de-vigged ``fair_probability`` (never the
+    raw, margin-inflated ``implied_probability``).
+    """
+    if not forecast.get("forecast_available"):
+        return None
+    probabilities = forecast.get("probabilities") or {}
+    outcomes_by_name = {item["outcome"]: item for item in pricing.get("outcomes", [])}
+    if not all(market_key in outcomes_by_name for market_key in _SOCCER_1X2_OUTCOME_MAP.values()):
+        return None
+
+    comparison: dict[str, Any] = {}
+    for forecast_key, market_key in _SOCCER_1X2_OUTCOME_MAP.items():
+        model_probability = probabilities.get(forecast_key)
+        if model_probability is None:
+            return None
+        priced = outcomes_by_name[market_key]
+        offered_odds = priced["price"]
+        market_implied_probability = priced["fair_probability"]
+        comparison[market_key] = {
+            "model_probability": model_probability,
+            "market_implied_probability": market_implied_probability,
+            "offered_odds": offered_odds,
+            "model_point_ev": model_probability * offered_odds - 1,
+            "probability_difference": model_probability - market_implied_probability,
+        }
+    return comparison
+
+
 def run_calculator(fixture: Any) -> dict[str, Any]:
     """Validate one request and run whichever layers the input supports.
 
@@ -98,6 +162,7 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
         pricing: dict[str, Any] | None = None,
         forecast: dict[str, Any] | None = None,
         decision: dict[str, Any] | None = None,
+        market_comparison: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if decision is not None:
             # The decision layer (layer 3) is the single source of truth for
@@ -134,6 +199,7 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
             "pricing": pricing,
             "forecast": forecast,
             "decision": decision,
+            "market_comparison": market_comparison,
         }
         payload["calculation_hash"] = _sha256(payload)
         return payload
@@ -219,6 +285,8 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
     adapter_row = category_record.get("adapters") or {}
     default_ceiling = adapter_row.get("classification_ceiling") or DEFAULT_CLASSIFICATION_CEILING
 
+    market_comparison_result = _market_comparison(forecast_result, pricing_result)
+
     decision_input = fixture.get("decision_input")
     if decision_input is None:
         return build(
@@ -229,6 +297,7 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
             pricing=pricing_result,
             forecast=forecast_result,
             decision=None,
+            market_comparison=market_comparison_result,
         )
 
     if not isinstance(decision_input, dict):
@@ -291,6 +360,7 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
         pricing=pricing_result,
         forecast=forecast_result,
         decision=decision_result,
+        market_comparison=market_comparison_result,
     )
 
 

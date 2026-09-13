@@ -1,0 +1,14 @@
+# Soccer 1X2 Elo v1 adapter -- versioned configuration, shipped inside
+# the installed package (see this adapter's own module docstring for why
+# it isn't a caller-supplied CLI flag). Research settings, not validated
+# optimal parameters.
+
+adapter_id: soccer_1x2_elo_v1
+
+# Maximum days between the live-ratings snapshot's own last-processed-
+# match date and a fixture's forecast_cutoff_utc before the adapter
+# abstains as FORECAST_ARTIFACT_STALE. This snapshot is only refreshed by
+# re-running research/soccer_1x2_elo_baseline/export_live_snapshot.py
+# against a fresh real download and re-committing its output -- team
+# strength does not update itself between refreshes.
+maximum_artifact_age_days: 45

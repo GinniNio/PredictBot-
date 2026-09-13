@@ -1,0 +1,20 @@
+{
+  "artifact_sha256": "2341d5ad08f95ab5bd8824cb3d19b59910d624392b4f79a730b3b927e7d31bc8",
+  "live_snapshot": {
+    "elo_ratings": {
+      "E0|Dep. La Coruna": 1420.0,
+      "E0|Getafe": 1550.0
+    },
+    "last_processed_match_date_utc": "2025-01-01T00:00:00Z",
+    "latest_season_by_league": {
+      "E0": "2425"
+    },
+    "season_stage_counts": {
+      "E0|2425|Dep. La Coruna": 10,
+      "E0|2425|Getafe": 10
+    }
+  },
+  "model_version": "soccer_1x2_elo_v1-PLACEHOLDER",
+  "schema_version": "soccer-1x2-elo-v1-manifest.PLACEHOLDER",
+  "temperature": 1.3
+}
