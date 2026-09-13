@@ -1,0 +1,89 @@
+{
+  "schema_version": "pcbf-research-queue-ranked.v1",
+  "source_capture_session_id": "soccer-2023-08-20T00-00-00Z",
+  "source_captured_at_utc": "2023-08-20T00:00:00Z",
+  "note": "Real-shaped (PR #40 research-queue-ranked.json) fixture posing one plausible future Arsenal vs Nott'm Forest Premier League fixture -- both real clubs, real competition; the fixture itself is a hypothetical future encounter, exactly what any live forecast always is.",
+  "markets": [
+    {
+      "workflow_state": "RESEARCH_QUEUE",
+      "source": "BET9JA",
+      "source_capture_session_id": "soccer-2023-08-20T00-00-00Z",
+      "source_fixture_id": "bxf_real_arsenal_forest",
+      "source_competition_id": "premier-league",
+      "sport": "SOCCER",
+      "country": "England",
+      "competition": "Premier League",
+      "home": "Arsenal",
+      "away": "Nott'm Forest",
+      "kickoff_utc": "2023-09-02T14:00:00Z",
+      "classification_ceiling": "RESEARCH-MODEL",
+      "forecast_probability_status": "NOT_COMPUTED",
+      "edge_status": "NOT_COMPUTED",
+      "recommendation_status": "NOT_AVAILABLE",
+      "stake_status": "NOT_AVAILABLE",
+      "cash_stake": 0,
+      "simulated_stake": 0,
+      "research_priority_score": 2.85,
+      "pricing": {
+        "bookmaker_margin": 0.045,
+        "de_vig_method": "multiplicative_proportional",
+        "market_quality": {
+          "bookmaker_margin": 0.045,
+          "completeness": "COMPLETE",
+          "evidence_quality": "NORMAL",
+          "research_priority_score": 2.85
+        },
+        "market_structure": "three_way",
+        "outcomes": [
+          {
+            "outcome": "home",
+            "price": 1.65,
+            "implied_probability": 0.6061,
+            "fair_probability": 0.58,
+            "fair_odds": 1.72,
+            "point_ev": -0.043,
+            "lower_bound_ev": null,
+            "lower_bound_probability": null,
+            "uncertainty_method": null,
+            "lower_bound_ev_reason": "UNCERTAINTY_UNAVAILABLE"
+          },
+          {
+            "outcome": "draw",
+            "price": 4.0,
+            "implied_probability": 0.25,
+            "fair_probability": 0.24,
+            "fair_odds": 4.17,
+            "point_ev": -0.043,
+            "lower_bound_ev": null,
+            "lower_bound_probability": null,
+            "uncertainty_method": null,
+            "lower_bound_ev_reason": "UNCERTAINTY_UNAVAILABLE"
+          },
+          {
+            "outcome": "away",
+            "price": 5.5,
+            "implied_probability": 0.1818,
+            "fair_probability": 0.18,
+            "fair_odds": 5.71,
+            "point_ev": -0.043,
+            "lower_bound_ev": null,
+            "lower_bound_probability": null,
+            "uncertainty_method": null,
+            "lower_bound_ev_reason": "UNCERTAINTY_UNAVAILABLE"
+          }
+        ]
+      },
+      "forecast": {
+        "forecast_available": false,
+        "adapter_id": "soccer",
+        "no_forecast_reason": "FORECASTING_ADAPTER_DESIGN_IN_PROGRESS_NOT_YET_BUILT",
+        "sport_id": "soccer",
+        "model_version": null,
+        "model_artifact_hash": null,
+        "probabilities": null,
+        "uncertainty_method": null
+      },
+      "queue_position": 1
+    }
+  ]
+}

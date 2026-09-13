@@ -316,6 +316,21 @@ def main(argv: list[str] | None = None) -> int:
 
         return screen_research_batch_main(argv[1:])
 
+    # ``forecast-soccer-1x2`` and ``evaluate-soccer-1x2`` are likewise
+    # additive -- see ``forecasting/soccer_1x2.py`` and
+    # ``forecasting/evaluate.py``'s own module docstrings. The former
+    # consumes the ``research-queue-ranked.json`` the command above
+    # produces; the latter only needs a supplied historical-match file.
+    if argv and argv[0] == "forecast-soccer-1x2":
+        from .forecasting.soccer_1x2 import main as forecast_soccer_1x2_main
+
+        return forecast_soccer_1x2_main(argv[1:])
+
+    if argv and argv[0] == "evaluate-soccer-1x2":
+        from .forecasting.evaluate import main as evaluate_soccer_1x2_main
+
+        return evaluate_soccer_1x2_main(argv[1:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
     parser.add_argument("output", type=Path, nargs="?", help="Optional output JSON file")

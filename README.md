@@ -61,7 +61,7 @@ Every category in the sports/adapter registry ships at `classification_ceiling: 
 
 ## What remains unbuilt
 
-- A real forecasting adapter registered against the Soccer 1X2 spec (`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`) — the research baseline above is a benchmark, not an admitted adapter.
+- **A real forecasting adapter *registered against `adapters/registry.py`'s layer-2 dispatch***, per the Soccer 1X2 spec (`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`) — that registry is still empty, so `category: "soccer"` requests through the main `pcbf-calculator` CLI still report `forecast.forecast_available: false` exactly as before. What *does* now exist is a separate, standalone research pipeline — `python -m pcbf_calculator forecast-soccer-1x2`/`evaluate-soccer-1x2` (below) — that produces independent H/D/A research probabilities from caller-supplied historical results, compared against Bet9ja market prices, entirely outside that dispatch framework. It is deliberately not wired into it: its own evaluation evidence (Brier/log-loss/calibration/coverage from real walk-forward testing) has to exist and be reviewed first, per its own module docstrings.
 - Automatic linking from a Bet9ja capture into the *forecast ledger* specifically: `python -m pcbf_calculator ingest-bet9ja` (below) validates an assembled Bet9ja capture and produces a deterministic PCBF research batch, and `python -m pcbf_calculator screen-research-batch` (below) prices it and triages it into a research queue by pricing quality, but neither writes to `ledgers/` — `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps a human takes from a research queue item (see `docs/LEDGER_DAILY_WORKFLOW.md`). Bet9ja ticket/settlement capture is unaffected by either bridge.
 - Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
@@ -160,6 +160,61 @@ output; the full per-outcome pricing detail is kept for audit, clearly
 labeled as market-implied de-vigged values, never a forecast. No
 probability generation, no staking, no `PAPER`/`CASH` promotion, no
 recommendation of any kind.
+
+## Soccer 1X2 Poisson research forecast (independent H/D/A, market comparison)
+
+Turns a research queue plus a **caller-supplied** historical-match file
+(no network retrieval anywhere in this pipeline) into independent H/D/A
+probabilities from a transparent Poisson model, compared against the
+queue's own market prices — the first PCBF component that produces a real
+forecast, not just pricing/triage. Still fully research-only: every
+output row is fixed at `workflow_state: "FORECAST_RESEARCH"`,
+`classification_ceiling: "RESEARCH-MODEL"`, `recommendation_status:
+"NOT_AVAILABLE"`, `stake_status: "NOT_AVAILABLE"`, `cash_stake: 0`,
+`simulated_stake: 0` — no code path in this module can set any of them to
+anything else.
+
+```bash
+python -m pcbf_calculator forecast-soccer-1x2 \
+  research-queue-ranked.json \
+  --history soccer-history.json \
+  --config config/soccer_1x2_poisson_v1.yaml \
+  --output-dir runs/forecast
+```
+
+Model odds never reach the forecasting math: team/league attack-defence
+rates and the independent-Poisson score matrix are fit *only* from the
+supplied history; offered prices are read strictly afterward, only for
+the reported `model_point_ev`/`probability_difference` comparison
+against the queue's own `pricing.outcomes`. Team/competition names
+resolve by exact match (after case/whitespace/safe-punctuation
+normalization) or an explicit checked-in alias
+(`config/soccer_1x2_team_aliases.json`) — never fuzzy matching. Every
+fixture this module cannot honestly forecast — an unresolved team,
+already started, insufficient evidence for its config's minimum
+match thresholds, and more — abstains with a typed reason
+(`src/pcbf_calculator/forecasting/errors.py`) rather than guessing;
+every input market ends up in exactly one bucket, forecast or typed
+abstention.
+
+Walk-forward evaluation (train only on matches strictly before each
+held-out match's own kickoff) reports coverage, multiclass Brier score,
+log loss, and calibration bands against two baselines (uniform
+1/3-1/3-1/3 and each competition's own walk-forward outcome frequency) —
+evidence for a later promotion decision, not a promotion decision
+itself; no `PAPER`-admission threshold is defined or checked here:
+
+```bash
+python -m pcbf_calculator evaluate-soccer-1x2 \
+  --history soccer-history.json \
+  --config config/soccer_1x2_poisson_v1.yaml \
+  --output-dir runs/evaluation
+```
+
+See `src/pcbf_calculator/forecasting/soccer_1x2.py`/`evaluate.py`'s own
+module docstrings for the full evidence contract, gates, and
+out-of-scope list (no automated historical-data retrieval, no ML
+frameworks, no staking, no `PAPER`/`CASH` promotion, no other sports).
 
 Run the test suite (zero dependencies, stdlib `unittest`):
 

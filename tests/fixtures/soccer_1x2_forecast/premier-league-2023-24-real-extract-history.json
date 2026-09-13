@@ -1,0 +1,86 @@
+{
+  "source": "FOOTBALL_DATA_CO_UK_REAL_EXTRACT",
+  "note": "8 real 2023-24 Premier League results, real teams/scores/dates -- the same real rows already committed at tests/fixtures/football_data/clean_modern_season.csv and season_2324_for_elo_baseline.csv, reshaped into this adapter's history contract rather than duplicated as a separate download.",
+  "matches": [
+    {
+      "source_match_id": "fd-e0-20230812-arsenal-nottm-forest",
+      "competition": "Premier League",
+      "kickoff_utc": "2023-08-12T19:00:00Z",
+      "home": "Arsenal",
+      "away": "Nott'm Forest",
+      "home_goals": 2,
+      "away_goals": 1,
+      "status": "FINISHED"
+    },
+    {
+      "source_match_id": "fd-e0-20230812-everton-fulham",
+      "competition": "Premier League",
+      "kickoff_utc": "2023-08-12T16:30:00Z",
+      "home": "Everton",
+      "away": "Fulham",
+      "home_goals": 0,
+      "away_goals": 1,
+      "status": "FINISHED"
+    },
+    {
+      "source_match_id": "fd-e0-20230813-sheffield-united-crystal-palace",
+      "competition": "Premier League",
+      "kickoff_utc": "2023-08-13T13:00:00Z",
+      "home": "Sheffield United",
+      "away": "Crystal Palace",
+      "home_goals": 0,
+      "away_goals": 1,
+      "status": "FINISHED"
+    },
+    {
+      "source_match_id": "fd-e0-20230819-brighton-wolves",
+      "competition": "Premier League",
+      "kickoff_utc": "2023-08-19T14:00:00Z",
+      "home": "Brighton",
+      "away": "Wolves",
+      "home_goals": 4,
+      "away_goals": 1,
+      "status": "FINISHED"
+    },
+    {
+      "source_match_id": "fd-e0-20230819-burnley-aston-villa",
+      "competition": "Premier League",
+      "kickoff_utc": "2023-08-19T14:00:00Z",
+      "home": "Burnley",
+      "away": "Aston Villa",
+      "home_goals": 0,
+      "away_goals": 3,
+      "status": "FINISHED"
+    },
+    {
+      "source_match_id": "fd-e0-20230812-liverpool-norwich",
+      "competition": "Premier League",
+      "kickoff_utc": "2023-08-12T19:00:00Z",
+      "home": "Liverpool",
+      "away": "Norwich",
+      "home_goals": 2,
+      "away_goals": 0,
+      "status": "FINISHED"
+    },
+    {
+      "source_match_id": "fd-e0-20230813-west-ham-man-city",
+      "competition": "Premier League",
+      "kickoff_utc": "2023-08-13T14:00:00Z",
+      "home": "West Ham",
+      "away": "Man City",
+      "home_goals": 1,
+      "away_goals": 3,
+      "status": "FINISHED"
+    },
+    {
+      "source_match_id": "fd-e0-20230813-bournemouth-sheffield-united",
+      "competition": "Premier League",
+      "kickoff_utc": "2023-08-13T16:30:00Z",
+      "home": "Bournemouth",
+      "away": "Sheffield United",
+      "home_goals": 2,
+      "away_goals": 2,
+      "status": "FINISHED"
+    }
+  ]
+}

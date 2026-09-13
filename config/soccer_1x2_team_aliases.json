@@ -1,0 +1,5 @@
+{
+  "schema_version": "soccer-1x2-team-aliases.v1",
+  "note": "Explicit, checked-in alias mapping only -- resolution never falls back to fuzzy matching. Each competition maps a research-queue display name (e.g. a Bet9ja capture's own team-name spelling) to the exact team-name spelling used in the supplied historical-match file for that same competition. A name that already matches exactly after normalization (case/whitespace/safe punctuation) needs no entry here. Add an entry only when you can verify both names refer to the same real team -- never guessed.",
+  "competitions": {}
+}

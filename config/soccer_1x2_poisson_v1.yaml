@@ -1,0 +1,35 @@
+# Soccer 1X2 Poisson research adapter -- versioned configuration.
+#
+# These are research settings, not validated optimal parameters (no
+# backtest has yet been run to tune them -- see
+# docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md). Recorded verbatim in every
+# forecast/evaluation output file. Changing a value here changes the
+# adapter's behavior for every future run against this file -- never
+# change a default silently; bump adapter_id (e.g. _v2) instead of
+# redefining what _v1 means once real evaluation evidence exists.
+
+adapter_id: soccer_1x2_poisson_v1
+
+# How many days of history before a fixture's forecast cutoff are eligible
+# for that fixture's model fit (in addition to being strictly before the
+# cutoff itself -- see forecasting/cutoff.py).
+training_window_days: 365
+
+# Minimum number of eligible matches in the fixture's own competition
+# required before the league-average home/away goal rates are trusted.
+minimum_competition_matches: 60
+
+# Minimum number of eligible matches where the fixture's home team played
+# at home, required before that team's home attack/defence rates are
+# trusted.
+minimum_team_home_matches: 5
+
+# Minimum number of eligible matches where the fixture's away team played
+# away, required before that team's away attack/defence rates are
+# trusted.
+minimum_team_away_matches: 5
+
+# Highest single-team goal count the score matrix sums over (0 through
+# this value inclusive, for each team) before normalizing H/D/A to sum to
+# exactly 1.
+maximum_goals_modelled: 10
