@@ -62,7 +62,7 @@ Every category in the sports/adapter registry ships at `classification_ceiling: 
 ## What remains unbuilt
 
 - A real forecasting adapter registered against the Soccer 1X2 spec (`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`) — the research baseline above is a benchmark, not an admitted adapter.
-- Automatic linking from a Bet9ja capture into the *forecast ledger* specifically: `python -m pcbf_calculator ingest-bet9ja` (below) validates an assembled Bet9ja capture and produces a deterministic PCBF research batch, but does not itself write to `ledgers/` — `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps from that research batch (see `docs/LEDGER_DAILY_WORKFLOW.md`). Bet9ja ticket/settlement capture is unaffected by this bridge.
+- Automatic linking from a Bet9ja capture into the *forecast ledger* specifically: `python -m pcbf_calculator ingest-bet9ja` (below) validates an assembled Bet9ja capture and produces a deterministic PCBF research batch, and `python -m pcbf_calculator screen-research-batch` (below) prices and ranks it, but neither writes to `ledgers/` — `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps from a ranked candidate (see `docs/LEDGER_DAILY_WORKFLOW.md`). Bet9ja ticket/settlement capture is unaffected by either bridge.
 - Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
 - Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
@@ -112,6 +112,35 @@ fixture is tagged `classification_ceiling: "RESEARCH-MODEL"` —
 unconditionally, since this bridge has no mechanism to authorize
 anything else. See `src/pcbf_calculator/ingestion/bet9ja.py`'s own module
 docstring for the full in/out-of-scope list.
+
+## PCBF research-batch screening and ranking
+
+Consumes the `pcbf-research-batch.json` the command above produces, prices
+every fixture through this platform's own host-contract pipeline
+(`category: "soccer"`, no new pricing math), and produces a deterministic,
+ranked candidate list — the first functional step beyond file preparation:
+
+```bash
+python -m pcbf_calculator screen-research-batch \
+  runs/bet9ja-2026-09-12/pcbf-research-batch.json \
+  --output-dir runs/bet9ja-2026-09-12/screening
+```
+
+Every fixture is priced with no `decision_input` supplied (a Bet9ja capture
+carries no real evidence/liquidity/uncertainty data to honestly fill that
+in with), so layer 3 (the `PAPER`/`CASH` decision engine) never runs —
+every surviving candidate's `classification_ceiling` stays exactly
+`RESEARCH-MODEL` with `cash_stake: 0`/`simulated_stake: 0`, structurally,
+not by convention. A market whose own pricing-quality signal is not
+`NORMAL` (arbitrage-shaped or high-margin/low-evidence) is rejected with a
+typed reason rather than ranked. Surviving candidates are ranked by the
+pricing engine's own `research_priority_score` — deliberately not by
+expected value: under proportional de-vigging, EV reduces algebraically to
+the same value for every outcome in a market and is non-positive whenever
+margin is nonnegative, so it is not a usable screening signal (see
+`src/pcbf_calculator/screening/research_batch.py`'s own module docstring
+for the full reasoning and in/out-of-scope list). No probability
+generation, no staking, no `PAPER`/`CASH` promotion.
 
 Run the test suite (zero dependencies, stdlib `unittest`):
 
