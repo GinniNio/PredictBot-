@@ -1,0 +1,133 @@
+{
+  "capture_scope": "SOCCER_ALL_PREMATCH_COMPETITIONS",
+  "capture_session_id": "soccer-2026-09-13T14-10-35Z",
+  "captured_at_utc": "2026-09-13T14:35:41.914Z",
+  "competition_ledger": [
+    {
+      "batch_index": 0,
+      "competition": "LaLiga",
+      "competition_id": "180928",
+      "country": "Spain",
+      "fixture_count": 1,
+      "segment_index": 2,
+      "status": "COMPLETED",
+      "updated_at_utc": "2026-09-13T14:35:39.331Z"
+    },
+    {
+      "batch_index": 150,
+      "competition": "NB I, Women",
+      "competition_id": "825136",
+      "country": "Hungary",
+      "fixture_count": 1,
+      "segment_index": 1,
+      "status": "COMPLETED",
+      "updated_at_utc": "2026-09-13T14:15:35.734Z"
+    }
+  ],
+  "fixtures": [
+    {
+      "captured_at_utc": "2026-09-13T14:35:23.911Z",
+      "competition": "LaLiga",
+      "date_heading_raw": "Sun 13 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_5f15870486942950",
+      "kickoff_raw": "17:30",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 3.1,
+        "D": 2.78,
+        "H": 2.73
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.73
+        },
+        {
+          "label": "D",
+          "price": 2.78
+        },
+        {
+          "label": "A",
+          "price": 3.1
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Dep. La Coruna",
+        "home": "Getafe"
+      },
+      "region": "Spain",
+      "resolved_source_competition_id": "180928",
+      "source_batch_index": 0,
+      "source_competition_ids_in_batch": [
+        "180928"
+      ],
+      "source_competitions_raw_in_batch": [
+        "LaLiga"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T14:10:35.798Z",
+      "competition": "NB I, Women",
+      "date_heading_raw": "Sun 13 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_7e6e31fba882602f",
+      "kickoff_raw": "15:30",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 1.07,
+        "D": 8.9,
+        "H": 20
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 20
+        },
+        {
+          "label": "D",
+          "price": 8.9
+        },
+        {
+          "label": "A",
+          "price": 1.07
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Puskas Akademia Felcsut",
+        "home": "Astra HFC Budapest"
+      },
+      "region": "Hungary",
+      "resolved_source_competition_id": "825136",
+      "source_batch_index": 150,
+      "source_competition_ids_in_batch": [
+        "825136"
+      ],
+      "source_competitions_raw_in_batch": [
+        "NB I, Women"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    }
+  ],
+  "inventory_fingerprint": "invfp_cf6fdba62c8262da",
+  "schema_version": "bet9ja-soccer-session.v1",
+  "summary": {
+    "completed": 2,
+    "confirmed_empty": 0,
+    "failed": 0,
+    "pending": 0,
+    "total": 2
+  },
+  "unparsed_records": []
+}

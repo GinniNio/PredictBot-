@@ -62,7 +62,7 @@ Every category in the sports/adapter registry ships at `classification_ceiling: 
 ## What remains unbuilt
 
 - A real forecasting adapter registered against the Soccer 1X2 spec (`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`) — the research baseline above is a benchmark, not an admitted adapter.
-- Automatic linking from a Bet9ja capture into the forecast ledger, and Bet9ja ticket/settlement capture (`browser_extension/bet9ja_capture/` produces normalized fixture JSON only; `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps — see `docs/LEDGER_DAILY_WORKFLOW.md`).
+- Automatic linking from a Bet9ja capture into the *forecast ledger* specifically: `python -m pcbf_calculator ingest-bet9ja` (below) validates an assembled Bet9ja capture and produces a deterministic PCBF research batch, but does not itself write to `ledgers/` — `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps from that research batch (see `docs/LEDGER_DAILY_WORKFLOW.md`). Bet9ja ticket/settlement capture is unaffected by this bridge.
 - Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
 - Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
@@ -86,6 +86,32 @@ pcbf-calculator request.json
 ```
 
 Prints one JSON object: de-vigged fair probabilities/odds and per-outcome EV under `pricing`, `forecast.forecast_available: false` (no adapter registered yet), `decision: null` (no decision input supplied), and `classification_ceiling: "RESEARCH-MODEL"`.
+
+## Bet9ja capture ingestion (research batch preparation)
+
+Validates one assembled Bet9ja Soccer capture export (from
+`browser_extension/bet9ja_capture/`'s "Download current results" button)
+and produces a deterministic PCBF research batch — pure data plumbing,
+no forecasting, no staking, no ledger writes:
+
+```bash
+python -m pcbf_calculator ingest-bet9ja \
+  bet9ja-soccer-all-soccer-2026-09-12T15-30-23Z.json \
+  --output-dir runs/bet9ja-2026-09-12
+```
+
+Rejects the whole import (nothing written) on any internal contradiction
+— a ledger/fixture-count mismatch, a duplicate id, a confirmed-empty
+competition with fixtures attached — rather than silently repairing
+source data. Admits only complete, unambiguous pre-match Soccer 1X2
+fixtures; every other record is retained, never dropped, in a typed
+quarantine file alongside a reconciliation report. Kickoff times are
+resolved deterministically from the page's own Africa/Lagos display text
+(never guessed when the weekday/date evidence conflicts). Every admitted
+fixture is tagged `classification_ceiling: "RESEARCH-MODEL"` —
+unconditionally, since this bridge has no mechanism to authorize
+anything else. See `src/pcbf_calculator/ingestion/bet9ja.py`'s own module
+docstring for the full in/out-of-scope list.
 
 Run the test suite (zero dependencies, stdlib `unittest`):
 

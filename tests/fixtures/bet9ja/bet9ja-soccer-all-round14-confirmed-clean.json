@@ -1,0 +1,868 @@
+{
+  "capture_scope": "SOCCER_ALL_PREMATCH_COMPETITIONS",
+  "capture_session_id": "soccer-2026-09-13T12-32-36Z",
+  "captured_at_utc": "2026-09-13T12:52:11.008Z",
+  "competition_ledger": [
+    {
+      "batch_index": 0,
+      "competition": "Professional Football League",
+      "competition_id": "1209691",
+      "country": "Nigeria",
+      "fixture_count": 3,
+      "segment_index": 1,
+      "status": "COMPLETED",
+      "updated_at_utc": "2026-09-13T12:32:55.366Z"
+    },
+    {
+      "batch_index": 1,
+      "competition": "UEFA Nations League, League A",
+      "competition_id": "2238954",
+      "country": "International",
+      "fixture_count": 7,
+      "segment_index": 1,
+      "status": "COMPLETED",
+      "updated_at_utc": "2026-09-13T12:32:57.602Z"
+    },
+    {
+      "batch_index": 2,
+      "competition": "UEFA Nations League, League B",
+      "competition_id": "2349276",
+      "country": "International",
+      "fixture_count": 7,
+      "segment_index": 1,
+      "status": "COMPLETED",
+      "updated_at_utc": "2026-09-13T12:32:59.528Z"
+    },
+    {
+      "batch_index": null,
+      "competition": "Pro League",
+      "competition_id": "958370",
+      "country": "Belgium",
+      "fixture_count": 0,
+      "segment_index": null,
+      "status": "PENDING",
+      "updated_at_utc": null
+    },
+    {
+      "batch_index": null,
+      "competition": "Challenger Pro League",
+      "competition_id": "989222",
+      "country": "Belgium",
+      "fixture_count": 0,
+      "segment_index": null,
+      "status": "PENDING",
+      "updated_at_utc": null
+    }
+  ],
+  "fixtures": [
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "Professional Football League",
+      "date_heading_raw": "Sun 13 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_96563a927be4aa46",
+      "kickoff_raw": "16:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 6.5,
+        "D": 3.6,
+        "H": 1.5
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.5
+        },
+        {
+          "label": "D",
+          "price": 3.6
+        },
+        {
+          "label": "A",
+          "price": 6.5
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Ranchers Bees",
+        "home": "Barau FC"
+      },
+      "region": "Nigeria",
+      "resolved_source_competition_id": "1209691",
+      "source_batch_index": 0,
+      "source_competition_ids_in_batch": [
+        "1209691"
+      ],
+      "source_competitions_raw_in_batch": [
+        "Professional Football League"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "Professional Football League",
+      "date_heading_raw": "Sun 13 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_97587abc84e6f708",
+      "kickoff_raw": "16:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 6.5,
+        "D": 3.25,
+        "H": 1.57
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.57
+        },
+        {
+          "label": "D",
+          "price": 3.25
+        },
+        {
+          "label": "A",
+          "price": 6.5
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Plateau Utd",
+        "home": "Niger Tornadoes"
+      },
+      "region": "Nigeria",
+      "resolved_source_competition_id": "1209691",
+      "source_batch_index": 0,
+      "source_competition_ids_in_batch": [
+        "1209691"
+      ],
+      "source_competitions_raw_in_batch": [
+        "Professional Football League"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "Professional Football League",
+      "date_heading_raw": "Sun 13 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_955877968ae7007a",
+      "kickoff_raw": "16:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 4.95,
+        "D": 3.3,
+        "H": 1.68
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.68
+        },
+        {
+          "label": "D",
+          "price": 3.3
+        },
+        {
+          "label": "A",
+          "price": 4.95
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Sporting Lagos FC",
+        "home": "Inter Lagos FC"
+      },
+      "region": "Nigeria",
+      "resolved_source_competition_id": "1209691",
+      "source_batch_index": 0,
+      "source_competition_ids_in_batch": [
+        "1209691"
+      ],
+      "source_competitions_raw_in_batch": [
+        "Professional Football League"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League A",
+      "date_heading_raw": "Thu 24 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_45f122c725c4e603",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 3.65,
+        "D": 3.55,
+        "H": 1.98
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.98
+        },
+        {
+          "label": "D",
+          "price": 3.55
+        },
+        {
+          "label": "A",
+          "price": 3.65
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Denmark",
+        "home": "Norway"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2238954",
+      "source_batch_index": 1,
+      "source_competition_ids_in_batch": [
+        "2238954"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League A",
+      "date_heading_raw": "Thu 24 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_3ff119552fc4f5c1",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 10.5,
+        "D": 5.7,
+        "H": 1.26
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.26
+        },
+        {
+          "label": "D",
+          "price": 5.7
+        },
+        {
+          "label": "A",
+          "price": 10.5
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Wales",
+        "home": "Portugal"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2238954",
+      "source_batch_index": 1,
+      "source_competition_ids_in_batch": [
+        "2238954"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League A",
+      "date_heading_raw": "Thu 24 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_6e493e850e398379",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.8,
+        "D": 3.7,
+        "H": 2.32
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.32
+        },
+        {
+          "label": "D",
+          "price": 3.7
+        },
+        {
+          "label": "A",
+          "price": 2.8
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Germany",
+        "home": "Netherlands"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2238954",
+      "source_batch_index": 1,
+      "source_competition_ids_in_batch": [
+        "2238954"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League A",
+      "date_heading_raw": "Thu 24 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_6144ace021352434",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.68,
+        "D": 3.2,
+        "H": 2.66
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.66
+        },
+        {
+          "label": "D",
+          "price": 3.2
+        },
+        {
+          "label": "A",
+          "price": 2.68
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Greece",
+        "home": "Serbia"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2238954",
+      "source_batch_index": 1,
+      "source_competition_ids_in_batch": [
+        "2238954"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League A",
+      "date_heading_raw": "Fri 25 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_53b7fb1f5e5b2e1b",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.96,
+        "D": 3.4,
+        "H": 2.32
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.32
+        },
+        {
+          "label": "D",
+          "price": 3.4
+        },
+        {
+          "label": "A",
+          "price": 2.96
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Belgium",
+        "home": "Italy"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2238954",
+      "source_batch_index": 1,
+      "source_competition_ids_in_batch": [
+        "2238954"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League A",
+      "date_heading_raw": "Fri 25 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_7eb60de6565fb632",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 1.54,
+        "D": 4.4,
+        "H": 5.4
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 5.4
+        },
+        {
+          "label": "D",
+          "price": 4.4
+        },
+        {
+          "label": "A",
+          "price": 1.54
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "France",
+        "home": "Turkiye"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2238954",
+      "source_batch_index": 1,
+      "source_competition_ids_in_batch": [
+        "2238954"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League A",
+      "date_heading_raw": "Sat 26 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_6646f35626376aaa",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.54,
+        "D": 3.3,
+        "H": 2.77
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.77
+        },
+        {
+          "label": "D",
+          "price": 3.3
+        },
+        {
+          "label": "A",
+          "price": 2.54
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Spain",
+        "home": "England"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2238954",
+      "source_batch_index": 1,
+      "source_competition_ids_in_batch": [
+        "2238954"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League B",
+      "date_heading_raw": "Thu 24 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_2df33b962dc73132",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.84,
+        "D": 3.15,
+        "H": 2.55
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.55
+        },
+        {
+          "label": "D",
+          "price": 3.15
+        },
+        {
+          "label": "A",
+          "price": 2.84
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Ireland",
+        "home": "Kosovo"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2349276",
+      "source_batch_index": 2,
+      "source_competition_ids_in_batch": [
+        "2349276"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League B"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League B",
+      "date_heading_raw": "Thu 24 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_2ef33d292ec732c5",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 7.1,
+        "D": 4.95,
+        "H": 1.38
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.38
+        },
+        {
+          "label": "D",
+          "price": 4.95
+        },
+        {
+          "label": "A",
+          "price": 7.1
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Israel",
+        "home": "Austria"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2349276",
+      "source_batch_index": 2,
+      "source_competition_ids_in_batch": [
+        "2349276"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League B"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League B",
+      "date_heading_raw": "Fri 25 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_31f341e229c72ae6",
+      "kickoff_raw": "17:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 4,
+        "D": 3.5,
+        "H": 1.9
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.9
+        },
+        {
+          "label": "D",
+          "price": 3.5
+        },
+        {
+          "label": "A",
+          "price": 4
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Northern Ireland",
+        "home": "Georgia"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2349276",
+      "source_batch_index": 2,
+      "source_competition_ids_in_batch": [
+        "2349276"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League B"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League B",
+      "date_heading_raw": "Fri 25 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_2bf338702bc72e0c",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 3.25,
+        "D": 3.25,
+        "H": 2.24
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.24
+        },
+        {
+          "label": "D",
+          "price": 3.25
+        },
+        {
+          "label": "A",
+          "price": 3.25
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Ukraine",
+        "home": "Hungary"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2349276",
+      "source_batch_index": 2,
+      "source_competition_ids_in_batch": [
+        "2349276"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League B"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League B",
+      "date_heading_raw": "Fri 25 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_fc50d9d48c2d7de0",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 5.6,
+        "D": 4.55,
+        "H": 1.5
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.5
+        },
+        {
+          "label": "D",
+          "price": 4.55
+        },
+        {
+          "label": "A",
+          "price": 5.6
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Romania",
+        "home": "Sweden"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2349276",
+      "source_batch_index": 2,
+      "source_competition_ids_in_batch": [
+        "2349276"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League B"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League B",
+      "date_heading_raw": "Fri 25 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_fb50d841932d88e5",
+      "kickoff_raw": "19:45",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 5.4,
+        "D": 4,
+        "H": 1.6
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.6
+        },
+        {
+          "label": "D",
+          "price": 4
+        },
+        {
+          "label": "A",
+          "price": 5.4
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Bosnia and Herzegovina",
+        "home": "Poland"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2349276",
+      "source_batch_index": 2,
+      "source_competition_ids_in_batch": [
+        "2349276"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League B"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-13T12:32:36.040Z",
+      "competition": "UEFA Nations League, League B",
+      "date_heading_raw": "Sat 26 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_32f5820cb2ca4128",
+      "kickoff_raw": "14:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.68,
+        "D": 3.15,
+        "H": 2.72
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.72
+        },
+        {
+          "label": "D",
+          "price": 3.15
+        },
+        {
+          "label": "A",
+          "price": 2.68
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Scotland",
+        "home": "Slovenia"
+      },
+      "region": "International",
+      "resolved_source_competition_id": "2349276",
+      "source_batch_index": 2,
+      "source_competition_ids_in_batch": [
+        "2349276"
+      ],
+      "source_competitions_raw_in_batch": [
+        "UEFA Nations League, League B"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    }
+  ],
+  "inventory_fingerprint": "invfp_5fbaf0085574deec",
+  "schema_version": "bet9ja-soccer-session.v1",
+  "summary": {
+    "completed": 3,
+    "confirmed_empty": 0,
+    "failed": 0,
+    "pending": 2,
+    "total": 5
+  },
+  "unparsed_records": []
+}

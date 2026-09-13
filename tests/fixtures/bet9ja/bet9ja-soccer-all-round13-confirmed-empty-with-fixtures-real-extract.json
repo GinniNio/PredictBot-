@@ -1,0 +1,125 @@
+{
+  "capture_scope": "SOCCER_ALL_PREMATCH_COMPETITIONS",
+  "capture_session_id": "soccer-2026-09-12T14-19-22Z",
+  "captured_at_utc": "2026-09-12T14:28:56.383Z",
+  "competition_ledger": [
+    {
+      "competition": "Professional Football League",
+      "competition_id": "1209691",
+      "country": "Nigeria",
+      "status": "COMPLETED"
+    },
+    {
+      "competition": "Serie A",
+      "competition_id": "167856",
+      "country": "Italy",
+      "status": "CONFIRMED_EMPTY"
+    }
+  ],
+  "fixtures": [
+    {
+      "captured_at_utc": "2026-09-12T14:19:22.047Z",
+      "competition": "Professional Football League",
+      "date_heading_raw": "Sat 12 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_01c7658717a6d40b",
+      "kickoff_raw": "16:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 5.4,
+        "D": 3.6,
+        "H": 1.58
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.58
+        },
+        {
+          "label": "D",
+          "price": 3.6
+        },
+        {
+          "label": "A",
+          "price": 5.4
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Enyimba",
+        "home": "Doma United FC"
+      },
+      "region": "Nigeria",
+      "resolved_source_competition_id": "1209691",
+      "source_batch_index": 0,
+      "source_competition_ids_in_batch": [
+        "1209691"
+      ],
+      "source_competitions_raw_in_batch": [
+        "Professional Football League"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-09-12T14:20:08.415Z",
+      "competition": "Serie A",
+      "date_heading_raw": "Sat 12 Sep",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_43af8099fe5259b5",
+      "kickoff_raw": "17:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.12,
+        "D": 3.15,
+        "H": 3.8
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 3.8
+        },
+        {
+          "label": "D",
+          "price": 3.15
+        },
+        {
+          "label": "A",
+          "price": 2.12
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Milan",
+        "home": "Lazio"
+      },
+      "region": "Italy",
+      "resolved_source_competition_id": "167856",
+      "source_batch_index": 19,
+      "source_competition_ids_in_batch": [
+        "167856"
+      ],
+      "source_competitions_raw_in_batch": [
+        "Serie A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    }
+  ],
+  "inventory_fingerprint": "invfp_923710c9fa282c95",
+  "schema_version": "bet9ja-soccer-session.v1",
+  "summary": {
+    "completed": 1,
+    "confirmed_empty": 1,
+    "failed": 0,
+    "pending": 0,
+    "total": 2
+  },
+  "unparsed_records": []
+}
