@@ -471,14 +471,12 @@ jobs:
           print_reliability_table("Model", rolling["model_metrics"])
           PY
 
-      # TEMPORARY evidence-gathering step for the Elo v1 adapter PR --
-      # produces the derived, aggregate live-ratings snapshot (never raw
+      # Exports the derived, aggregate live-ratings snapshot (never raw
       # third-party row content) as a file for the upload-artifact step
-      # below to carry out, rather than printing it to the job log
-      # (the correct transport for a multi-KB/MB JSON file -- GitHub
-      # Actions artifacts support direct download with digest
-      # validation). Removed before the adapter PR is opened.
-      - name: TEMP - export live Elo ratings snapshot
+      # below to carry -- the correct transport for a multi-KB/MB JSON
+      # file (GitHub Actions artifacts support direct download with
+      # digest validation, unlike the job log).
+      - name: Export live Elo ratings snapshot
         run: python -m research.soccer_1x2_elo_baseline.export_live_snapshot
 
       - uses: actions/upload-artifact@v4
@@ -494,8 +492,9 @@ jobs:
           # the fixture-validation report, the dataset build report
           # (counts/hashes/diagnostic/sanitized sample, no row content),
           # this run's metadata, and the derived/aggregate live-ratings
-          # snapshot (TEMPORARY, for the Elo v1 adapter PR only -- see the
-          # step above) are uploaded.
+          # snapshot (see the step above, consumed by
+          # adapters/soccer_1x2_elo_v1/build_manifest.py on artifact
+          # refresh) are uploaded.
           path: |
             data_pipeline/retrieval_log.json
             data_pipeline/reports/feasibility_report.json
