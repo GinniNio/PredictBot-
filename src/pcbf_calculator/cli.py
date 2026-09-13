@@ -46,6 +46,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -294,6 +295,19 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+
+    # ``ingest-bet9ja`` is a separate, additive subcommand (Bet9ja capture
+    # -> PCBF research-batch ingestion bridge -- see
+    # ``ingestion/bet9ja.py``'s own module docstring) dispatched BEFORE
+    # the legacy positional parser below, so the documented host-contract
+    # invocation (``python -m pcbf_calculator INPUT [OUTPUT]``, no
+    # subcommand) is completely unchanged for every existing caller.
+    if argv and argv[0] == "ingest-bet9ja":
+        from .ingestion.bet9ja import main as ingest_bet9ja_main
+
+        return ingest_bet9ja_main(argv[1:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
     parser.add_argument("output", type=Path, nargs="?", help="Optional output JSON file")
