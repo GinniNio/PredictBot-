@@ -472,22 +472,14 @@ jobs:
           PY
 
       # TEMPORARY evidence-gathering step for the Elo v1 adapter PR --
-      # dumps the derived, aggregate live-ratings snapshot to the job log
-      # (never raw third-party row content) since this session's network
-      # policy blocks the artifact-download host. Removed before the
-      # adapter PR is opened.
-      - name: TEMP - export and dump live Elo ratings snapshot
-        run: |
-          python -m research.soccer_1x2_elo_baseline.export_live_snapshot
-          echo "===LIVE_SNAPSHOT_BEGIN==="
-          cat research/soccer_1x2_elo_baseline/reports/live_snapshot.json
-          echo "===LIVE_SNAPSHOT_END==="
-          echo "===MODEL_ARTIFACT_BEGIN==="
-          cat research/soccer_1x2_elo_baseline/reports/model_artifact.json
-          echo "===MODEL_ARTIFACT_END==="
-          echo "===EVALUATION_REPORT_BEGIN==="
-          cat research/soccer_1x2_elo_baseline/reports/evaluation_report.json
-          echo "===EVALUATION_REPORT_END==="
+      # produces the derived, aggregate live-ratings snapshot (never raw
+      # third-party row content) as a file for the upload-artifact step
+      # below to carry out, rather than printing it to the job log
+      # (the correct transport for a multi-KB/MB JSON file -- GitHub
+      # Actions artifacts support direct download with digest
+      # validation). Removed before the adapter PR is opened.
+      - name: TEMP - export live Elo ratings snapshot
+        run: python -m research.soccer_1x2_elo_baseline.export_live_snapshot
 
       - uses: actions/upload-artifact@v4
         with:
@@ -501,7 +493,9 @@ jobs:
           # URLs, no CSV content), the source-attempt/feasibility report,
           # the fixture-validation report, the dataset build report
           # (counts/hashes/diagnostic/sanitized sample, no row content),
-          # and this run's metadata are uploaded.
+          # this run's metadata, and the derived/aggregate live-ratings
+          # snapshot (TEMPORARY, for the Elo v1 adapter PR only -- see the
+          # step above) are uploaded.
           path: |
             data_pipeline/retrieval_log.json
             data_pipeline/reports/feasibility_report.json
@@ -514,4 +508,5 @@ jobs:
             research/soccer_1x2_elo_baseline/reports/model_artifact.json
             research/soccer_1x2_elo_baseline/reports/evaluation_report.json
             research/soccer_1x2_elo_baseline/reports/evaluation_report.md
+            research/soccer_1x2_elo_baseline/reports/live_snapshot.json
           if-no-files-found: error
