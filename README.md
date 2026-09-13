@@ -62,7 +62,7 @@ Every category in the sports/adapter registry ships at `classification_ceiling: 
 ## What remains unbuilt
 
 - A real forecasting adapter registered against the Soccer 1X2 spec (`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`) — the research baseline above is a benchmark, not an admitted adapter.
-- Automatic linking from a Bet9ja capture into the *forecast ledger* specifically: `python -m pcbf_calculator ingest-bet9ja` (below) validates an assembled Bet9ja capture and produces a deterministic PCBF research batch, but does not itself write to `ledgers/` — `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps from that research batch (see `docs/LEDGER_DAILY_WORKFLOW.md`). Bet9ja ticket/settlement capture is unaffected by this bridge.
+- Automatic linking from a Bet9ja capture into the *forecast ledger* specifically: `python -m pcbf_calculator ingest-bet9ja` (below) validates an assembled Bet9ja capture and produces a deterministic PCBF research batch, and `python -m pcbf_calculator screen-research-batch` (below) prices it and triages it into a research queue by pricing quality, but neither writes to `ledgers/` — `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps a human takes from a research queue item (see `docs/LEDGER_DAILY_WORKFLOW.md`). Bet9ja ticket/settlement capture is unaffected by either bridge.
 - Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
 - Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
@@ -112,6 +112,54 @@ fixture is tagged `classification_ceiling: "RESEARCH-MODEL"` —
 unconditionally, since this bridge has no mechanism to authorize
 anything else. See `src/pcbf_calculator/ingestion/bet9ja.py`'s own module
 docstring for the full in/out-of-scope list.
+
+## PCBF research-batch market-quality triage
+
+Consumes the `pcbf-research-batch.json` the command above produces, prices
+every fixture through this platform's own host-contract pipeline
+(`category: "soccer"`, no new pricing math), and produces a deterministic
+**research queue** — the first functional step beyond file preparation.
+This is market-quality research triage, never selection or ranking of
+betting outcomes: it answers "which markets have clean, complete pricing
+data worth research attention next," never "which outcome is likely to
+win" or "which market has an edge."
+
+```bash
+python -m pcbf_calculator screen-research-batch \
+  runs/bet9ja-2026-09-12/pcbf-research-batch.json \
+  --output-dir runs/bet9ja-2026-09-12/screening
+```
+
+Writes `research-queue-report.json`, `research-queue-ranked.json` (the
+queue itself, ordered by pricing-quality priority) and
+`research-queue-excluded.json` (every excluded market with its typed
+reason). Every fixture is priced with no `decision_input` supplied (a
+Bet9ja capture carries no real evidence/liquidity/uncertainty data to
+honestly fill that in with), so layer 3 (the `PAPER`/`CASH` decision
+engine) never runs — every research queue item's `classification_ceiling`
+stays exactly `RESEARCH-MODEL` with `cash_stake: 0`/`simulated_stake: 0`,
+structurally, not by convention, and each item also explicitly carries
+`workflow_state: "RESEARCH_QUEUE"`, `forecast_probability_status:
+"NOT_COMPUTED"`, `edge_status: "NOT_COMPUTED"`, `recommendation_status:
+"NOT_AVAILABLE"` and `stake_status: "NOT_AVAILABLE"` — fixed values with
+no code path that can set them to anything else. A market whose own
+pricing-quality signal is not `NORMAL` (arbitrage-shaped or
+high-margin/low-evidence) is excluded with a typed reason rather than
+queued.
+
+Queue order is the pricing engine's own `research_priority_score`,
+orders **markets**, never outcomes — deliberately not expected value:
+under proportional de-vigging, EV reduces algebraically to the same value
+for every outcome in a market and is non-positive whenever margin is
+nonnegative, so it is not a usable signal (see
+`src/pcbf_calculator/screening/research_batch.py`'s own module docstring
+for the full reasoning and in/out-of-scope list). A tighter bookmaker
+margin means cleaner, more complete pricing data — not a better bet. No
+outcome is ever singled out, named "best," or selected anywhere in the
+output; the full per-outcome pricing detail is kept for audit, clearly
+labeled as market-implied de-vigged values, never a forecast. No
+probability generation, no staking, no `PAPER`/`CASH` promotion, no
+recommendation of any kind.
 
 Run the test suite (zero dependencies, stdlib `unittest`):
 

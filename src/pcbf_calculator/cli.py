@@ -308,6 +308,14 @@ def main(argv: list[str] | None = None) -> int:
 
         return ingest_bet9ja_main(argv[1:])
 
+    # ``screen-research-batch`` is likewise additive -- see
+    # ``screening/research_batch.py``'s own module docstring. It consumes
+    # the ``pcbf-research-batch.json`` the command above produces.
+    if argv and argv[0] == "screen-research-batch":
+        from .screening.research_batch import main as screen_research_batch_main
+
+        return screen_research_batch_main(argv[1:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
     parser.add_argument("output", type=Path, nargs="?", help="Optional output JSON file")
