@@ -471,6 +471,24 @@ jobs:
           print_reliability_table("Model", rolling["model_metrics"])
           PY
 
+      # TEMPORARY evidence-gathering step for the Elo v1 adapter PR --
+      # dumps the derived, aggregate live-ratings snapshot to the job log
+      # (never raw third-party row content) since this session's network
+      # policy blocks the artifact-download host. Removed before the
+      # adapter PR is opened.
+      - name: TEMP - export and dump live Elo ratings snapshot
+        run: |
+          python -m research.soccer_1x2_elo_baseline.export_live_snapshot
+          echo "===LIVE_SNAPSHOT_BEGIN==="
+          cat research/soccer_1x2_elo_baseline/reports/live_snapshot.json
+          echo "===LIVE_SNAPSHOT_END==="
+          echo "===MODEL_ARTIFACT_BEGIN==="
+          cat research/soccer_1x2_elo_baseline/reports/model_artifact.json
+          echo "===MODEL_ARTIFACT_END==="
+          echo "===EVALUATION_REPORT_BEGIN==="
+          cat research/soccer_1x2_elo_baseline/reports/evaluation_report.json
+          echo "===EVALUATION_REPORT_END==="
+
       - uses: actions/upload-artifact@v4
         with:
           name: football-data-feasibility-evidence

@@ -103,6 +103,12 @@ class SeasonStageTracker:
         key = (league_code, season_code, team_name)
         self._counts[key] = self._counts.get(key, 0) + 1
 
+    def snapshot_counts(self) -> dict[tuple[str, str, str], int]:
+        """A copy of every `(league_code, season_code, team_name)` count
+        currently held. Read-only, additive accessor -- see
+        `EloEngine.snapshot_ratings`'s docstring for why this exists."""
+        return dict(self._counts)
+
 
 def league_one_hot(league_code: str) -> list[float]:
     """Four dummy columns in `DUMMY_LEAGUE_CODES` order. `E0` (or any

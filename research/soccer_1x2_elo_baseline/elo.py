@@ -120,6 +120,22 @@ class EloEngine:
     def _key(self, league_code: str, team_name: str) -> tuple[str, str]:
         return (league_code, team_name)
 
+    def snapshot_ratings(self) -> dict[tuple[str, str], float]:
+        """A copy of every `(league_code, team_name)` rating currently
+        held, as of the last `apply_match_result` call. Read-only,
+        additive accessor for a caller that needs to persist "current
+        team strength as of this point" (e.g. an adapter serving live
+        forecasts after replaying the full real match history) — it
+        exposes state this engine already computes, without changing any
+        of its own update behavior."""
+        return dict(self._ratings)
+
+    def snapshot_matches_played(self) -> dict[tuple[str, str], int]:
+        """A copy of every `(league_code, team_name)` real-match count
+        currently held. Same read-only, additive purpose as
+        `snapshot_ratings`."""
+        return dict(self._matches_played)
+
     def get_pre_match_state(self, league_code: str, team_name: str) -> EloState:
         """The team's Elo state as it stands right now (i.e. BEFORE any
         match not yet applied via `apply_match_result`)."""
