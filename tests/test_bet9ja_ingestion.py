@@ -431,5 +431,58 @@ class Round14RegressionTest(unittest.TestCase):
                 self.assertEqual((out1 / filename).read_bytes(), (out2 / filename).read_bytes())
 
 
+# Second real-data regression: a trimmed, internally-reconciled extract of
+# an actual assembled export from a different real capture session
+# (soccer-2026-09-13T14-10-35Z) than the Round 14 fixture above -- this one
+# specifically exercises the AMBIGUOUS-vs-ALREADY-STARTED kickoff path on
+# real display text, not just the clean-admission path. Two real COMPLETED
+# competitions, one real fixture each: LaLiga/180928 (Getafe vs Dep. La
+# Coruna, kickoff "Sun 13 Sep" "17:30") which resolves to after the
+# session's own captured_at_utc and is admitted, and Hungary NB I,
+# Women/825136 (Astra HFC Budapest vs Puskas Akademia Felcsut, kickoff
+# "Sun 13 Sep" "15:30") which resolves to at-or-before captured_at_utc and
+# is quarantined BET9JA_ALREADY_STARTED -- exactly the real defect shape
+# this session's own "Retry failed competitions" -> "Download current
+# results" round-trip produced on a live account. Every id, team name,
+# price and date/time string below is real Bet9ja data, never fabricated.
+class T14105RetryCompletionRegressionTest(unittest.TestCase):
+    def test_retry_completion_export_admits_one_quarantines_one_already_started(self):
+        fixture = FIXTURES_DIR / "bet9ja-soccer-all-t14-10-35z-retry-completion-real-extract.json"
+        envelope = json.loads(fixture.read_text(encoding="utf-8"))
+        result = ingest_assembled_capture(envelope)
+        validation = result["capture_validation"]
+        self.assertEqual(validation["ledger_reconciliation"]["total"], 2)
+        self.assertEqual(validation["ledger_reconciliation"]["completed"], 2)
+        self.assertEqual(validation["source_fixtures"], 2)
+        self.assertEqual(validation["admitted_fixtures"], 1)
+        self.assertEqual(validation["quarantined_fixtures"], 1)
+        self.assertEqual(validation["competitions_represented"], 1)
+        self.assertEqual(validation["reason_counts"], {BET9JA_ALREADY_STARTED: 1})
+
+        admitted = result["fixtures_normalized"]["fixtures"]
+        self.assertEqual(len(admitted), 1)
+        self.assertEqual(admitted[0]["source_competition_id"], "180928")
+        self.assertEqual(admitted[0]["home"], "Getafe")
+        self.assertEqual(admitted[0]["away"], "Dep. La Coruna")
+        self.assertEqual(admitted[0]["classification_ceiling"], "RESEARCH-MODEL")
+
+        quarantined = result["fixtures_quarantined"]["quarantined"]
+        self.assertEqual(len(quarantined), 1)
+        self.assertEqual(quarantined[0]["reason"], BET9JA_ALREADY_STARTED)
+        self.assertEqual(quarantined[0]["source_competition_id"], "825136")
+
+    def test_retry_completion_export_repeated_ingestion_is_byte_identical(self):
+        import tempfile
+
+        fixture = FIXTURES_DIR / "bet9ja-soccer-all-t14-10-35z-retry-completion-real-extract.json"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            out1, out2 = tmp_dir / "run1", tmp_dir / "run2"
+            run_ingest(fixture, out1)
+            run_ingest(fixture, out2)
+            for filename in ("capture-validation.json", "fixtures-normalized.json", "fixtures-quarantined.json", "pcbf-research-batch.json"):
+                self.assertEqual((out1 / filename).read_bytes(), (out2 / filename).read_bytes())
+
+
 if __name__ == "__main__":
     unittest.main()
