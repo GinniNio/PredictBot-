@@ -12,12 +12,15 @@ buttons:
   below — Round 5 rewrite against the confirmed batch competition
   selector on `/sportPage/1/competitions`, superseding Rounds 1-4's
   per-competition walker after a real capture hit an unresolved
-  return-between-competitions failure; architecture and aggregation logic
-  implemented and tested, pending one real end-to-end click-through):
-  selects every country's competitions in batches and clicks "Show
-  Leagues" to capture each batch's combined pre-match ordinary-1X2
-  fixtures via the same engine as **Capture fixtures**, into one
-  deduplicated combined file — retiring manual per-competition selection.
+  return-between-competitions failure; **CONFIRMED via a real,
+  end-to-end 322-competition capture — see
+  SOCCER_ALL_COMPETITIONS_VALIDATION.md's "Round 14 — CONFIRMED"
+  section**): selects every country's competitions in batches and
+  clicks "Show Leagues" to capture each batch's combined pre-match
+  ordinary-1X2 fixtures via the same engine as **Capture fixtures**,
+  checkpointed to a durable, resumable session (see "Durable
+  checkpointed capture sessions" below), into one deduplicated combined
+  file — retiring manual per-competition selection.
 - **Capture open bets** (see "Open bet ticket capture" below — real
   selectors confirmed through Round 6 for ticket boundaries/id/legs/
   pagination/most stake fields; 80/80 real tickets parsed cleanly on the

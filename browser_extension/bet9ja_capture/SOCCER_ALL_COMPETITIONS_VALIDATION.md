@@ -1796,3 +1796,42 @@ If `BATCH_OUTCOME_FIXTURE_CONFLICT` or `SEGMENT_OUTCOME_FIXTURE_CONFLICT`
 ever throws in a real run, that is now itself the most useful possible
 evidence -- it means the classification fix still has a gap, pinpointed
 to the exact competition/batch that triggered it.
+
+## Round 14 -- CONFIRMED (2026-09-12, 15:30:23Z assembled export)
+
+A brand-new capture (per the Round 15 recommendation above -- the
+previously-corrupted session was cleared first, never resumed/retried)
+ran end to end and the assembled export is internally consistent by
+every check this project has ever required:
+
+| Final check | Result |
+|---|---:|
+| Inventory | 322 |
+| Completed | 322 |
+| Empty / failed / pending | 0 / 0 / 0 |
+| Unique ledger IDs | 322 |
+| Fixtures | 1,208 |
+| Competition IDs represented | 322 |
+| Ledger entries lacking fixtures | 0 |
+| Fixtures lacking ledger entries | 0 |
+| Empty/fixture conflicts | 0 |
+| Duplicate fixture IDs | 0 |
+| Missing competition attribution | 0 |
+| Missing ledger provenance | 0 |
+
+Every captured record is pre-match Soccer. 2,399 records were retained
+as `unparsed_records` (2,398 unsupported market-family rows, one
+incomplete 1X2 market) -- expected, and consistent with this release's
+own ordinary-1X2-only scope (see the top of this document and README.md's
+"Scope" section).
+
+This closes every real-capture defect this document has tracked since
+Round 1: the sport-context gate (Round 10), timeout resilience (Round
+11), the ledger/fixture consistency guarantees (Rounds 13-14), and the
+per-table classification bug (Round 14) all held simultaneously against
+a full, real, 322-competition run for the first time. `PARSER_VERSION`
+is bumped to a non-`-unverified` tag accordingly (see `soccer_walker.js`
+itself) -- this project's evidence-only versioning discipline is
+satisfied: a real capture, not a synthetic test, confirmed the fix.
+
+PR #38 is merged on the strength of this result.

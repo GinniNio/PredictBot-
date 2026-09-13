@@ -171,11 +171,21 @@
   // and kept, immune to that collapse by construction, with a hard
   // runtime invariant (`BATCH_OUTCOME_FIXTURE_CONFLICT`) that throws
   // rather than ever silently returning a `BATCH_EMPTY` outcome
-  // alongside parsed fixtures again. Still `-unverified`: not yet
-  // exercised against the live account. Per this project's evidence-only
-  // versioning discipline, the version string advances only after a real
-  // capture confirms this round's fix too.
-  const PARSER_VERSION = 'bet9ja-soccer-walker@0.7.0-round14-batch-outcome-fixture-conflict-fix-unverified';
+  // alongside parsed fixtures again.
+  //
+  // CONFIRMED (2026-09-12, 15:30:23Z assembled export): a full, real,
+  // 322-competition capture ran end to end with every consistency check
+  // this project has ever required passing at zero -- zero empty/failed/
+  // pending, zero ledger entries lacking fixtures, zero fixtures lacking
+  // ledger entries, zero empty/fixture conflicts, zero duplicate fixture
+  // ids, zero missing attribution, zero missing provenance (1,208
+  // fixtures across 322 competitions). This is the first time every
+  // fix since Round 10 has held simultaneously against a full real run.
+  // Per this project's evidence-only versioning discipline, the version
+  // string now drops "-unverified" -- see
+  // SOCCER_ALL_COMPETITIONS_VALIDATION.md's own "Round 14 -- CONFIRMED"
+  // section for the full evidence.
+  const PARSER_VERSION = 'bet9ja-soccer-walker@0.7.0-round14-batch-outcome-fixture-conflict-fix';
 
   const INVENTORY_PROFILE = 'BET9JA_SPORTPAGE_COMPETITIONS_SELECTOR';
   const START_ROUTE_PATTERN = /^\/sportPage\/1\/competitions\/?$/;
