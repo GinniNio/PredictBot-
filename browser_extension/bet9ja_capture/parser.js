@@ -182,6 +182,108 @@
     return { sportSlug: match[1].toUpperCase(), countrySlug: match[2], competitionSlug: match[3] };
   }
 
+  // --- Trusted forced-sport context (soccer_walker.js's
+  // `/sportPage/1/competitions` batch selector) --------------------------
+  //
+  // `/sportPage/1/competitions` never carries a `/competition/{sport}/...`
+  // URL (see parseBet9jaCompetitionUrl's own comment), and it is NOT
+  // confirmed whether its fixture rows carry an id-embedded `sport-N`
+  // segment either -- both of this file's existing sport-resolution tiers
+  // can come back empty on that page even though every row is,
+  // definitionally, Soccer (it is Bet9ja's own Soccer competitions
+  // selector). Rather than have the walker guess a row value, the caller
+  // may pass a trusted CLAIM via `context.forced_sport_context`, and this
+  // module independently verifies it against the page before ever trusting
+  // it -- the caller's claim alone is never sufficient.
+  //
+  // ROUND 10 CORRECTION (real evidence: a 13:05:54 diagnostic capture):
+  // Rounds 6 and 8 both gated this on a rendered "visible sport heading"
+  // (an exact page-level "Soccer" match) and a per-table "Soccer > Country
+  // > Competition" breadcrumb (`.sports-table.previousElementSibling`).
+  // Neither ever existed on the real page -- the real diagnostic capture
+  // showed content readiness fully passing (two `.sports-table`s, four
+  // ready matchup rows, zero loading indicators) while BOTH heading checks
+  // failed, and `.sports-table.previousElementSibling` on the real page
+  // turned out to hold date/market-column header text (e.g. "Sat 12 Sep
+  // 1X2 1X 12 X2 Goals..."), never a competition breadcrumb. Guessing a
+  // third heading selector would repeat the same mistake, so this gate is
+  // rebuilt on three conditions this module (and soccer_walker.js's own
+  // caller) can verify without reading any rendered heading at all:
+  //   1. The page's own URL pathname exactly matches
+  //      `/sportPage/1/competitions` (routeCheckPassed below).
+  //   2. The caller's declared `capture_scope` matches
+  //      SOCCER_ALL_PREMATCH_COMPETITIONS (part of claimValid below).
+  //   3. The caller's claim carries a non-empty `selected_competition_ids`
+  //      array -- soccer_walker.js's own trusted record of which
+  //      checkbox ids it actually selected from the Soccer inventory
+  //      before calling Show Leagues (also part of claimValid below).
+  // Any disagreement still fails the WHOLE capture closed with
+  // `SPORT_CONTEXT_CONFLICT` -- this narrows what the gate checks, it does
+  // not remove the fail-closed guarantee itself.
+  const FORCED_SPORT_CONTEXT_ROUTE_PATTERN = /^\/sportPage\/1\/competitions\/?$/;
+  // Matches BET9JA_DESKTOP_SPORT_CODE_MAP's own confirmed `1 => SOCCER`
+  // mapping (Highlights page row ids) -- the same sport id, on a
+  // DIFFERENT page, is corroborating evidence, not a fresh guess.
+  const FORCED_SPORT_CONTEXT_SPORT_ID = '1';
+  const EXPECTED_FORCED_CAPTURE_SCOPE = 'SOCCER_ALL_PREMATCH_COMPETITIONS';
+
+  /**
+   * Returns `{active: false}` when the caller passed no
+   * `forced_sport_context` at all (ordinary captureFromDocument calls are
+   * completely unaffected). Otherwise `{active: true, ok, sportHint,
+   * diagnostics}` -- `ok` is only true when all three machine-verifiable
+   * conditions documented above hold (route, declared capture_scope, and a
+   * non-empty selected_competition_ids claim); any disagreement is
+   * `{active: true, ok: false}` plus a non-null `diagnostics` object
+   * naming exactly which check failed (`ROUTE_MISMATCH` or
+   * `CLAIM_INVALID`) and the actual claim/route values examined, so a real
+   * `SPORT_CONTEXT_CONFLICT` never has to be diagnosed by guessing at a
+   * new selector blind. This never inspects any rendered heading or
+   * breadcrumb -- see the ROUND 10 CORRECTION comment above.
+   */
+  function validateForcedSportContext(doc, context) {
+    const forced = context.forced_sport_context;
+    if (!forced) return { active: false, ok: false, sportHint: null, diagnostics: null };
+
+    let pathname = '';
+    try {
+      pathname = new URL(context.sourceUrl).pathname;
+    } catch (err) {
+      pathname = '';
+    }
+    const routeCheckPassed = FORCED_SPORT_CONTEXT_ROUTE_PATTERN.test(pathname);
+
+    const selectedCompetitionIds = Array.isArray(forced.selected_competition_ids) ? forced.selected_competition_ids : [];
+    const claimValid =
+      forced.forced_sport_hint === 'SOCCER' &&
+      forced.forced_sport_source === 'SPORTPAGE_ROUTE_ID' &&
+      forced.forced_sport_source_value === FORCED_SPORT_CONTEXT_SPORT_ID &&
+      forced.capture_scope === EXPECTED_FORCED_CAPTURE_SCOPE &&
+      selectedCompetitionIds.length > 0;
+
+    const ok = routeCheckPassed && claimValid;
+    if (ok) {
+      return { active: true, ok: true, sportHint: forced.forced_sport_hint, diagnostics: null };
+    }
+
+    return {
+      active: true,
+      ok: false,
+      sportHint: null,
+      diagnostics: {
+        pathname_actual: pathname,
+        pathname_expected: FORCED_SPORT_CONTEXT_ROUTE_PATTERN.source,
+        route_check_passed: routeCheckPassed,
+        capture_scope_actual: forced.capture_scope || null,
+        capture_scope_expected: EXPECTED_FORCED_CAPTURE_SCOPE,
+        forced_sport_hint: forced.forced_sport_hint || null,
+        selected_competition_ids: selectedCompetitionIds,
+        claim_check_passed: claimValid,
+        failed_check: routeCheckPassed ? 'CLAIM_INVALID' : 'ROUTE_MISMATCH',
+      },
+    };
+  }
+
   // Defensive exclusion for the BET9JA_DESKTOP fallback profile only,
   // applied to both matched `.sports-table` roots and the rows found
   // inside them: scoping rows to `.sports-table > .table-f` already
@@ -278,21 +380,34 @@
    * therefore always report it unresolved for this profile today, which
    * is the honest outcome, not a bug to work around.
    */
-  function extractBet9jaDesktopFields(row, dateHeadingRaw, urlCompetitionInfo) {
+  function extractBet9jaDesktopFields(row, dateHeadingRaw, urlCompetitionInfo, forcedSportHint) {
     const identityEl = row.querySelector(BET9JA_DESKTOP_SELECTORS.identityElement);
     const eventIdMatch = identityEl && identityEl.id.match(BET9JA_DESKTOP_SELECTORS.eventIdPattern);
     const sportCodeMatch = identityEl && identityEl.id.match(BET9JA_DESKTOP_SELECTORS.sportCodePattern);
     const externalFixtureRef = eventIdMatch ? `bet9ja-event-${eventIdMatch[1]}` : null;
 
-    // Sport is resolved two ways, tried in order: (1) an id-embedded
+    // Sport is resolved three ways, tried in order: (1) an id-embedded
     // "sport-N" segment, confirmed only on the Highlights page; (2) absent
     // that, the page's own URL, confirmed only for the four competition
-    // pages parseBet9jaCompetitionUrl matches. Neither guessed if both are
-    // absent -- sportHintRaw stays '' and the row is correctly excluded
-    // via UNSUPPORTED_SPORT rather than admitted on a hunch.
+    // pages parseBet9jaCompetitionUrl matches; (3) absent BOTH, a
+    // caller-supplied `forcedSportHint`, but ONLY when
+    // validateForcedSportContext has already independently verified it
+    // against the page (see that function's own comment) -- this tier
+    // never runs on an ordinary, context-free call. Tier (3) is gated on
+    // `!sportCode`, not merely on tier (1) coming back empty: a row whose
+    // id DOES carry a "sport-N" segment, even one this file has no
+    // mapping for, has already told us something concrete about itself
+    // and must never be silently relabeled by a forced context -- only a
+    // row with NO id-embedded sport signal at all is eligible for the
+    // forced fallback. Nothing guessed if all three are absent --
+    // sportHintRaw stays '' and the row is correctly excluded via
+    // UNSUPPORTED_SPORT rather than admitted on a hunch.
     const sportCode = sportCodeMatch ? sportCodeMatch[1] : null;
     const sportHintRaw =
-      (sportCode && BET9JA_DESKTOP_SPORT_CODE_MAP[sportCode]) || (urlCompetitionInfo && urlCompetitionInfo.sportSlug) || '';
+      (sportCode && BET9JA_DESKTOP_SPORT_CODE_MAP[sportCode]) ||
+      (urlCompetitionInfo && urlCompetitionInfo.sportSlug) ||
+      (!sportCode ? forcedSportHint : null) ||
+      '';
 
     const marketsByFamily = new Map();
     for (const li of Array.from(row.querySelectorAll(BET9JA_DESKTOP_SELECTORS.oddsItem))) {
@@ -411,6 +526,8 @@
     updatedIndex,
     fixtures,
     unparsedRecords,
+    attributionUnresolved = false,
+    resolvedSourceCompetitionId = null,
   }) {
     const { homeRaw, awayRaw, kickoffText, kickoffUtcAttr, sportHintRaw, statusAttr, externalFixtureRef, markets, dateHeadingRaw } = fields;
     const sport = (sportHintRaw || '').trim().toUpperCase() || 'UNKNOWN';
@@ -431,6 +548,30 @@
       date_heading_raw: dateHeadingRaw || null,
       markets: markets.map((m) => ({ family: m.family, line: m.line, outcomes: m.outcomes })),
     };
+
+    // Attribution takes precedence over every other classification: a
+    // caller-supplied per-table competition resolver (soccer_walker.js's
+    // batch selector, which can render more than one competition's
+    // fixtures on one page) that could not uniquely map this row's own
+    // `.sports-table` to one of the batch's selected competitions means
+    // this row's identity itself is unresolved -- retaining it as a real
+    // fixture would risk mislabeling it under the wrong competition, a
+    // worse outcome than an honest unresolved record. Never reached on an
+    // ordinary call with no resolver (`attributionUnresolved` defaults to
+    // false).
+    if (attributionUnresolved) {
+      unparsedRecords.push(
+        makeUnparsed({
+          reason: 'COMPETITION_ATTRIBUTION_UNRESOLVED',
+          expectedUnsupported: false,
+          sectionIndex,
+          recordIndex,
+          detail: 'This row\'s .sports-table could not be uniquely mapped to one of the batch\'s selected competitions.',
+          raw: rawSnapshot,
+        })
+      );
+      return ROW_UNRESOLVED;
+    }
 
     if (!homeRaw || !awayRaw) {
       unparsedRecords.push(
@@ -640,6 +781,13 @@
         captured_at_utc: capturedAtUtc,
         duplicate_status: duplicateStatus,
         parser_version: PARSER_VERSION,
+        // Populated only when a per-table competition resolver was
+        // supplied AND uniquely resolved this fixture's own
+        // `.sports-table` -- null on every ordinary call. This is a
+        // single, confirmed id (never a batch-wide guess): a table whose
+        // attribution could not be resolved never reaches this far at all
+        // (see the attributionUnresolved gate above).
+        resolved_source_competition_id: resolvedSourceCompetitionId || null,
       });
       rowProducedFixture = true;
     }
@@ -662,6 +810,8 @@
     const unparsedRecords = [];
     const seenFixtureIdsThisCapture = new Set();
 
+    const forcedSportContextResult = validateForcedSportContext(doc, context);
+
     const envelopeBase = {
       schema_version: 'bet9ja-fixture-capture.v1',
       capture_id: Bet9jaIds.captureId(capturedAtUtc),
@@ -669,6 +819,7 @@
       source_url: sanitizeSourceUrl(context.sourceUrl),
       page_title: context.pageTitle,
       parser_version: PARSER_VERSION,
+      forced_sport_context_applied: forcedSportContextResult.active && forcedSportContextResult.ok,
     };
 
     function finalize({
@@ -680,6 +831,8 @@
       lazyLoadingDetected,
       fallbackProfileActive,
       zeroRecordsReason = 'NO_RECORDS_FOUND',
+      tableAttributionSummary = null,
+      sportContextDiagnostics = null,
     }) {
       let captureStatus;
       const statusReasons = [];
@@ -735,11 +888,42 @@
             collapsed_sections_detected: collapsedSectionsDetected,
             lazy_loading_detected: lazyLoadingDetected,
           },
+          // Only non-null when resolve_table_competition was supplied --
+          // see that context option's own comment. One entry per
+          // `.sports-table`: `{source_competition_id, resolved, row_count}`.
+          table_attribution_summary: tableAttributionSummary,
+          // Non-null ONLY when a forced_sport_context claim was rejected
+          // -- names exactly which check failed (`failed_check`) and what
+          // was actually found on the page (sanitized, bounded audit
+          // text), so a real SPORT_CONTEXT_CONFLICT never has to be
+          // diagnosed by guessing at a new selector blind.
+          sport_context_diagnostics: sportContextDiagnostics,
           fixtures,
           unparsed_records: unparsedRecords,
         },
         updatedIndex,
       };
+    }
+
+    if (forcedSportContextResult.active && !forcedSportContextResult.ok) {
+      // The caller asked this capture to trust a forced Soccer
+      // classification, but this module's own independent check of the
+      // page's route and/or visible sport heading disagreed with it (or
+      // the caller's claim itself was malformed). Fail the WHOLE capture
+      // closed rather than silently falling back to per-row
+      // UNSUPPORTED_SPORT (indistinguishable from a real parser defect)
+      // or trusting an unverified claim.
+      return finalize({
+        sectionsSeen: 0,
+        recordsSeen: 0,
+        recordsUnresolved: 0,
+        recordsExpectedUnsupported: 0,
+        collapsedSectionsDetected: false,
+        lazyLoadingDetected: false,
+        fallbackProfileActive: false,
+        zeroRecordsReason: 'SPORT_CONTEXT_CONFLICT',
+        sportContextDiagnostics: forcedSportContextResult.diagnostics,
+      });
     }
 
     const rootEl = doc.querySelector(SELECTORS.root);
@@ -779,6 +963,20 @@
       const fallbackRegion = urlCompetitionInfo ? urlCompetitionInfo.countrySlug : null;
       const fallbackCompetition = urlCompetitionInfo ? urlCompetitionInfo.competitionSlug : null;
 
+      // Per-table competition attribution (soccer_walker.js's batch
+      // selector only -- a page can render more than one competition's
+      // fixtures at once there, unlike every other confirmed page shape
+      // this profile handles). `null` on an ordinary call: every table on
+      // the page then keeps using the single page-wide
+      // fallbackRegion/fallbackCompetition above, completely unchanged.
+      // When supplied, called ONCE per `.sports-table` with that table
+      // element; must return either `{resolved: true, sourceCompetitionId,
+      // competitionNameRaw, countryNameRaw}` or `{resolved: false}` --
+      // never guessed at by this file, which has no confirmed knowledge of
+      // which competitions were actually selected.
+      const resolveTableCompetition =
+        typeof context.resolve_table_competition === 'function' ? context.resolve_table_competition : null;
+
       // A `.sports-table`'s date heading lives in a `.sports-head` wrapper
       // that is a SIBLING of the table, both children of a common
       // day-wrapper element -- confirmed only after two prior wrong
@@ -810,6 +1008,13 @@
       let recordsSeen = 0;
       let recordsUnresolved = 0;
       let recordsExpectedUnsupported = 0;
+      // Only populated when resolveTableCompetition was supplied -- one
+      // entry per `.sports-table`, so a caller (soccer_walker.js's batch
+      // selector) can classify each SELECTED competition as captured,
+      // confirmed-empty, or attribution-unresolved, rather than assuming
+      // every selected competition succeeded merely because the batch as
+      // a whole produced some fixtures.
+      const tableAttributionSummary = resolveTableCompetition ? [] : null;
 
       desktopTables.forEach((table) => {
         // One date heading per table (see findPrecedingDateHeading), so
@@ -819,11 +1024,24 @@
         const currentDateHeading = findPrecedingDateHeading(table);
         let currentSectionIndex = -1; // -1 == no row counted under this table yet
         let recordIndexInSection = 0;
+        let candidateRowCountInTable = 0;
+
+        // Resolved ONCE per table, never per row -- a resolver deciding
+        // differently for two rows in the same table would itself be
+        // evidence of a bug, not a per-row concept.
+        const tableAttribution = resolveTableCompetition ? resolveTableCompetition(table) || { resolved: false } : null;
+        const attributionUnresolved = !!(tableAttribution && !tableAttribution.resolved);
+        const tableRegion = tableAttribution && tableAttribution.resolved ? tableAttribution.countryNameRaw || null : fallbackRegion;
+        const tableCompetition =
+          tableAttribution && tableAttribution.resolved ? tableAttribution.competitionNameRaw || null : fallbackCompetition;
+        const tableResolvedCompetitionId =
+          tableAttribution && tableAttribution.resolved ? tableAttribution.sourceCompetitionId || null : null;
 
         Array.from(table.children).forEach((child) => {
           if (!isCandidateRow(child)) {
             return;
           }
+          candidateRowCountInTable += 1;
           if (currentSectionIndex === -1) {
             sectionsSeen += 1;
             currentSectionIndex = sectionsSeen - 1;
@@ -831,9 +1049,14 @@
           }
           recordsSeen += 1;
           const rowClassification = processRow({
-            fields: extractBet9jaDesktopFields(child, currentDateHeading, urlCompetitionInfo),
-            region: fallbackRegion,
-            competition: fallbackCompetition,
+            fields: extractBet9jaDesktopFields(
+              child,
+              currentDateHeading,
+              urlCompetitionInfo,
+              forcedSportContextResult.ok ? forcedSportContextResult.sportHint : null
+            ),
+            region: tableRegion,
+            competition: tableCompetition,
             sectionIndex: currentSectionIndex,
             recordIndex: recordIndexInSection,
             capturedAtUtc,
@@ -842,11 +1065,21 @@
             updatedIndex,
             fixtures,
             unparsedRecords,
+            attributionUnresolved,
+            resolvedSourceCompetitionId: tableResolvedCompetitionId,
           });
           if (rowClassification === ROW_UNRESOLVED) recordsUnresolved += 1;
           if (rowClassification === ROW_EXPECTED_UNSUPPORTED) recordsExpectedUnsupported += 1;
           recordIndexInSection += 1;
         });
+
+        if (tableAttributionSummary) {
+          tableAttributionSummary.push({
+            source_competition_id: tableResolvedCompetitionId,
+            resolved: !!(tableAttribution && tableAttribution.resolved),
+            row_count: candidateRowCountInTable,
+          });
+        }
       });
 
       return finalize({
@@ -857,6 +1090,7 @@
         collapsedSectionsDetected: false,
         lazyLoadingDetected: doc.querySelector(SELECTORS.lazyPlaceholder) !== null,
         fallbackProfileActive: true,
+        tableAttributionSummary,
       });
     }
 

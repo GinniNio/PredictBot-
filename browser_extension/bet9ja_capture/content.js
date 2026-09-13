@@ -37,27 +37,60 @@
   };
 
   // Third, independent entry point for the "Capture all Soccer fixtures"
-  // button -- injected alongside parser.js + soccer_walker.js only. Walks
-  // every discovered Soccer competition-menu link, capturing each one's
-  // fixtures via parser.js's own captureFromDocument (never re-parsed
-  // here) and combining them into one deduplicated envelope. Returns a
-  // Promise for the same reason __bet9jaTicketCaptureRun does -- see its
-  // own comment above. Exposes the same polling-based cancel surface as
-  // the settled-bets entry point below (a function reference cannot
-  // cross the chrome.scripting.executeScript() argument boundary).
-  window.__bet9jaSoccerAllCompetitionsCaptureRun = function (sourceUrl, pageTitle, capturedAtUtc) {
+  // button -- injected alongside parser.js + soccer_walker.js only.
+  // Selects every discovered Soccer competition's checkbox on
+  // `/sportPage/1/competitions` in batches (Bet9ja's own selection limit
+  // is discovered operationally, never hard-coded), clicking "Show
+  // Leagues" once per batch and capturing that batch's combined fixtures
+  // via parser.js's own captureFromDocument (never re-parsed here),
+  // combined into one deduplicated envelope. Returns a Promise for the
+  // same reason __bet9jaTicketCaptureRun does -- see its own comment
+  // above. Exposes the same polling-based cancel surface as the
+  // settled-bets entry point below (a function reference cannot cross
+  // the chrome.scripting.executeScript() argument boundary).
+  //
+  // Session-checkpointing support (soccer_session.js / popup.js's
+  // Start/Resume/Retry-failed actions): `competitionIdFilterArg`, when a
+  // non-empty array, is forwarded as soccer_walker.js's own
+  // `competitionIdFilter` (see its own comment) so a resume/retry run
+  // only WALKS the caller-chosen subset of the freshly discovered
+  // inventory. `onBatchComplete` deltas are queued into
+  // `window.__bet9jaSoccerAllPendingDeltas` rather than sent directly
+  // (a function reference cannot cross the executeScript() argument
+  // boundary either) -- popup.js periodically re-injects
+  // `__bet9jaSoccerAllDrainPendingDeltas` to collect and persist them via
+  // soccer_session.js, exactly the same "poll a shared window variable"
+  // pattern __bet9jaSettledBetsReadProgress already uses below, so a
+  // session can be saved after EVERY batch, not only once this whole
+  // call finally resolves.
+  window.__bet9jaSoccerAllCompetitionsCaptureRun = function (sourceUrl, pageTitle, capturedAtUtc, competitionIdFilterArg, discoveryOnlyArg) {
     window.__bet9jaSoccerAllCancelRequested = false;
+    window.__bet9jaSoccerAllPendingDeltas = [];
     return window.Bet9jaSoccerWalker.captureAllSoccerCompetitions(document, {
       sourceUrl,
       pageTitle,
       capturedAtUtc,
       shouldCancel: () => window.__bet9jaSoccerAllCancelRequested === true,
+      discoveryOnly: !!discoveryOnlyArg,
+      competitionIdFilter: Array.isArray(competitionIdFilterArg) && competitionIdFilterArg.length > 0 ? competitionIdFilterArg : null,
+      onBatchComplete: (delta) => {
+        window.__bet9jaSoccerAllPendingDeltas.push(delta);
+      },
     });
   };
 
   window.__bet9jaSoccerAllRequestCancel = function () {
     window.__bet9jaSoccerAllCancelRequested = true;
     return true;
+  };
+
+  // Drains (reads AND clears) every batch delta queued since the last
+  // drain -- called on a poll interval from popup.js while a checkpointed
+  // run is in flight, so each delta is persisted exactly once.
+  window.__bet9jaSoccerAllDrainPendingDeltas = function () {
+    const pending = window.__bet9jaSoccerAllPendingDeltas || [];
+    window.__bet9jaSoccerAllPendingDeltas = [];
+    return pending;
   };
 
   // Fourth, independent entry point for the "Capture settled bets" button --
