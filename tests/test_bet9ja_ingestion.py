@@ -389,32 +389,46 @@ class CliIntegrationTests(unittest.TestCase):
 
 # 18. The successful Round 14 export passes as a regression fixture.
 #
-# [PENDING REAL EVIDENCE]: the actual clean Round 14 assembled export
-# (bet9ja-soccer-all-soccer-2026-09-12T15-30-23Z.json, 322 competitions,
-# 1,208 fixtures, zero conflicts) was referenced from a sandbox path this
-# session could not read. The file available locally
-# (tests/fixtures/bet9ja/bet9ja-soccer-all-round13-confirmed-empty-with-fixtures-real-extract.json)
-# is a real-data extract of the PRE-fix, CORRUPTED export -- used above
-# (test_confirmed_empty_competition_with_fixtures_fails_real_evidence) to
-# prove this bridge correctly REJECTS it, which is itself real regression
-# coverage. Once the actual Round 14 clean file is supplied, add it here
-# verbatim (e.g. as
-# tests/fixtures/bet9ja/bet9ja-soccer-all-round14-confirmed-clean.json)
-# and un-skip this test -- never fabricate a substitute "clean" file to
-# make this test pass, per this project's own evidence-only discipline.
+# tests/fixtures/bet9ja/bet9ja-soccer-all-round14-confirmed-clean.json is
+# a COMPACT, internally-reconciled extract of a real clean assembled
+# capture (soccer-2026-09-13T12-32-36Z -- run twice via
+# `python -m pcbf_calculator ingest-bet9ja`, both runs producing
+# byte-identical output). The live capture itself (869 KB, 282
+# competitions, 268 fixtures, 61 completed/0 confirmed_empty/0 failed/221
+# pending, all 268 fixtures admitted with zero quarantined) is
+# deliberately NOT committed -- this fixture keeps 3 real COMPLETED
+# competitions (with all of their real fixtures verbatim) and 2 real
+# PENDING competitions (zero fixtures, proving a genuinely-pending
+# competition with no fixtures attached is fine), with `summary`
+# re-totaled to match exactly this trimmed subset. Every id, team name,
+# price, and date/time string below is real Bet9ja data, never
+# fabricated.
 class Round14RegressionTest(unittest.TestCase):
-    @unittest.skip(
-        "Pending upload of the real Round 14 clean assembled export "
-        "(bet9ja-soccer-all-soccer-2026-09-12T15-30-23Z.json) -- see this "
-        "module's own comment immediately above. Never faked."
-    )
     def test_round14_confirmed_export_passes_with_zero_conflicts(self):
         round14_fixture = FIXTURES_DIR / "bet9ja-soccer-all-round14-confirmed-clean.json"
         envelope = json.loads(round14_fixture.read_text(encoding="utf-8"))
         result = ingest_assembled_capture(envelope)
         validation = result["capture_validation"]
-        self.assertEqual(validation["ledger_reconciliation"]["total"], 322)
-        self.assertEqual(validation["competitions_represented"] + validation["quarantined_fixtures"], 322)
+        self.assertEqual(validation["ledger_reconciliation"]["total"], 5)
+        self.assertEqual(validation["ledger_reconciliation"]["completed"], 3)
+        self.assertEqual(validation["ledger_reconciliation"]["pending"], 2)
+        self.assertEqual(validation["source_fixtures"], 17)
+        self.assertEqual(validation["admitted_fixtures"], 17)
+        self.assertEqual(validation["quarantined_fixtures"], 0)
+        self.assertEqual(validation["competitions_represented"], 3)
+        self.assertEqual(validation["reason_counts"], {})
+
+    def test_round14_confirmed_export_repeated_ingestion_is_byte_identical(self):
+        import tempfile
+
+        round14_fixture = FIXTURES_DIR / "bet9ja-soccer-all-round14-confirmed-clean.json"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            out1, out2 = tmp_dir / "run1", tmp_dir / "run2"
+            run_ingest(round14_fixture, out1)
+            run_ingest(round14_fixture, out2)
+            for filename in ("capture-validation.json", "fixtures-normalized.json", "fixtures-quarantined.json", "pcbf-research-batch.json"):
+                self.assertEqual((out1 / filename).read_bytes(), (out2 / filename).read_bytes())
 
 
 if __name__ == "__main__":
