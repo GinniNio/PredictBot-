@@ -62,7 +62,7 @@ Every category in the sports/adapter registry ships at `classification_ceiling: 
 
 ## What remains unbuilt
 
-- Ticket placement from a ranked research market: `run-bet9ja-research --ledger-dir` (below) idempotently records every ranked market and forecast abstention into the forecast ledger, but `python -m ledgers.cli place-ticket` is still a separate, manual step a human takes from a recorded forecast (see `docs/LEDGER_DAILY_WORKFLOW.md`). `ingest-football-data-results` (below) automates forecast-ledger settlement/scoring from football-data.co.uk files; the human decision of *which* market to bet, and the placement of the bet itself with Bet9ja, remain entirely manual. `import-bet9ja-tickets` (below) records the resulting real tickets into the betting ledger after the fact, but only once the capture-side system-stake and max-return gaps described there are closed -- every real ticket captured so far stays quarantined.
+- Ticket placement from a ranked research market: `run-bet9ja-research --ledger-dir` (below) idempotently records every ranked market and forecast abstention into the forecast ledger, but `python -m ledgers.cli place-ticket` is still a separate, manual step a human takes from a recorded forecast (see `docs/LEDGER_DAILY_WORKFLOW.md`). `ingest-football-data-results` (below) automates forecast-ledger settlement/scoring from football-data.co.uk files; the human decision of *which* market to bet, and the placement of the bet itself with Bet9ja, remain entirely manual. `import-bet9ja-tickets` (below) records the resulting real tickets into the betting ledger after the fact -- 131 of this session's own 158 captured tickets import cleanly today; the remaining 27 (unlabeled "N Folds" open SYSTEM tickets) need the capture-side `stake_buckets` fix described there to close, since a real, live-confirmed DOM structure for that field has not yet been verified.
 - Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
 - Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
@@ -242,9 +242,11 @@ Explicitly out of scope: promotion, admission-registry rows, ranking for operato
 Records REAL Bet9ja settled/open ticket captures
 (`browser_extension/bet9ja_capture/settled_bets_parser.js` /
 `ticket_parser.js`'s own output) into `ledgers/betting_ledger.py` as
-`PLACED` events. This is a distinct pipeline from every command above:
-those record and score *forecasts* (what the model would have bet);
-this one records *actual wagers*, whatever they were.
+`PLACED` events, and (for a settled ticket) a paired `SETTLED` event.
+This is a distinct pipeline from every command above: those record and
+score *forecasts* (what the model would have bet); this one records
+*actual wagers*, whatever they were, and their real, already-known
+outcomes.
 
 ```bash
 python -m pcbf_calculator import-bet9ja-tickets \
@@ -259,16 +261,43 @@ python -m pcbf_calculator import-bet9ja-tickets \
 - **Currency is mandatory and never inferred.** `--currency` is required
   on every run and stored verbatim on every ticket produced — never
   guessed from odds formatting, stake size, or the bookmaker's name.
-- **No `system_table_raw` parsing, ever.** A real Bet9ja SYSTEM ticket's
-  per-fold-size stake breakdown is either read from a genuine, already-
-  structured `stake_buckets` field (once a capture-side fix emits one --
-  not built in this change) or derived purely from already-structured
-  numbers (`len(legs)`, `unit_stake`, `total_stake`) when the binomial
-  identity `C(leg_count, k) == total_stake / unit_stake` has exactly one
-  solution -- which, because `C(n,k) == C(n,n-k)`, only ever happens for
-  a full-legs accumulator or an even leg count's exact midpoint. Every
-  other SYSTEM ticket is quarantined `SYSTEM_STAKE_BREAKDOWN_UNPARSEABLE`,
-  never guessed at from the raw table text.
+- **Every applicable quarantine reason is reported, not just the first.**
+  `evaluate_ticket` runs every independent check regardless of earlier
+  failures; the report's `quarantine_reason_matrix` records every
+  ticket's full reason list, and `quarantine_reason_counts` counts a
+  ticket once per reason it carries (so counts can exceed the number of
+  quarantined tickets).
+- **A settled ticket uses the bookmaker's own reported figure, never a
+  recomputed one, and never needs `potential_return` or a resolved stake
+  structure at all.** When trusted fields are present (ticket ID, total
+  stake, `actual_payout` -- or, for a `LOST` ticket, its absence itself
+  meaning zero return -- `ticket_status`, currency, selections, source
+  hash), the ticket is recorded with `settlement_basis:
+  "BOOKMAKER_OBSERVED"` (`ledgers.betting_ledger.settle_bookmaker_observed`):
+  `actual_return` is the bookmaker's own figure verbatim, even when a
+  stake structure happens to be resolvable, since a real bookmaker figure
+  already reflects voids/promotions/rounding a pure combinatorial replay
+  cannot see. Such a SYSTEM ticket is placed with
+  `stake_structure_known=False` (`stake_structure_basis:
+  "TOTAL_ONLY_UNKNOWN_BREAKDOWN"`, `combination_count`/`unit_stake: null`)
+  -- it can only ever be settled this way, never via `settle_computed`.
+  `settle_computed`'s own `settlement_basis: "COMPUTED_FROM_SELECTIONS"`
+  tag remains available for a caller with a real, resolvable structure
+  but no bookmaker-observed figure to trust instead.
+- **No `system_table_raw` parsing, ever, for an OPEN ticket's stake
+  structure.** Three paths, in order: (1) a genuine, already-structured
+  `stake_buckets` field (from the browser capture -- see below); (2)
+  `ticket_type_raw` ("Singles"/"Doubles"/"Trebles" -- a SEPARATE,
+  already-structured field `ticket_parser.js`'s own pre-existing,
+  arithmetic-verified text split already produces, independently
+  re-verified here against the ticket's own stake/leg-count arithmetic
+  before ever being trusted); (3) the binomial identity
+  `C(leg_count, k) == total_stake / unit_stake`, which (because
+  `C(n,k) == C(n,n-k)`) only ever has a unique solution for a full-legs
+  accumulator or an even leg count's exact midpoint. Any OPEN SYSTEM
+  ticket satisfying none of the three is quarantined
+  `SYSTEM_STAKE_BREAKDOWN_UNPARSEABLE`, never guessed at from the raw
+  table text.
 - **Exact canonical forecast linkage, never substring matching.** Each
   leg is linked to a forecast only via the identical
   `identity.resolve_competition`/`resolve_team` resolution the adapter
@@ -277,26 +306,45 @@ python -m pcbf_calculator import-bet9ja-tickets \
   resolved_away_team, market_type, scheduled_date)`. A leg that cannot
   resolve this way keeps `forecast_id: null` -- unlinked, never a reason
   to refuse recording the wager itself.
-- **Whole-batch import safety.** Every ticket is normalized, linked, and
-  quarantined entirely in memory before a byte is written; the accepted
-  set is committed as one atomic batch (`betting_ledger.write_batch_placed`)
-  -- nothing is written if any accepted ticket would conflict with
-  existing ledger content. `--dry-run` reports the same
-  accepted/duplicate/conflicted/quarantined/unlinked-leg counts without
-  writing anything at all. Every original Bet9ja field is preserved
-  verbatim (`source_raw`) alongside a content hash (`source_raw_hash`),
-  quarantined tickets included.
+- **Whole-batch import safety, PLACED and SETTLED separately.** Every
+  ticket is normalized, evaluated, and linked entirely in memory before a
+  byte is written. The accepted PLACED events commit as one atomic batch
+  (`betting_ledger.write_batch_placed`); the accepted SETTLED events then
+  commit as a second atomic batch (`betting_ledger.write_batch_terminal`)
+  -- nothing is written to either if that batch's own preflight finds a
+  conflict, or if `--dry-run`. A duplicate ticket ID with different
+  financial values under either batch aborts that whole batch, never a
+  silent partial write; identical reruns append zero new events either
+  way. Every original Bet9ja field is preserved verbatim (`source_raw`)
+  alongside a content hash (`source_raw_hash`), quarantined tickets
+  included.
 
 **Real-data status (this session's own two capture files, 158 tickets
-total):** every ticket is currently quarantined -- 113 settled tickets for
-a missing `potential_return` (Bet9ja's settled-bets capture never records
-one), and 45 open tickets for an unresolvable system-stake breakdown (all
-are "Singles"-style sub-selections, the ambiguous case above, not a full
-accumulator). This is the correct, conservative outcome given today's
-capture output, not a bug in this importer -- see "Deferred, not built
-here" in `orchestration/bet9ja_ticket_import.py`'s own module docstring
-for exactly what closes this gap (a capture-side fix to emit a structured
-`stake_buckets` field and a `potential_return` field on settled tickets).
+total):** **131 of 158 now import cleanly** -- all 113 real settled
+tickets (bookmaker-observed settlement, needing neither `potential_return`
+nor a resolved stake structure) and 18 of 45 real open SYSTEM tickets (a
+genuine `ticket_type_raw` "Singles"/"Doubles"/"Trebles" label, path 2
+above). The remaining 27 open tickets are unlabeled "N Folds" systems the
+binomial-identity path alone cannot disambiguate, and stay quarantined
+`SYSTEM_STAKE_BREAKDOWN_UNPARSEABLE` until the browser capture below
+supplies a real, structured `stake_buckets` field for them.
+
+**Capture-side fix.** `browser_extension/bet9ja_capture/stake_buckets.js`
+walks `.mybets__systable`'s real DOM rows/cells (never the flattened
+text) to emit a structured `stake_buckets` array directly, wired into
+both `settled_bets_parser.js` and `ticket_parser.js`. It is defensive by
+construction: any row it cannot cleanly resolve to exactly 4 cells, an
+unrecognized System Type label, a duplicate fold size, or a "No. Bets"/
+total that disagrees with the canonical combination count, discards the
+WHOLE table rather than a partial or guessed one. See
+`STAKE_BUCKETS_LIVE_VALIDATION.md` for exactly what is, and is not yet,
+confirmed against a real, live Bet9ja page -- this working session had no
+authenticated browser access to confirm `.mybets__systable`'s real
+row/cell markup, so this module's own row/cell assumption (standard
+`<table>`/`<tr>`/`<td>` structure) is built from indirect evidence
+(this repository's own already-captured `system_table_raw` text shape)
+and unit-tested against synthetic markup, not yet run end-to-end against
+a live page.
 
 ## Bet9ja capture ingestion (research batch preparation)
 

@@ -706,5 +706,263 @@ class WriteBatchPlacedTests(unittest.TestCase):
         self.assertEqual(summary["total_ledger_records"], 1)
 
 
+class StakeStructureUnknownTests(unittest.TestCase):
+    """build_placed_event(stake_structure_known=False): a SYSTEM ticket
+    whose total stake is trusted but whose internal fold-size breakdown
+    could not be reconstructed at all -- can only ever settle via
+    settle_bookmaker_observed."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = Path(self.tmp) / "betting-ledger.jsonl"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _legs(self, n):
+        return [_leg(i, "1.5") for i in range(n)]
+
+    def test_builds_with_null_combination_count_and_unit_stake(self):
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM",
+            currency="NGN",
+            legs=self._legs(5),
+            stake_structure_known=False,
+            total_stake="250.00",
+            external_ticket_ref="hist-1",
+        )
+        payload = event["payload"]
+        self.assertIsNone(payload["combination_count"])
+        self.assertIsNone(payload["unit_stake"])
+        self.assertNotIn("system_sizes", payload)
+        self.assertNotIn("stake_buckets", payload)
+        self.assertEqual(payload["total_stake"], "250.00")
+        self.assertIsNone(payload["max_return"])
+        self.assertEqual(payload["stake_structure_basis"], "TOTAL_ONLY_UNKNOWN_BREAKDOWN")
+
+    def test_validates_against_schema(self):
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM",
+            currency="NGN",
+            legs=self._legs(3),
+            stake_structure_known=False,
+            total_stake="100.00",
+            external_ticket_ref="hist-2",
+        )
+        schema = validation.load_schema("betting_ledger.v1")
+        errors = validation.validate_envelope(event, schema)
+        self.assertEqual(errors, [])
+
+    def test_supplying_unit_stake_is_rejected(self):
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SYSTEM", currency="NGN", legs=self._legs(3),
+                stake_structure_known=False, total_stake="100.00", unit_stake="10.00",
+            )
+
+    def test_supplying_stake_buckets_is_rejected(self):
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SYSTEM", currency="NGN", legs=self._legs(3),
+                stake_structure_known=False, total_stake="100.00",
+                stake_buckets=[{"fold_size": 1, "combination_count": 3, "unit_stake": "10.00", "total_stake": "30.00"}],
+            )
+
+    def test_missing_total_stake_is_rejected(self):
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SYSTEM", currency="NGN", legs=self._legs(3), stake_structure_known=False,
+            )
+
+    def test_non_system_ticket_type_is_rejected(self):
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SINGLE", currency="NGN", legs=self._legs(1),
+                stake_structure_known=False, total_stake="10.00",
+            )
+
+    def test_settle_computed_refuses_a_ticket_with_unknown_structure(self):
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM", currency="NGN", legs=self._legs(3),
+            stake_structure_known=False, total_stake="100.00", external_ticket_ref="hist-3",
+        )
+        betting_ledger.append_placed(self.path, event)
+        with self.assertRaises(ValueError):
+            betting_ledger.settle_computed(
+                self.path, event["ticket_id"],
+                [{"leg_index": i, "outcome": "WON"} for i in range(3)],
+            )
+
+    def test_ordinary_uniform_stake_tickets_are_completely_unaffected(self):
+        # stake_structure_known defaults to True -- every existing caller
+        # keeps building the exact same payload shape it always has.
+        event = betting_ledger.build_placed_event(
+            ticket_type="SINGLE", unit_stake="10.00", max_return="19.00", currency="NGN", legs=[_leg(0, "1.9")],
+        )
+        self.assertEqual(event["payload"]["combination_count"], 1)
+        self.assertNotIn("stake_structure_basis", event["payload"])
+
+
+class SettleBookmakerObservedTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = Path(self.tmp) / "betting-ledger.jsonl"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _place_unknown_structure(self, ref="hist-1", total_stake="250.00"):
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM", currency="NGN", legs=[_leg(i, "1.5") for i in range(3)],
+            stake_structure_known=False, total_stake=total_stake, external_ticket_ref=ref,
+        )
+        betting_ledger.append_placed(self.path, event)
+        return event
+
+    def test_records_the_bookmakers_own_figure_verbatim_never_recomputed(self):
+        event = self._place_unknown_structure(total_stake="250.00")
+        leg_results = [{"leg_index": i, "outcome": "WON"} for i in range(3)]
+        result = betting_ledger.settle_bookmaker_observed(self.path, event["ticket_id"], "343.08", leg_results)
+        self.assertEqual(result.status, APPENDED)
+        payload = result.record["payload"]
+        self.assertEqual(payload["actual_return"], "343.08")
+        self.assertEqual(payload["profit_loss"], "93.08")
+        self.assertEqual(payload["settlement_method"], "MANUAL")
+        self.assertEqual(payload["settlement_basis"], "BOOKMAKER_OBSERVED")
+        self.assertEqual(payload["leg_results"], leg_results)
+
+    def test_validates_against_schema(self):
+        event = self._place_unknown_structure()
+        leg_results = [{"leg_index": i, "outcome": "WON"} for i in range(3)]
+        result = betting_ledger.settle_bookmaker_observed(
+            self.path, event["ticket_id"], "343.08", leg_results,
+            settled_at_utc=event["payload"]["placed_at_utc"], settled_at_resolution="CAPTURE_TIME_UPPER_BOUND",
+        )
+        schema = validation.load_schema("betting_ledger.v1")
+        errors = validation.validate_envelope(result.record, schema)
+        self.assertEqual(errors, [])
+
+    def test_settling_before_placement_returns_not_yet_placed(self):
+        result = betting_ledger.settle_bookmaker_observed(self.path, "tk_doesnotexist", "10.00", [])
+        self.assertEqual(result.status, NOT_YET_PLACED)
+
+    def test_reimporting_identical_settlement_is_a_safe_no_op(self):
+        event = self._place_unknown_structure()
+        leg_results = [{"leg_index": i, "outcome": "WON"} for i in range(3)]
+        betting_ledger.settle_bookmaker_observed(self.path, event["ticket_id"], "343.08", leg_results)
+        result = betting_ledger.settle_bookmaker_observed(self.path, event["ticket_id"], "343.08", leg_results)
+        self.assertEqual(result.status, DUPLICATE_SKIPPED)
+        self.assertEqual(len(read_all(self.path)), 2)  # PLACED + SETTLED, never duplicated
+
+    def test_a_different_reimport_is_a_conflict(self):
+        event = self._place_unknown_structure()
+        leg_results = [{"leg_index": i, "outcome": "WON"} for i in range(3)]
+        betting_ledger.settle_bookmaker_observed(self.path, event["ticket_id"], "343.08", leg_results)
+        result = betting_ledger.settle_bookmaker_observed(self.path, event["ticket_id"], "999.00", leg_results)
+        self.assertEqual(result.status, CONFLICT)
+
+    def test_settle_computed_tickets_are_untouched_by_this_function_existing(self):
+        # A normal uniform-stake ticket settled the ordinary way is
+        # completely unaffected by this new function's existence.
+        event = betting_ledger.build_placed_event(
+            ticket_type="SINGLE", unit_stake="10.00", max_return="19.00", currency="NGN", legs=[_leg(0, "1.9")],
+            external_ticket_ref="ordinary-1",
+        )
+        betting_ledger.append_placed(self.path, event)
+        result = betting_ledger.settle_computed(self.path, event["ticket_id"], [{"leg_index": 0, "outcome": "WON"}])
+        self.assertNotIn("settlement_basis", result.record["payload"])
+
+    def test_settle_computed_can_opt_into_an_explicit_basis_tag(self):
+        event = betting_ledger.build_placed_event(
+            ticket_type="SINGLE", unit_stake="10.00", max_return="19.00", currency="NGN", legs=[_leg(0, "1.9")],
+            external_ticket_ref="ordinary-2",
+        )
+        betting_ledger.append_placed(self.path, event)
+        result = betting_ledger.settle_computed(
+            self.path, event["ticket_id"], [{"leg_index": 0, "outcome": "WON"}],
+            settlement_basis="COMPUTED_FROM_SELECTIONS",
+        )
+        self.assertEqual(result.record["payload"]["settlement_basis"], "COMPUTED_FROM_SELECTIONS")
+
+
+class WriteBatchTerminalTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = Path(self.tmp) / "betting-ledger.jsonl"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _placed(self, ref, total_stake="100.00"):
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM", currency="NGN", legs=[_leg(i, "1.5") for i in range(3)],
+            stake_structure_known=False, total_stake=total_stake, external_ticket_ref=ref,
+        )
+        betting_ledger.append_placed(self.path, event)
+        return event
+
+    def _settled_event(self, ticket_id, actual_return, leg_results=None):
+        leg_results = leg_results or [{"leg_index": i, "outcome": "WON"} for i in range(3)]
+        actual_return_d = Decimal(actual_return)
+        profit_loss_d = actual_return_d - Decimal("100.00")
+        return {
+            "schema_version": betting_ledger.SCHEMA_VERSION,
+            "event_type": betting_ledger.EVENT_SETTLED,
+            "ticket_id": ticket_id,
+            "recorded_at_utc": "2026-01-01T00:00:00Z",
+            "payload": {
+                "settled_at_utc": "2026-01-01T00:00:00Z",
+                "leg_results": leg_results,
+                "actual_return": str(actual_return_d),
+                "profit_loss": str(profit_loss_d),
+                "settlement_method": "MANUAL",
+                "settlement_basis": "BOOKMAKER_OBSERVED",
+            },
+        }
+
+    def test_a_clean_batch_appends_every_settlement(self):
+        e1, e2 = self._placed("ref-1"), self._placed("ref-2")
+        events = [self._settled_event(e1["ticket_id"], "150.00"), self._settled_event(e2["ticket_id"], "0")]
+        summary = betting_ledger.write_batch_terminal(self.path, events)
+        self.assertEqual(summary["appended"], 2)
+        self.assertEqual(summary["duplicate_skipped"], 0)
+        self.assertEqual(summary["conflicted"], 0)
+        self.assertEqual(len(read_all(self.path)), 4)  # 2 PLACED + 2 SETTLED
+
+    def test_repeating_the_identical_batch_is_a_safe_no_op(self):
+        e1 = self._placed("ref-1")
+        events = [self._settled_event(e1["ticket_id"], "150.00")]
+        betting_ledger.write_batch_terminal(self.path, events)
+        summary = betting_ledger.write_batch_terminal(self.path, events)
+        self.assertEqual(summary["appended"], 0)
+        self.assertEqual(summary["duplicate_skipped"], 1)
+
+    def test_a_conflicting_batch_writes_nothing_at_all(self):
+        e1 = self._placed("ref-1")
+        e2 = self._placed("ref-2")
+        betting_ledger.write_batch_terminal(self.path, [self._settled_event(e1["ticket_id"], "150.00")])
+        records_before = read_all(self.path)
+
+        conflicting = [
+            self._settled_event(e1["ticket_id"], "999.00"),  # conflicts with already-settled e1
+            self._settled_event(e2["ticket_id"], "0"),  # otherwise perfectly clean
+        ]
+        with self.assertRaises(betting_ledger.BettingLedgerTerminalBatchConflictError):
+            betting_ledger.write_batch_terminal(self.path, conflicting)
+        self.assertEqual(read_all(self.path), records_before)
+
+    def test_a_ticket_id_with_no_placed_event_aborts_the_whole_batch(self):
+        e1 = self._placed("ref-1")
+        events = [
+            self._settled_event(e1["ticket_id"], "150.00"),
+            self._settled_event("tk_neverplaced0000", "10.00"),
+        ]
+        with self.assertRaises(betting_ledger.BettingLedgerTerminalBatchConflictError) as ctx:
+            betting_ledger.write_batch_terminal(self.path, events)
+        self.assertIn("tk_neverplaced0000", ctx.exception.not_yet_placed)
+        # The otherwise-clean e1 settlement was not written either.
+        self.assertEqual(len(read_all(self.path)), 1)  # only e1's own PLACED event
+
+
 if __name__ == "__main__":
     unittest.main()

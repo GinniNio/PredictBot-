@@ -174,8 +174,10 @@
  */
 (function (root) {
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
+  const Bet9jaStakeBuckets =
+    typeof module !== 'undefined' && module.exports ? require('./stake_buckets.js') : root.Bet9jaStakeBuckets;
 
-  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.6.0-mybets-round5-fixes';
+  const PARSER_VERSION = 'bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets';
 
   // See SELECTOR CONTRACT above -- every value here is an unconfirmed
   // best guess, not evidence-derived.
@@ -690,6 +692,14 @@
       'Max Return',
       'Potential Return',
     ]);
+    // Structured extraction from the table's own rows/cells -- see
+    // stake_buckets.js's own module docstring for exactly what this does
+    // and does not trust. `null` (never a partial result) whenever the
+    // table's real shape doesn't match what this parser assumes; the
+    // ledger importer falls back to ticket_type_raw/parseSystemTableRaw's
+    // own already-confirmed text-split path, then to its own
+    // from-totals derivation, exactly as it already does today.
+    const stakeBuckets = Bet9jaStakeBuckets ? Bet9jaStakeBuckets.parseStakeBuckets(systemTableEl, legs.length) : null;
 
     return {
       outcome: 'PARSED',
@@ -725,6 +735,7 @@
         potential_return: parseMybetsAmount(potentialReturnRaw),
         stake_return_raw_items: stakeReturnRawItems,
         system_table_raw: systemTableRaw,
+        stake_buckets: stakeBuckets,
         legs,
         captured_at_utc: capturedAtUtc,
         parser_version: PARSER_VERSION,

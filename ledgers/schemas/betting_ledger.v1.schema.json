@@ -74,13 +74,19 @@
           }
         },
         "combination_count": {
-          "type": "integer",
-          "minimum": 1
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "null exactly when stake_structure_basis is TOTAL_ONLY_UNKNOWN_BREAKDOWN -- the combinatorial structure was never known, so there is no combination count to report."
         },
         "unit_stake": {
           "type": ["string", "null"],
           "pattern": "^-?\\d+(\\.\\d+)?$",
-          "description": "null exactly when stake_buckets is present -- a real per-fold-size stake breakdown, not one uniform scalar (see stake_buckets)."
+          "description": "null when stake_buckets is present (a real per-fold-size stake breakdown, not one uniform scalar -- see stake_buckets) or when stake_structure_basis is TOTAL_ONLY_UNKNOWN_BREAKDOWN."
+        },
+        "stake_structure_basis": {
+          "type": ["string", "null"],
+          "enum": ["TOTAL_ONLY_UNKNOWN_BREAKDOWN", null],
+          "description": "Present only for a SYSTEM ticket built with stake_structure_known=False: total_stake is a trusted, bookmaker-reported figure, but the internal fold-size/combination breakdown could not be reconstructed at all (neither a real stake_buckets field nor a derivable unit_stake). Such a ticket can only ever be settled via settle_bookmaker_observed, never settle_computed. Absent for every ticket with a real, known structure (uniform unit_stake or stake_buckets) -- not a three-way enum here, just present-or-absent."
         },
         "stake_buckets": {
           "type": "array",
@@ -110,8 +116,9 @@
           "pattern": "^-?\\d+(\\.\\d+)?$"
         },
         "max_return": {
-          "type": "string",
-          "pattern": "^-?\\d+(\\.\\d+)?$"
+          "type": ["string", "null"],
+          "pattern": "^-?\\d+(\\.\\d+)?$",
+          "description": "null when a historical ticket is imported after it already settled and no pre-settlement maximum-return figure was ever captured -- the ticket's real, final actual_return (see the SETTLED payload's settlement_basis) is what matters then, not a never-realized upper bound. Every other ticket carries a real value here."
         },
         "currency": {
           "type": "string"
@@ -212,6 +219,15 @@
             "COMPUTED",
             "MANUAL"
           ]
+        },
+        "settlement_basis": {
+          "type": ["string", "null"],
+          "enum": ["COMPUTED_FROM_SELECTIONS", "BOOKMAKER_OBSERVED", null],
+          "description": "Optional, and absent on every settlement recorded before this field existed (preserving byte-identical re-settlement of historical rows). COMPUTED_FROM_SELECTIONS: actual_return was replayed from leg_results against the ticket's own combinatorial structure and per-leg odds (settle_computed). BOOKMAKER_OBSERVED: actual_return is the bookmaker's own reported final figure, taken verbatim and never recomputed (settle_bookmaker_observed) -- used for a historical ticket whose internal stake structure may be partly or wholly unknown, and preferred even when the structure IS known, since a real bookmaker figure already reflects voids/promotions/rounding a pure replay cannot see."
+        },
+        "settled_at_resolution": {
+          "type": ["string", "null"],
+          "description": "Present only when settled_at_utc is not the true settlement moment but an upper bound on it (e.g. \"CAPTURE_TIME_UPPER_BOUND\" -- the capture's own captured_at_utc, used because the source capture never recorded a real settlement timestamp). Absent whenever settled_at_utc is the real, known settlement time."
         }
       }
     },
