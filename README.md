@@ -63,7 +63,6 @@ Every category in the sports/adapter registry ships at `classification_ceiling: 
 ## What remains unbuilt
 
 - Ticket placement from a ranked research market: `run-bet9ja-research --ledger-dir` (below) idempotently records every ranked market and forecast abstention into the forecast ledger, but `python -m ledgers.cli place-ticket` is still a separate, manual step a human takes from a recorded forecast (see `docs/LEDGER_DAILY_WORKFLOW.md`). `ingest-football-data-results` (below) automates forecast-ledger settlement/scoring from football-data.co.uk files; Bet9ja ticket placement and settlement (the betting ledger) remain entirely manual and unaffected.
-- Prospective performance reporting (coverage, abstention reasons, Brier/log-loss by competition, calibration by probability band, closing-line comparison over time) built from the now-real `SCORED` event history — not yet built.
 - Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
 - Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
@@ -145,6 +144,33 @@ python -m pcbf_calculator ingest-football-data-results \
 Always produces four output files: `settlement-report.json` (counts and row-accounting reconciliation), `settled-forecasts.json` (every forecast scored this run), `unmatched-results.json` (every source row or matched forecast that could not be scored, with a typed reason), and `settlement-conflicts.json` (populated, and the command exits non-zero, only when the batch was aborted).
 
 Explicit boundaries: forecast ledger only — no betting-ledger write, no Bet9ja capture/scraping change, no automated model retraining, no calibration adjustment, no `PAPER`/`CASH` promotion, no outcome or stake decision of any kind.
+
+## Prospective performance and calibration reporting (`report-forecast-performance`)
+
+Closes the loop: `capture → forecast → record → settle → score → report`. Reads only `SCORED` forecast-ledger events and produces deterministic, byte-identical (for unchanged ledger content) JSON reports — no ledger write of any kind.
+
+```bash
+python -m pcbf_calculator report-forecast-performance \
+  --ledger-dir ledger_data \
+  --output-dir runs/performance-report
+```
+
+Always produces four files:
+
+| File | Contents |
+|---|---|
+| `performance-summary.json` | Overall multiclass Brier score, log loss, accuracy, and outcome distribution; the same broken down by competition, model artifact hash, and forecast month (the month a forecast was recorded, never the fixture's kickoff month) |
+| `calibration-report.json` | Per-outcome (home/draw/away) reliability-diagram calibration against fixed, documented bins (10 equal-width bins over `[0, 1]` — never data-driven) |
+| `closing-line-report.json` | The model's own Brier/log-loss/accuracy vs. the closing market's de-vigged probability, on the subset of scored forecasts with complete closing odds — kept in its own `model`/`closing_market` blocks, never blended with `performance-summary.json`'s own model-quality metrics |
+| `excluded-records.json` | Every `SCORED` forecast rejected from every metric above, with a typed reason (below) |
+
+**Small samples are never silently treated as evidence**: every count, at every level (overall, per breakdown bucket, per calibration bin), carries its own `small_sample` flag (`sample_count < 50` — the same "full correction" threshold this project's own Kasiro Brain history already documents for `pcbf_ml`'s personal calibration layer, not a freshly invented number). A handful of real scored forecasts is never presented, anywhere in these reports, as production-ready evidence.
+
+**Rejected, not silently included**: a `SCORED` forecast is excluded when its `model_probabilities` are malformed (missing an outcome, non-numeric, negative, or not summing to 1), when the ledger's own stored Brier score/log loss disagrees with an independent recomputation from that same forecast's probabilities and result (an internal-consistency check — never trusted blindly), when its `market_type` isn't `"1X2"`, when two forecasts share the same real-world fixture but report *different* actual results (the same match cannot have two results — both are excluded, never one arbitrarily kept), or when a single forecast somehow carries more than one `SCORED` event on disk (never producible by normal ledger writes — a defensive check, since blindly merging two disagreeing scores would otherwise silently prefer whichever is last in file order).
+
+**Explicit reconciliation invariant**: every eligible scored record (one per forecast_id carrying a `SCORED` event) appears in exactly one of the included set or `excluded-records.json` — never both, never neither. Enforced directly (raises if violated) and independently re-reported as `performance-summary.json`'s own `reconciles` boolean, so a caller reading that one file can confirm the totals without re-deriving anything.
+
+Explicit boundaries: reports only. Never writes to any ledger, never touches the model-admission registry, `classification_ceiling`, promotion/threshold state, staking, ticket construction, or any `operator_decision`.
 
 ## Bet9ja capture ingestion (research batch preparation)
 

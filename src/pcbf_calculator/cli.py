@@ -411,6 +411,17 @@ def main(argv: list[str] | None = None) -> int:
 
         return ingest_football_data_results_main(argv[1:])
 
+    # ``report-forecast-performance`` is likewise additive -- see
+    # ``orchestration/forecast_performance_report.py``'s own module
+    # docstring. Read-only over the forecast ledger's SCORED events; never
+    # writes to any ledger, never touches model admission, classification
+    # ceilings, promotion state, staking, ticket construction, or any
+    # operator decision.
+    if argv and argv[0] == "report-forecast-performance":
+        from .orchestration.forecast_performance_report import main as report_forecast_performance_main
+
+        return report_forecast_performance_main(argv[1:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
     parser.add_argument("output", type=Path, nargs="?", help="Optional output JSON file")
