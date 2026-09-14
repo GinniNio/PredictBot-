@@ -305,6 +305,139 @@ class WheelInstallationTests(unittest.TestCase):
             manifest = json.loads((output_dir / "candidate" / "model_artifact_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["provenance"]["training_code_commit_sha"], "UNKNOWN_NOT_A_GIT_CHECKOUT")
 
+    def test_shadow_forecast_candidate_works_from_the_installed_wheel(self):
+        """Builds a real candidate bundle (via refresh-soccer-artifact,
+        already proven to work from this same installed wheel above),
+        then shadow-forecasts it against a real Bet9ja capture, all
+        through the installed wheel's own console script -- proving
+        candidate_shadow_forecast.py's own dependency injection into
+        SoccerOneXTwoEloV1Adapter/cli.run_calculator/
+        bet9ja_research_session.run_bet9ja_research_session, and its own
+        reuse of forecast_ledger_writer.write_batch, all work from a
+        real installed wheel, not just the repo checkout."""
+
+        from data_pipeline.dataset_builder import raw_file_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            raw_dir = tmp_path / "raw"
+            fixtures_dir = REPO_ROOT / "tests" / "fixtures" / "football_data"
+            mapping = {
+                ("E0", "1920"): "season_1920_with_kickoff.csv",
+                ("E0", "2324"): "season_2324_for_elo_baseline.csv",
+                ("E0", "2425"): "season_2425_for_elo_baseline.csv",
+                ("E0", "2526"): "season_2526_prospective.csv",
+                ("E0", "2627"): "season_2627_prospective.csv",
+            }
+            for (league, season), filename in mapping.items():
+                dest = raw_file_path(raw_dir, league, season)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(fixtures_dir / filename, dest)
+
+            incumbent_manifest_path = tmp_path / "incumbent_manifest.json"
+            shutil.copy(
+                REPO_ROOT / "src" / "pcbf_calculator" / "adapters" / "soccer_1x2_elo_v1" / "data" / "model_artifact_manifest.json",
+                incumbent_manifest_path,
+            )
+            incumbent_performance_dir = tmp_path / "incumbent_perf"
+            incumbent_performance_dir.mkdir()
+
+            candidate_out = tmp_path / "candidate_out"
+            refresh_result = subprocess.run(
+                [
+                    sys.executable, "-m", "pcbf_calculator", "refresh-soccer-artifact",
+                    "--training-input", str(raw_dir),
+                    "--incumbent-manifest", str(incumbent_manifest_path),
+                    "--incumbent-performance-dir", str(incumbent_performance_dir),
+                    "--output-dir", str(candidate_out),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(tmp_path),
+                env=self.install_env,
+            )
+            self.assertEqual(refresh_result.returncode, 0, f"stdout={refresh_result.stdout!r} stderr={refresh_result.stderr!r}")
+            candidate_dir = candidate_out / "candidate"
+            candidate_bundle_hash = json.loads(
+                (candidate_dir / "candidate_bundle_manifest.json").read_text(encoding="utf-8")
+            )["bundle_hash"]
+
+            # Liverpool/Man City -- confirmed rated by this candidate's own
+            # tiny training fixture set (Arsenal/Chelsea's own rows in
+            # that fixture data are unplayed/prospective and never
+            # produce an Elo rating).
+            capture_envelope = {
+                "schema_version": "bet9ja-soccer-session.v1",
+                "capture_session_id": "wheel-install-shadow-test-session",
+                "capture_scope": "SOCCER_ALL_PREMATCH_COMPETITIONS",
+                "captured_at_utc": CAPTURED_AT_UTC,
+                "inventory_fingerprint": "invfp_wheel_shadow_test",
+                "summary": {"total": 1, "completed": 1, "confirmed_empty": 0, "failed": 0, "pending": 0},
+                "competition_ledger": [
+                    {"competition_id": "2000001", "country": "England", "competition": "Premier League", "status": "COMPLETED"}
+                ],
+                "fixtures": [
+                    {
+                        "fixture_id": "bxf_wheel_shadow_1",
+                        "sport": "SOCCER",
+                        "status": "PRE_MATCH",
+                        "market_family": "1X2",
+                        "offered_odds": {"H": 1.9, "D": 3.4, "A": 4.3},
+                        "participants": {"home": "Liverpool", "away": "Man City"},
+                        "resolved_source_competition_id": "2000001",
+                        "date_heading_raw": "Sun 20 Sep",
+                        "kickoff_raw": "14:00",
+                        "duplicate_status": "NEW",
+                    }
+                ],
+                "unparsed_records": [],
+            }
+            capture_path = tmp_path / "shadow_capture.json"
+            capture_path.write_text(json.dumps(capture_envelope), encoding="utf-8")
+
+            ledger_dir = tmp_path / "candidate_ledgers"
+            shadow_out = tmp_path / "shadow_out"
+            shadow_result = subprocess.run(
+                [
+                    sys.executable, "-m", "pcbf_calculator", "shadow-forecast-candidate",
+                    "--candidate-bundle", str(candidate_dir),
+                    "--capture", str(capture_path),
+                    "--ledger-dir", str(ledger_dir),
+                    "--output-dir", str(shadow_out),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(tmp_path),
+                env=self.install_env,
+            )
+            self.assertEqual(shadow_result.returncode, 0, f"stdout={shadow_result.stdout!r} stderr={shadow_result.stderr!r}")
+            self.assertIn(f"candidate_bundle_hash={candidate_bundle_hash}", shadow_result.stdout)
+
+            for filename in (
+                "candidate-shadow-forecasts.json",
+                "candidate-shadow-abstentions.json",
+                "candidate-shadow-quarantine.json",
+                "candidate-shadow-session-report.json",
+            ):
+                self.assertTrue((shadow_out / filename).exists(), filename)
+
+            forecasts = json.loads((shadow_out / "candidate-shadow-forecasts.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(forecasts["forecasts"]), 1)
+            row = forecasts["forecasts"][0]
+            self.assertTrue(row["forecast"]["forecast_available"])
+            self.assertEqual(row["model_role"], "CANDIDATE_SHADOW")
+            self.assertEqual(row["candidate_bundle_hash"], candidate_bundle_hash)
+            self.assertIsNone(row["operator_decision"])
+            self.assertEqual(row["recommendation_status"], "NOT_AVAILABLE")
+            self.assertTrue(row["alias_hash"])
+
+            ledger_path = ledger_dir / candidate_bundle_hash / "forecast-ledger.jsonl"
+            self.assertTrue(ledger_path.exists())
+            record = json.loads(ledger_path.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(record["payload"]["model_role"], "CANDIDATE_SHADOW")
+            self.assertEqual(record["payload"]["candidate_bundle_hash"], candidate_bundle_hash)
+            self.assertEqual(record["payload"]["alias_hash"], row["alias_hash"])
+
     def test_host_contract_invocation_also_works_from_the_installed_wheel(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

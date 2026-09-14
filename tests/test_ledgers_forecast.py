@@ -249,5 +249,89 @@ class ForecastLedgerTests(unittest.TestCase):
         self.assertEqual(state["source"], "manual")
 
 
+class CandidateFieldsRemainOptionalRegressionTests(unittest.TestCase):
+    """Direct regression coverage for the eight candidate-shadow-
+    forecasting fields added to ``build_recorded_event``'s payload
+    (``model_role``/``candidate_bundle_hash``/``build_identity``/
+    ``capture_hash``/``capture_session_id``/``forecast_cutoff_utc``/
+    ``recommendation_status``/``alias_hash``). Every existing/incumbent
+    caller omits every one of them -- these tests confirm that omission
+    still validates against the shared schema and still round-trips
+    through ``current_state``/``score_and_append`` exactly as before,
+    and that a HISTORICAL ledger line (literally missing these keys, as
+    a real pre-existing ledger row from before this change would be)
+    is handled identically to one that carries them as explicit nulls."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = Path(self.tmp) / "forecast-ledger.jsonl"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_incumbent_shaped_event_omitting_all_eight_fields_still_validates(self):
+        event = forecast_ledger.build_recorded_event(**_sample_kwargs())
+        for field in (
+            "model_role", "candidate_bundle_hash", "build_identity", "capture_hash",
+            "capture_session_id", "forecast_cutoff_utc", "recommendation_status", "alias_hash",
+        ):
+            self.assertIsNone(event["payload"][field])
+        errors = validation.validate_envelope(event, validation.load_schema("forecast_ledger.v1"))
+        self.assertEqual(errors, [])
+
+    def test_incumbent_shaped_event_still_appends_and_scores_normally(self):
+        event = forecast_ledger.build_recorded_event(**_sample_kwargs())
+        result = forecast_ledger.append_recorded(self.path, event)
+        self.assertEqual(result.status, APPENDED)
+        forecast_ledger.score_and_append(self.path, event["forecast_id"], "H")
+        state = forecast_ledger.current_state(self.path, event["forecast_id"])
+        self.assertEqual(state["brier_score"], forecast_ledger.scoring.multiclass_brier({"H": 0.5, "D": 0.3, "A": 0.2}, "H"))
+
+    def test_a_historical_ledger_line_missing_these_keys_entirely_still_works(self):
+        # Simulates a REAL pre-existing ledger line written before this
+        # schema extension -- the raw JSONL line literally has no
+        # model_role/candidate_bundle_hash/etc. keys at all, not even as
+        # null. read_all/current_state/.get(...) access must never raise
+        # KeyError for a row shaped like this.
+        historical_event = forecast_ledger.build_recorded_event(**_sample_kwargs())
+        for field in (
+            "model_role", "candidate_bundle_hash", "build_identity", "capture_hash",
+            "capture_session_id", "forecast_cutoff_utc", "recommendation_status", "alias_hash",
+        ):
+            del historical_event["payload"][field]
+        import json as _json
+
+        self.path.write_text(_json.dumps(historical_event) + "\n", encoding="utf-8")
+
+        state = forecast_ledger.current_state(self.path, historical_event["forecast_id"])
+        self.assertEqual(state.get("model_role"), None)
+        self.assertEqual(state.get("alias_hash"), None)
+        self.assertEqual(state["fixture_id"], "fixture-1")
+
+        # Scoring a historical-shaped row must still work unaffected.
+        result = forecast_ledger.score_and_append(self.path, historical_event["forecast_id"], "H")
+        self.assertEqual(result.status, APPENDED)
+
+    def test_candidate_shaped_event_with_all_eight_fields_populated_validates(self):
+        event = forecast_ledger.build_recorded_event(
+            **_sample_kwargs(
+                model_role="CANDIDATE_SHADOW",
+                candidate_bundle_hash="bundle-hash-1",
+                build_identity="build-identity-1",
+                capture_hash="capture-hash-1",
+                capture_session_id="session-1",
+                forecast_cutoff_utc="2024-01-01T09:00:00+00:00",
+                recommendation_status="NOT_AVAILABLE",
+                alias_hash="alias-hash-1",
+            )
+        )
+        errors = validation.validate_envelope(event, validation.load_schema("forecast_ledger.v1"))
+        self.assertEqual(errors, [])
+        forecast_ledger.append_recorded(self.path, event)
+        state = forecast_ledger.current_state(self.path, event["forecast_id"])
+        self.assertEqual(state["model_role"], "CANDIDATE_SHADOW")
+        self.assertEqual(state["alias_hash"], "alias-hash-1")
+
+
 if __name__ == "__main__":
     unittest.main()

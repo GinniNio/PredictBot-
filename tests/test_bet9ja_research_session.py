@@ -354,5 +354,90 @@ class CliIntegrationTests(unittest.TestCase):
             self.assertTrue((screen_out / "research-queue-ranked.json").exists())
 
 
+class ForecastOverrideRegressionTests(unittest.TestCase):
+    """Direct regression coverage for the ``forecast_override`` parameter
+    added to ``run_bet9ja_research_session``/``_price_and_forecast``
+    (``cli.run_calculator`` gained the matching parameter at the same
+    time) for
+    ``pcbf_calculator.orchestration.candidate_shadow_forecast``'s own
+    reuse of this pipeline. Every existing caller (this entire test file,
+    the CLI, every other test module) never passes it -- these tests
+    confirm that omission is provably behavior-preserving, not just
+    "the old tests still happen to pass."""
+
+    def test_omitting_forecast_override_is_identical_to_passing_none_explicitly(self):
+        fixtures = [
+            make_fixture(fixture_id="bxf_1"),
+            make_fixture(fixture_id="bxf_2", home="Nonexistent FC"),
+            make_fixture(fixture_id="bxf_3", odds=ARBITRAGE_ODDS),
+        ]
+        envelope = make_envelope([ENGLAND_LEDGER_ENTRY], fixtures)
+        implicit = run_bet9ja_research_session(copy.deepcopy(envelope))
+        explicit = run_bet9ja_research_session(copy.deepcopy(envelope), forecast_override=None)
+        for key in (
+            "research_session_report",
+            "forecast_research_ranked",
+            "forecast_abstentions",
+            "ingestion_and_screening_exclusions",
+        ):
+            self.assertEqual(json.dumps(implicit[key], sort_keys=True), json.dumps(explicit[key], sort_keys=True), key)
+
+    def test_default_still_resolves_the_real_incumbent_adapter_via_the_registry(self):
+        # forecast_override=None must still take the exact original code
+        # path (adapters.registry.run_forecast through cli.run_calculator)
+        # -- proven here by confirming a real forecast comes back with the
+        # real, committed incumbent's own model_version, not a stub.
+        from pcbf_calculator.adapters.registry import get_adapter
+
+        envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture()])
+        result = run_bet9ja_research_session(envelope)
+        market = result["forecast_research_ranked"]["markets"][0]
+        self.assertEqual(market["forecast"]["model_version"], get_adapter("soccer").declaration.model_version)
+
+    def test_run_calculator_without_forecast_override_is_unaffected(self):
+        from pcbf_calculator.cli import run_calculator
+
+        request = {
+            "event_id": "e1",
+            "category": "soccer",
+            "market_prices": {"home": 1.9, "draw": 3.4, "away": 4.3},
+            "fixture": {
+                "home": "Arsenal", "away": "Chelsea", "competition": "Premier League",
+                "kickoff_utc": "2026-09-20T14:00:00Z", "forecast_cutoff_utc": CAPTURED_AT_UTC,
+            },
+        }
+        without_kwarg = run_calculator(copy.deepcopy(request))
+        with_none = run_calculator(copy.deepcopy(request), forecast_override=None)
+        self.assertEqual(json.dumps(without_kwarg, sort_keys=True), json.dumps(with_none, sort_keys=True))
+
+    def test_forecast_override_when_supplied_is_used_instead_of_the_registry(self):
+        from pcbf_calculator.cli import run_calculator
+
+        sentinel_forecast = {
+            "sport_id": "soccer", "adapter_id": "soccer_1x2_elo_v1", "forecast_available": True,
+            "probabilities": {"home_win": 0.4, "draw": 0.3, "away_win": 0.3},
+            "model_version": "sentinel-override-model", "uncertainty_method": "test",
+            "no_forecast_reason": None, "model_artifact_hash": "sha256:sentinel", "settlement_identity": None,
+        }
+        calls = []
+
+        def fake_forecast(category, fixture):
+            calls.append((category, fixture))
+            return sentinel_forecast
+
+        request = {
+            "event_id": "e1",
+            "category": "soccer",
+            "market_prices": {"home": 1.9, "draw": 3.4, "away": 4.3},
+            "fixture": {
+                "home": "Arsenal", "away": "Chelsea", "competition": "Premier League",
+                "kickoff_utc": "2026-09-20T14:00:00Z", "forecast_cutoff_utc": CAPTURED_AT_UTC,
+            },
+        }
+        result = run_calculator(request, forecast_override=fake_forecast)
+        self.assertEqual(result["forecast"]["model_version"], "sentinel-override-model")
+        self.assertEqual(calls, [("soccer", request["fixture"])])
+
+
 if __name__ == "__main__":
     unittest.main()

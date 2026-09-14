@@ -54,7 +54,15 @@
         "competition_code": {"type": ["string", "null"]},
         "resolved_home_team": {"type": ["string", "null"]},
         "resolved_away_team": {"type": ["string", "null"]},
-        "scheduled_date": {"type": ["string", "null"]}
+        "scheduled_date": {"type": ["string", "null"]},
+        "model_role": {"type": ["string", "null"], "description": "e.g. 'CANDIDATE_SHADOW' -- null for the incumbent's own rows (see ledgers/forecast_ledger.py::build_recorded_event's own docstring)."},
+        "candidate_bundle_hash": {"type": ["string", "null"]},
+        "build_identity": {"type": ["string", "null"]},
+        "capture_hash": {"type": ["string", "null"], "description": "Content hash of the exact capture file used -- distinct from capture_id, the capture's own session id."},
+        "capture_session_id": {"type": ["string", "null"]},
+        "forecast_cutoff_utc": {"type": ["string", "null"]},
+        "recommendation_status": {"type": ["string", "null"]},
+        "alias_hash": {"type": ["string", "null"], "description": "SHA-256 of the exact team_aliases.json content used to resolve this fixture -- see ledgers/forecast_ledger.py::build_recorded_event's own docstring."}
       }
     },
     "SELECTION_UPDATED": {

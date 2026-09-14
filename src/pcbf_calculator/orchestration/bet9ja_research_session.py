@@ -138,7 +138,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..cli import run_calculator
 from ..ingestion.bet9ja import ingest_assembled_capture
@@ -201,7 +201,12 @@ def _assert_ranked_market_stays_research_only(result: dict[str, Any], market: di
         )
 
 
-def _price_and_forecast(fixture: dict[str, Any], forecast_cutoff_utc: str) -> dict[str, Any]:
+def _price_and_forecast(
+    fixture: dict[str, Any],
+    forecast_cutoff_utc: str,
+    *,
+    forecast_override: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     market = fixture["market"]
     request = {
         "event_id": fixture["source_fixture_id"],
@@ -215,10 +220,14 @@ def _price_and_forecast(fixture: dict[str, Any], forecast_cutoff_utc: str) -> di
             "forecast_cutoff_utc": forecast_cutoff_utc,
         },
     }
-    return run_calculator(request)
+    return run_calculator(request, forecast_override=forecast_override)
 
 
-def run_bet9ja_research_session(envelope: dict[str, Any]) -> dict[str, Any]:
+def run_bet9ja_research_session(
+    envelope: dict[str, Any],
+    *,
+    forecast_override: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Runs the full one-command pipeline against one already-loaded raw
     Bet9ja assembled-capture envelope (the same shape ``ingest-bet9ja``
     consumes).
@@ -233,6 +242,15 @@ def run_bet9ja_research_session(envelope: dict[str, Any]) -> dict[str, Any]:
     every per-fixture problem becomes a typed, kept-verbatim reason in
     exactly one of four buckets, never a dropped fixture and never an
     aborted run.
+
+    ``forecast_override`` (default ``None``, preserving every existing
+    caller's behavior byte-for-byte) is threaded straight through to
+    ``run_calculator`` -- see that function's own docstring. This is what
+    lets ``pcbf_calculator.orchestration.candidate_shadow_forecast`` reuse
+    this ENTIRE pipeline (ingestion, market-quality gate, the four-bucket
+    reconciliation, every invariant check) against a candidate bundle's
+    own adapter instance instead of the incumbent's, without forking a
+    second copy of this function.
     """
     ingestion_result = ingest_assembled_capture(envelope)
     batch = ingestion_result["pcbf_research_batch"]
@@ -319,7 +337,7 @@ def run_bet9ja_research_session(envelope: dict[str, Any]) -> dict[str, Any]:
         )
 
     for fixture in admitted_fixtures:
-        result = _price_and_forecast(fixture, forecast_cutoff_utc)
+        result = _price_and_forecast(fixture, forecast_cutoff_utc, forecast_override=forecast_override)
 
         if result["status"] != "OK":
             failure = result["failure"] or {}

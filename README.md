@@ -200,7 +200,42 @@ Runs the existing training/evaluation code (`research/soccer_1x2_elo_baseline/`)
 
 **Atomic, immutable, non-mutating**: every step runs in a private staging directory; `--output-dir` is created only after every verification has succeeded (a failure never leaves a partial candidate); `--output-dir` must not already exist (never silently overwritten); no model-admission-registry row, `classification_ceiling` change, promotion-threshold change, staking, ticket-construction, or active-artifact mutation of any kind.
 
-No scheduled/automatic retraining and no automatic promotion in this command — a human invokes it explicitly, and turning a candidate into anything more than "created and compared" is future, separate, human-controlled work. The next planned step is candidate **shadow forecasting**, so a candidate can accumulate its own real prospective history over the same fixtures the incumbent forecasts — only then does comparing the two prospectively become meaningful.
+No scheduled/automatic retraining and no automatic promotion in this command — a human invokes it explicitly, and turning a candidate into anything more than "created and compared" is future, separate, human-controlled work. The next step, below, is candidate **shadow forecasting**, so a candidate can accumulate its own real prospective history over the same fixtures the incumbent forecasts.
+
+## Candidate shadow forecasting (`shadow-forecast-candidate`)
+
+Gives a verified candidate bundle its own real prospective forecast history, over the SAME fixtures the incumbent forecasts, without ever touching the incumbent's own ledger, the active adapter registry, or anything in the decision/staking/ticket layers:
+
+```bash
+python -m pcbf_calculator shadow-forecast-candidate \
+  --candidate-bundle <path to refresh-soccer-artifact's own candidate/ directory> \
+  --capture <bet9ja-capture.json> \
+  --ledger-dir <candidate-ledgers root> \
+  --output-dir <path>
+```
+
+Independently re-verifies the candidate bundle (`verify_candidate_bundle`) before loading a single byte of it — a tampered or internally inconsistent bundle aborts before any ledger or output file is touched. Reuses, never reimplements: `ingestion/bet9ja.py`'s own ingestion, `screening/research_batch.py`'s own market-quality gate, and `bet9ja_research_session.run_bet9ja_research_session` itself (via its own new `forecast_override` hook) — the identical eligible-fixture universe and cutoff semantics (`forecast_cutoff_utc = source_captured_at_utc`, never wall-clock) `run-bet9ja-research` uses, just forecasted by the candidate's own adapter instance (`SoccerOneXTwoEloV1Adapter(data_dir=<candidate bundle>, alias_book=<the real, shipped team_aliases.json>)`) instead of the incumbent's — never through `adapters.registry`, which continues to resolve only the incumbent, completely unaffected.
+
+Produces:
+
+| File | Contents |
+|---|---|
+| `candidate-shadow-forecasts.json` | Every successful candidate forecast — sorted by a fixed, priority-free tie-break (kickoff, competition, teams, fixture id), **never** by research-priority score or any signal implying operator priority. `operator_decision` is always `null`, `recommendation_status` is always `"NOT_AVAILABLE"` |
+| `candidate-shadow-abstentions.json` | Every typed forecast abstention (the adapter's own `FORECAST_*` codes) |
+| `candidate-shadow-quarantine.json` | Ingestion quarantine and pricing-quality exclusions folded together — computed independently of which model would go on to forecast, so structurally identical to what `run-bet9ja-research` would produce against the identical capture |
+| `candidate-shadow-session-report.json` | Reconciled counts and reason codes |
+
+**Physically separate candidate ledger.** Every forecast/abstention is also written as one `RECORDED` event (reusing `ledgers/forecast_ledger.py`'s own event construction/idempotent-append primitives, via `forecast_ledger_writer.write_batch`, itself unmodified) to `<ledger-dir>/<candidate_bundle_hash>/forecast-ledger.jsonl` — a directory keyed by this candidate's own `bundle_hash`, never the incumbent's own ledger location. Every row carries `model_role: "CANDIDATE_SHADOW"`, `candidate_bundle_hash`, `build_identity`, `capture_hash` (a content hash of the exact capture file used), `capture_session_id`, `forecast_cutoff_utc`, `alias_hash`, and `recommendation_status: "NOT_AVAILABLE"` — a candidate's `model_version` is always distinct from the incumbent's, so its forecast ids never collide with the incumbent's own rows for the identical fixture, even in one shared ledger file, though this command never writes to one.
+
+**The injected team-alias book is never an unrecorded dependency.** `alias_hash` — the SHA-256 of the exact `team_aliases.json` bytes used to resolve every fixture — is recorded on every row (output files and ledger alike). Because the incumbent has no override path at all, its own "alias hash" is always this same, single, re-derivable value, so confirming a candidate's recorded `alias_hash` against a fresh computation is exactly "candidate and incumbent used the same aliases." Rerunning the same candidate against the same `--ledger-dir` location after `team_aliases.json` has changed fails with a typed `AliasHashMismatchError` before anything is written, rather than silently mixing rows resolved under two different alias books in one ledger.
+
+The ledger *filename* is deliberately the same one the incumbent's own ledger uses (`forecast-ledger.jsonl`) — not a differently-spelled one — because `ingest-football-data-results` and `report-forecast-performance` both already hardcode that exact filename internally. Pointing either one's own `--ledger-dir` at `<ledger-dir>/<candidate_bundle_hash>/` settles or reports on this candidate's own ledger through the existing, real settlement/reporting engines, with zero code changes to either, while remaining a physically separate file from the incumbent's own ledger throughout.
+
+**Stable join key for a future incumbent-vs-candidate comparison** (every field is already on every row this command writes): `capture_hash + settlement_identity + forecast_cutoff_utc + market_type` — never `forecast_id`, which differs by construction between a candidate and the incumbent.
+
+**Idempotent, atomic.** The ledger write is preflighted as one whole batch, under an OS-level lock, before any output file is written — a conflicting batch leaves both completely unwritten. Re-running the identical candidate-bundle-plus-capture combination appends zero duplicate rows.
+
+Explicitly out of scope: promotion, admission-registry rows, ranking for operator action, staking, ticket construction, settlement/scoring (run the existing settlement engine against this command's own ledger location separately, as described above), new team aliases, scheduled/automatic shadow-forecast runs.
 
 ## Bet9ja capture ingestion (research batch preparation)
 

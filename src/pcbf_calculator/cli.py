@@ -61,7 +61,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .adapters.registry import UnsupportedCombinationError, run_forecast
 from .decision.engine import DecisionInputError, evaluate as evaluate_decision
@@ -144,12 +144,31 @@ def _market_comparison(forecast: dict[str, Any], pricing: dict[str, Any]) -> dic
     return comparison
 
 
-def run_calculator(fixture: Any) -> dict[str, Any]:
+def run_calculator(
+    fixture: Any,
+    *,
+    forecast_override: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Validate one request and run whichever layers the input supports.
 
     Never raises for a malformed/unsupported input — every failure path
     returns a typed failure record instead. This is the single entry point
     both the CLI and the test suite call.
+
+    ``forecast_override`` (default ``None``, preserving this function's
+    original behavior byte-for-byte for every existing caller) replaces
+    the one line that would otherwise call
+    ``adapters.registry.run_forecast(category, fixture)`` -- which always
+    resolves the registry's own default, incumbent adapter instance, with
+    no way to point it at a different model. Given the same
+    ``(category, fixture_dict)`` signature as ``run_forecast`` itself, so
+    it is a drop-in substitution: everything else (input validation,
+    pricing, the decision layer, market comparison, ``calculation_hash``)
+    runs identically either way. Used by
+    ``pcbf_calculator.orchestration.candidate_shadow_forecast`` to forecast
+    with a candidate bundle's own adapter instance instead of the
+    incumbent's, without duplicating this function's own validation/
+    pricing/comparison logic.
     """
     input_hash = _sha256(fixture)
 
@@ -271,7 +290,10 @@ def run_calculator(fixture: Any) -> dict[str, Any]:
         )
 
     try:
-        forecast_result = run_forecast(category, fixture.get("fixture") or {})
+        if forecast_override is not None:
+            forecast_result = forecast_override(category, fixture.get("fixture") or {})
+        else:
+            forecast_result = run_forecast(category, fixture.get("fixture") or {})
     except UnsupportedCombinationError as exc:
         # Should not happen: category already resolved above. Kept for
         # defense in depth, fail-closed rather than silently proceeding.
@@ -433,6 +455,19 @@ def main(argv: list[str] | None = None) -> int:
         from .orchestration.soccer_artifact_refresh import main as refresh_soccer_artifact_main
 
         return refresh_soccer_artifact_main(argv[1:])
+
+    # ``shadow-forecast-candidate`` is likewise additive -- see
+    # ``orchestration/candidate_shadow_forecast.py``'s own module
+    # docstring. Gives a verified candidate bundle its own real
+    # prospective forecast history over the same fixtures
+    # ``run-bet9ja-research`` forecasts for the incumbent, written to a
+    # physically separate candidate ledger -- never the incumbent's own
+    # ledger, never through the active adapter registry, never a ranked
+    # queue or a recommendation.
+    if argv and argv[0] == "shadow-forecast-candidate":
+        from .orchestration.candidate_shadow_forecast import main as shadow_forecast_candidate_main
+
+        return shadow_forecast_candidate_main(argv[1:])
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
