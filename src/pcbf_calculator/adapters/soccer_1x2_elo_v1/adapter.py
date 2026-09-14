@@ -166,11 +166,37 @@ def load_team_alias_book(data_dir: Path | None = None) -> TeamAliasBook:
 class SoccerOneXTwoEloV1Adapter(SportAdapter):
     """Registered in ``adapters/registry.py::_ADAPTER_IMPLEMENTATIONS["soccer"]``."""
 
-    def __init__(self, data_dir: Path | None = None, config_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        data_dir: Path | None = None,
+        config_path: Path | None = None,
+        alias_book: TeamAliasBook | None = None,
+    ) -> None:
+        """``data_dir`` (model/manifest source) and ``alias_book`` are
+        deliberately independent overrides -- see ``alias_book``'s own
+        note below for why. Omitting both preserves this constructor's
+        original, single-argument behavior byte-for-byte (every existing
+        caller, including the registry's own default instantiation)."""
+
         data_dir = data_dir or _DATA_DIR
         self._artifact = _load_artifact(data_dir)
         self._config = load_config(config_path)
-        self._alias_book = _load_alias_book(data_dir)
+        # A caller-supplied alias_book (e.g. a candidate-bundle directory
+        # passed as data_dir, which ships only the four
+        # refresh-soccer-artifact candidate files and no
+        # team_aliases.json of its own) takes priority over data_dir's own
+        # team_aliases.json. Team-name aliasing is about mapping an
+        # external capture's own name variants to this pipeline's
+        # canonical football-data.co.uk team names -- a property of the
+        # NAME, not of which model artifact is loaded -- so a candidate
+        # shadow-forecasting caller should inject the real, shipped alias
+        # book (``load_team_alias_book()``) here to resolve fixtures
+        # identically to the incumbent, rather than silently falling back
+        # to ``TeamAliasBook.empty()`` (this constructor's default when
+        # neither is given and data_dir has no team_aliases.json of its
+        # own) and risking a DIFFERENT eligible-fixture set than the
+        # incumbent's own run purely because of missing aliasing.
+        self._alias_book = alias_book if alias_book is not None else _load_alias_book(data_dir)
 
     @property
     def declaration(self) -> AdapterInterfaceDeclaration:

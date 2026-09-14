@@ -141,6 +141,13 @@ def build_recorded_event(
     resolved_home_team: str | None = None,
     resolved_away_team: str | None = None,
     scheduled_date: str | None = None,
+    model_role: str | None = None,
+    candidate_bundle_hash: str | None = None,
+    build_identity: str | None = None,
+    capture_hash: str | None = None,
+    capture_session_id: str | None = None,
+    forecast_cutoff_utc: str | None = None,
+    recommendation_status: str | None = None,
 ) -> dict[str, Any]:
     """Build (never appends) one RECORDED event. ``forecast_id`` is
     derived deterministically from ``(fixture_id, market_type,
@@ -178,7 +185,36 @@ def build_recorded_event(
     identity. This is the join key a later, independent settlement step
     (e.g. matching a football-data.co.uk result file back to the forecast
     it settles) uses instead of the raw, unresolved capture text -- see
-    ``pcbf_calculator.orchestration.football_data_settlement``."""
+    ``pcbf_calculator.orchestration.football_data_settlement``.
+
+    ``model_role``/``candidate_bundle_hash``/``build_identity``/
+    ``capture_hash``/``capture_session_id``/``forecast_cutoff_utc``/
+    ``recommendation_status`` are ALL optional and default to ``None`` --
+    every existing caller (the incumbent's own
+    ``forecast_ledger_writer.py``) omits them, so its own events are
+    byte-for-byte unaffected by their addition. They exist for
+    ``pcbf_calculator.orchestration.candidate_shadow_forecast``, which
+    sets ``model_role="CANDIDATE_SHADOW"`` on every row it writes -- the
+    ledger's own natural key (``fixture_id``, ``market_type``,
+    ``model_version``) already keeps a candidate's rows from colliding
+    with the incumbent's for the same fixture (a candidate's
+    ``model_version`` is always distinct), but ``model_role`` makes that
+    provenance explicit and queryable without having to know which
+    ``model_version`` strings are "incumbent" versus "candidate."
+    ``candidate_bundle_hash``/``build_identity`` are the candidate's own
+    identity (see ``pcbf_calculator.orchestration.soccer_artifact_refresh``);
+    ``capture_hash`` is a content hash of the exact capture file used
+    (distinct from ``capture_id``, which is the capture's own SESSION id,
+    not a hash of its bytes); ``forecast_cutoff_utc`` is carried as its
+    own explicit field here rather than reusing ``captured_at_utc``
+    (which the incumbent's own writer already repurposes for this same
+    value -- see ``forecast_ledger_writer.py``'s own comment on that);
+    ``recommendation_status`` mirrors the same always-``"NOT_AVAILABLE"``
+    marker ``run-bet9ja-research`` already stamps onto every ranked
+    market, carried into the ledger row itself for a candidate so a
+    reader never has to assume it. None of these seven fields is ever
+    read by ``score_and_append``/``current_state``/any other function in
+    this module -- they are provenance only."""
 
     if selection_status not in SELECTION_STATUSES:
         raise ValueError(f"selection_status must be one of {SELECTION_STATUSES}, got {selection_status!r}")
@@ -212,6 +248,13 @@ def build_recorded_event(
         "resolved_home_team": resolved_home_team,
         "resolved_away_team": resolved_away_team,
         "scheduled_date": scheduled_date,
+        "model_role": model_role,
+        "candidate_bundle_hash": candidate_bundle_hash,
+        "build_identity": build_identity,
+        "capture_hash": capture_hash,
+        "capture_session_id": capture_session_id,
+        "forecast_cutoff_utc": forecast_cutoff_utc,
+        "recommendation_status": recommendation_status,
     }
     return {
         "schema_version": SCHEMA_VERSION,
