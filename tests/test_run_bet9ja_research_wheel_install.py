@@ -129,6 +129,35 @@ class WheelInstallationTests(unittest.TestCase):
             self.assertTrue((output_dir / "forecast-abstentions.json").exists())
             self.assertTrue((output_dir / "ingestion-and-screening-exclusions.json").exists())
 
+    def test_ledger_dir_option_works_from_the_installed_wheel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            input_path = tmp_path / "capture.json"
+            input_path.write_text(json.dumps(CAPTURE_ENVELOPE), encoding="utf-8")
+            output_dir = tmp_path / "out"
+            ledger_dir = tmp_path / "ledger_data"
+
+            result = subprocess.run(
+                [
+                    sys.executable, "-m", "pcbf_calculator", "run-bet9ja-research", str(input_path),
+                    "--output-dir", str(output_dir), "--ledger-dir", str(ledger_dir),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(tmp_path),
+                env=self.install_env,
+            )
+            self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r} stderr={result.stderr!r}")
+            self.assertIn("LEDGER:", result.stdout)
+
+            ledger_path = ledger_dir / "forecast-ledger.jsonl"
+            self.assertTrue(ledger_path.exists())
+            lines = ledger_path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 1)
+            record = json.loads(lines[0])
+            self.assertEqual(record["payload"]["classification"], "RESEARCH-MODEL")
+            self.assertIsNotNone(record["payload"]["model_probabilities"])
+
     def test_host_contract_invocation_also_works_from_the_installed_wheel(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

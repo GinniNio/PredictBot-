@@ -77,6 +77,44 @@ def _payload_equal_ignoring(a: dict[str, Any], b: dict[str, Any], ignore_keys: f
     return strip(a) == strip(b)
 
 
+def find_existing(records: list[dict[str, Any]], id_field: str, entity_id: Any, event_type: str) -> dict[str, Any] | None:
+    """The first record in ``records`` (in the given order) matching
+    ``(record[id_field] == entity_id, record["event_type"] == event_type)``,
+    or ``None``. Pure lookup, no I/O -- the shared scan both
+    ``append_if_new`` (against a file's own on-disk records) and a
+    caller-built batch preflight (against a caller-supplied, possibly
+    in-memory list) use, so the two never risk disagreeing about what
+    counts as "already exists"."""
+
+    for existing in records:
+        if existing.get(id_field) == entity_id and existing.get("event_type") == event_type:
+            return existing
+    return None
+
+
+def decide_append(
+    existing: dict[str, Any] | None,
+    record: dict[str, Any],
+    ignore_keys_in_payload_comparison: frozenset[str] = frozenset(),
+) -> AppendResult:
+    """Pure decision, no I/O: given the (at most one) existing record
+    ``find_existing`` matched for ``record``'s own ``(id_field,
+    event_type)`` key, decide ``APPENDED``/``DUPLICATE_SKIPPED``/
+    ``CONFLICT`` -- see this module's own docstring for the three
+    outcomes. The single source of truth ``append_if_new`` and any
+    caller-built batch preflight (deciding a whole batch's fate against
+    an in-memory, progressively-extended view of "what would already
+    exist" before committing anything to disk) both build on, so neither
+    can silently diverge from the other's notion of a duplicate or a
+    conflict."""
+
+    if existing is None:
+        return AppendResult(status=APPENDED, record=record)
+    if _payload_equal_ignoring(existing.get("payload", {}), record.get("payload", {}), ignore_keys_in_payload_comparison):
+        return AppendResult(status=DUPLICATE_SKIPPED, record=record, conflicting_record=existing)
+    return AppendResult(status=CONFLICT, record=record, conflicting_record=existing)
+
+
 def append_if_new(
     path: Path,
     record: dict[str, Any],
@@ -94,18 +132,15 @@ def append_if_new(
 
     entity_id = record[id_field]
     event_type = record["event_type"]
-    for existing in read_all(path):
-        if existing.get(id_field) == entity_id and existing.get("event_type") == event_type:
-            if _payload_equal_ignoring(
-                existing.get("payload", {}), record.get("payload", {}), ignore_keys_in_payload_comparison
-            ):
-                return AppendResult(status=DUPLICATE_SKIPPED, record=record, conflicting_record=existing)
-            return AppendResult(status=CONFLICT, record=record, conflicting_record=existing)
+    existing = find_existing(read_all(path), id_field, entity_id, event_type)
+    result = decide_append(existing, record, ignore_keys_in_payload_comparison)
+    if result.status != APPENDED:
+        return result
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, sort_keys=True) + "\n")
-    return AppendResult(status=APPENDED, record=record)
+    return result
 
 
 def append_event(path: Path, record: dict[str, Any]) -> None:

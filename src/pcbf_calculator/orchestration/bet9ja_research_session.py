@@ -112,8 +112,21 @@ Output files (``run_session``/CLI):
 - ``ingestion-and-screening-exclusions.json`` -- every ingestion
   quarantine and pricing-quality exclusion.
 
-Explicitly out of scope: automatic ledger writes, results retrieval or
-settlement, external research or web searches, PCBF's five research
+**Optional forecast-ledger write (``--ledger-dir``).** Omitting it leaves
+every behavior above byte-for-byte unchanged -- no ledger is touched.
+Supplying it also idempotently writes every ranked market and forecast
+abstention into the existing forecast ledger
+(``ledgers/forecast_ledger.py``, via ``forecast_ledger_writer.py``'s own
+module docstring) as one ``RECORDED`` event each, preflighted as a whole
+batch before any write: a single conflicting record leaves BOTH the
+ledger and this call's own research output files completely unwritten,
+never a partial write. Pricing-quality-excluded and ingestion-quarantined
+fixtures never reached the model and are never written to the ledger.
+This never writes to ``ledgers/betting_ledger.py`` at all -- no ticket,
+stake, or outcome-selection field is ever touched here.
+
+Explicitly out of scope: results retrieval or settlement (``SCORED``
+ledger events), external research or web searches, PCBF's five research
 streams, EXECUTE/PASS decisions, outcome recommendations, ``PAPER``/``CASH``
 admission, stake sizing or ticket construction, model retraining, new team
 aliases.
@@ -235,12 +248,26 @@ def run_bet9ja_research_session(envelope: dict[str, Any]) -> dict[str, Any]:
     excluded: list[dict[str, Any]] = []
     reason_counts: dict[str, dict[str, int]] = {STAGE_INGESTION: {}, STAGE_PRICING_QUALITY: {}, STAGE_FORECAST: {}}
 
-    def record(bucket: list[dict[str, Any]], stage: str, reason_code: str, detail: str | None, fixture: dict[str, Any], raw: Any = None) -> None:
+    def record(
+        bucket: list[dict[str, Any]],
+        stage: str,
+        reason_code: str,
+        detail: str | None,
+        fixture: dict[str, Any],
+        raw: Any = None,
+        market_prices: dict[str, Any] | None = None,
+        forecast: dict[str, Any] | None = None,
+        input_hash: str | None = None,
+        calculation_hash: str | None = None,
+        classification_ceiling: str | None = None,
+    ) -> None:
         reason_counts[stage][reason_code] = reason_counts[stage].get(reason_code, 0) + 1
         entry = {
             "stage": stage,
             "reason": reason_code,
             "detail": detail,
+            "source": fixture.get("source"),
+            "source_capture_session_id": fixture.get("source_capture_session_id"),
             "source_fixture_id": fixture.get("source_fixture_id"),
             "source_competition_id": fixture.get("source_competition_id"),
             "sport": fixture.get("sport"),
@@ -249,9 +276,27 @@ def run_bet9ja_research_session(envelope: dict[str, Any]) -> dict[str, Any]:
             "home": fixture.get("home"),
             "away": fixture.get("away"),
             "kickoff_utc": fixture.get("kickoff_utc"),
+            "forecast_cutoff_utc": forecast_cutoff_utc,
         }
         if raw is not None:
             entry["raw"] = raw
+        # Only ever populated for a fixture that reached real pricing (the
+        # FORECAST stage) -- an ingestion quarantine never had a validated
+        # market to report, so this stays absent there rather than
+        # fabricated. Threading these through lets the forecast-ledger
+        # writer (orchestration/forecast_ledger_writer.py) build a
+        # complete RECORDED event straight from this entry, with no
+        # second call back into pricing/forecasting.
+        if market_prices is not None:
+            entry["market_prices"] = market_prices
+        if forecast is not None:
+            entry["forecast"] = forecast
+        if input_hash is not None:
+            entry["input_hash"] = input_hash
+        if calculation_hash is not None:
+            entry["calculation_hash"] = calculation_hash
+        if classification_ceiling is not None:
+            entry["classification_ceiling"] = classification_ceiling
         bucket.append(entry)
 
     for quarantine_record in quarantined:
@@ -297,12 +342,34 @@ def run_bet9ja_research_session(envelope: dict[str, Any]) -> dict[str, Any]:
 
         forecast = result["forecast"] or {}
         if not forecast.get("forecast_available"):
-            record(abstentions, STAGE_FORECAST, forecast.get("no_forecast_reason") or "FORECAST_UNAVAILABLE", None, fixture)
+            record(
+                abstentions,
+                STAGE_FORECAST,
+                forecast.get("no_forecast_reason") or "FORECAST_UNAVAILABLE",
+                None,
+                fixture,
+                market_prices=fixture["market"],
+                forecast=forecast,
+                input_hash=result["input_hash"],
+                calculation_hash=result["calculation_hash"],
+                classification_ceiling=result["classification_ceiling"],
+            )
             continue
 
         market_comparison = result.get("market_comparison")
         if not market_comparison:
-            record(abstentions, STAGE_FORECAST, ORCH_MARKET_COMPARISON_UNAVAILABLE, None, fixture)
+            record(
+                abstentions,
+                STAGE_FORECAST,
+                ORCH_MARKET_COMPARISON_UNAVAILABLE,
+                None,
+                fixture,
+                market_prices=fixture["market"],
+                forecast=forecast,
+                input_hash=result["input_hash"],
+                calculation_hash=result["calculation_hash"],
+                classification_ceiling=result["classification_ceiling"],
+            )
             continue
 
         market = {
@@ -323,9 +390,11 @@ def run_bet9ja_research_session(envelope: dict[str, Any]) -> dict[str, Any]:
             "recommendation_status": RECOMMENDATION_STATUS,
             "operator_decision": OPERATOR_DECISION,
             "research_priority_score": pricing["market_quality"]["research_priority_score"],
+            "market_prices": fixture["market"],
             "pricing": pricing,
             "forecast": forecast,
             "market_comparison": market_comparison,
+            "input_hash": result["input_hash"],
             "calculation_hash": result["calculation_hash"],
             "_sort_fixture": fixture,
         }
@@ -436,9 +505,30 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def run_session(input_path: Path, output_dir: Path) -> dict[str, Any]:
+def run_session(input_path: Path, output_dir: Path, ledger_dir: Path | None = None) -> dict[str, Any]:
+    """Runs the full pipeline and writes the four research output files,
+    exactly as before. When ``ledger_dir`` is given (additive, optional --
+    omitting it leaves every existing behavior byte-for-byte unchanged),
+    also idempotently writes every ranked market and forecast abstention
+    into the forecast ledger at ``ledger_dir`` (see
+    ``forecast_ledger_writer.py``'s own module docstring) -- preflighted
+    as a whole batch, so a single conflicting record raises
+    ``forecast_ledger_writer.LedgerBatchConflictError`` and leaves BOTH
+    the ledger AND this call's own research output files unwritten
+    (checked before either is touched)."""
     envelope = json.loads(input_path.read_text(encoding="utf-8"))
     result = run_bet9ja_research_session(envelope)
+
+    if ledger_dir is not None:
+        from . import forecast_ledger_writer
+
+        events = forecast_ledger_writer.build_ledger_events(result)
+        ledger_path = ledger_dir / "forecast-ledger.jsonl"
+        # Raises LedgerBatchConflictError (writing nothing) before any
+        # research output file below is written either -- a conflicting
+        # batch must leave everything untouched, not just the ledger.
+        ledger_write_summary = forecast_ledger_writer.write_batch(ledger_path, events)
+        result["ledger_write_summary"] = ledger_write_summary
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_json(output_dir / "research-session-report.json", result["research_session_report"])
@@ -456,9 +546,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("input", type=Path, help="Raw exported Bet9ja capture envelope JSON")
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write output files into")
+    parser.add_argument(
+        "--ledger-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional: also idempotently write every ranked market and forecast abstention "
+            "into the forecast ledger at this directory (forecast-ledger.jsonl). Omit to "
+            "leave existing behavior unchanged -- no ledger is touched."
+        ),
+    )
     args = parser.parse_args(argv)
 
-    result = run_session(args.input, args.output_dir)
+    try:
+        result = run_session(args.input, args.output_dir, ledger_dir=args.ledger_dir)
+    except Exception as exc:
+        from . import forecast_ledger_writer
+
+        if isinstance(exc, forecast_ledger_writer.LedgerBatchConflictError):
+            print(f"CONFLICT: {exc}")
+            return 2
+        raise
+
     counts = result["research_session_report"]["counts"]
     print(
         f"OK: {counts['ranked_selections']} ranked research markets, "
@@ -467,6 +576,13 @@ def main(argv: list[str] | None = None) -> int:
         f"{counts['quarantined']} ingestion quarantined "
         f"({counts['source_fixtures_raw']} raw fixtures) -> {args.output_dir}"
     )
+    if "ledger_write_summary" in result:
+        summary = result["ledger_write_summary"]
+        print(
+            f"LEDGER: {summary['attempted']} attempted, {summary['appended']} appended, "
+            f"{summary['duplicate_skipped']} duplicate-skipped, {summary['conflicted']} conflicted "
+            f"({summary['total_ledger_records']} total records) -> {args.ledger_dir}"
+        )
     return 0
 
 
