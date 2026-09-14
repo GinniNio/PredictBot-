@@ -11,16 +11,26 @@ schema files under ``ledgers/schemas/`` actually use.
 Every envelope is checked against the top-level schema's own
 ``required``/``properties`` first, then against that specific
 ``event_type``'s entry in the schema's ``event_payloads`` mapping.
+
+Schema files are loaded via ``importlib.resources`` (``load_schema``
+below), never a ``Path(__file__)``-relative lookup -- the latter only
+ever works from a source checkout; an installed wheel's ``ledgers``
+package lives somewhere else entirely (e.g. ``site-packages/ledgers/``),
+and ``importlib.resources`` is the standard-library-only way (no new
+runtime dependency) to resolve a package's own shipped data files
+correctly either way. ``schemas/*.json`` must also be declared under
+``[tool.setuptools.package-data]`` in ``pyproject.toml`` -- see that
+file's own comment -- or these files never make it into the wheel at
+all, regardless of how they're loaded here.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from importlib import resources
 from pathlib import Path
 from typing import Any
-
-SCHEMAS_DIR = Path(__file__).resolve().parent / "schemas"
 
 _TYPE_MAP: dict[str, tuple[type, ...]] = {
     "string": (str,),
@@ -45,9 +55,13 @@ class ValidationError(Exception):
 
 def load_schema(name: str) -> dict[str, Any]:
     """``name`` is e.g. ``forecast_ledger.v1`` -- loads
-    ``ledgers/schemas/<name>.schema.json``."""
+    ``ledgers/schemas/<name>.schema.json`` via ``importlib.resources``,
+    resolved against the ``ledgers`` package wherever it's actually
+    installed (a source checkout or a wheel's ``site-packages`` copy) --
+    never a hardcoded, checkout-relative path."""
 
-    return json.loads((SCHEMAS_DIR / f"{name}.schema.json").read_text(encoding="utf-8"))
+    schema_path = resources.files("ledgers").joinpath("schemas", f"{name}.schema.json")
+    return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
 def _check_type(value: Any, type_spec: Any, path: str, errors: list[str]) -> bool:
