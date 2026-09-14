@@ -15,10 +15,20 @@ from ..errors import UNSUPPORTED_SPORT_MARKET_COMBINATION
 from ..registries.loader import get_category
 from .base import AdapterInterfaceDeclaration, ForecastResult, SportAdapter
 
-# Release B/C+ populate this with real per-sport adapter classes, keyed by
-# the sport/category id from sports-registry.yaml. Release A ships it empty
-# on purpose — no per-sport forecasting logic exists yet.
+# Populated with real per-sport adapter classes, keyed by the sport/
+# category id from sports-registry.yaml. "soccer" is the first real entry
+# -- see soccer_1x2_elo_v1/adapter.py's own module docstring for what it
+# wraps and why registering it changes nothing about staking.
 _ADAPTER_IMPLEMENTATIONS: dict[str, type[SportAdapter]] = {}
+
+
+def _register_soccer_1x2_elo_v1() -> None:
+    from .soccer_1x2_elo_v1 import SoccerOneXTwoEloV1Adapter
+
+    _ADAPTER_IMPLEMENTATIONS["soccer"] = SoccerOneXTwoEloV1Adapter
+
+
+_register_soccer_1x2_elo_v1()
 
 
 class NoForecastAdapter(SportAdapter):

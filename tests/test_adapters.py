@@ -10,15 +10,18 @@ from pcbf_calculator.adapters.registry import (
 
 class AdapterFrameworkTests(unittest.TestCase):
     def test_registered_category_with_no_adapter_returns_no_forecast_stub(self):
-        adapter = get_adapter("soccer")
+        # "soccer" itself is no longer a NoForecastAdapter example -- it is
+        # the first real registered adapter (soccer_1x2_elo_v1, see
+        # adapters/registry.py and adapters/soccer_1x2_elo_v1/). Use
+        # "players_soccer" instead: still genuinely unregistered
+        # (adapter_status NOT_IMPLEMENTED, no class in
+        # _ADAPTER_IMPLEMENTATIONS).
+        adapter = get_adapter("players_soccer")
         self.assertIsInstance(adapter, NoForecastAdapter)
         result = adapter.forecast({})
         self.assertFalse(result.forecast_available)
         self.assertIsNone(result.probabilities)
-        # soccer carries its own DESIGN_IN_PROGRESS reason string (a design
-        # spec exists, docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md) — still
-        # NoForecastAdapter, still no fabricated forecast.
-        self.assertEqual(result.no_forecast_reason, "FORECASTING_ADAPTER_DESIGN_IN_PROGRESS_NOT_YET_BUILT")
+        self.assertEqual(result.no_forecast_reason, "NO_FORECASTING_ADAPTER_BUILT_YET")
 
     def test_run_forecast_never_fabricates_a_probability(self):
         result = run_forecast("basketball", {"home_team": "A", "away_team": "B"})

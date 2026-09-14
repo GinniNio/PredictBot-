@@ -4,14 +4,18 @@
 Proves: the stub implements the SportAdapter interface, never fabricates a
 probability regardless of what fixture data it is given (including a
 fixture that supplies every required feature with plausible-looking
-values), and is not wired into the registry dispatch — so DESIGN_IN_PROGRESS
-cannot accidentally unlock PAPER/CASH for soccer via this stub existing.
+values), and is not what "soccer" actually dispatches to at runtime.
+"soccer" itself IS now registered -- to the real, evaluated
+soccer_1x2_elo_v1.SoccerOneXTwoEloV1Adapter, never to this design-only
+stub, which remains exactly what it always was: a contract-shape proof
+with zero real forecasting logic.
 """
 
 import unittest
 
 from pcbf_calculator.adapters.base import ForecastResult, SportAdapter
 from pcbf_calculator.adapters.registry import NoForecastAdapter, _ADAPTER_IMPLEMENTATIONS, get_adapter
+from pcbf_calculator.adapters.soccer_1x2_elo_v1 import SoccerOneXTwoEloV1Adapter
 from pcbf_calculator.adapters.soccer_1x2_stub import (
     ADAPTER_ID,
     NO_ADMITTED_MODEL_VERSION,
@@ -100,13 +104,13 @@ class SoccerOneXTwoStubTests(unittest.TestCase):
         self.assertEqual(result["simulated_stake"], 0)
 
     def test_stub_is_not_registered_in_the_live_dispatch_table(self):
-        # DESIGN_IN_PROGRESS must not accidentally unlock new runtime
-        # behavior: get_adapter("soccer") still resolves to the generic
-        # NoForecastAdapter, never to this stub, because the stub is
-        # deliberately absent from _ADAPTER_IMPLEMENTATIONS.
-        self.assertNotIn("soccer", _ADAPTER_IMPLEMENTATIONS)
+        # This contract-shape stub (zero real forecasting logic) must
+        # never be the class dispatch actually resolves to -- "soccer" IS
+        # now registered (soccer_1x2_elo_v1.SoccerOneXTwoEloV1Adapter, a
+        # real, evaluated model), but this stub is not, and never was,
+        # that registration.
+        self.assertIs(_ADAPTER_IMPLEMENTATIONS.get("soccer"), SoccerOneXTwoEloV1Adapter)
         adapter = get_adapter("soccer")
-        self.assertIsInstance(adapter, NoForecastAdapter)
         self.assertNotIsInstance(adapter, SoccerOneXTwoAdapter)
 
 

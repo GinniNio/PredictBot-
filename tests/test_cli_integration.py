@@ -55,21 +55,20 @@ class CliIntegrationTests(unittest.TestCase):
         # two objects are always separate.
         self.assertNotEqual(result["pricing"], result["forecast"])
 
-    def test_soccer_design_in_progress_still_produces_no_forecast(self):
-        # soccer's adapter_status is DESIGN_IN_PROGRESS (a design spec
-        # exists, docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md), but that status
-        # must be pure documentation/tracking: dispatch is unaffected since
-        # no class is registered in _ADAPTER_IMPLEMENTATIONS, so runtime
-        # behavior is byte-for-byte identical to NOT_IMPLEMENTED.
+    def test_soccer_without_fixture_data_still_produces_no_forecast(self):
+        # "soccer" is now registered to a real adapter
+        # (soccer_1x2_elo_v1.SoccerOneXTwoEloV1Adapter), but a request with
+        # no "fixture" object (home/away/competition/kickoff_utc/
+        # forecast_cutoff_utc) still cannot produce a real forecast --
+        # honest abstention, not a crash or a fabricated probability.
         result = run_calculator(THREE_WAY_REQUEST)
         self.assertEqual(result["status"], "OK")
         self.assertFalse(result["forecast"]["forecast_available"])
         self.assertIsNone(result["forecast"]["probabilities"])
-        self.assertEqual(
-            result["forecast"]["no_forecast_reason"],
-            "FORECASTING_ADAPTER_DESIGN_IN_PROGRESS_NOT_YET_BUILT",
-        )
+        self.assertEqual(result["forecast"]["no_forecast_reason"], "FORECAST_INPUT_INCOMPLETE")
         self.assertEqual(result["classification_ceiling"], "RESEARCH-MODEL")
+        # No admitted forecast for this request -> no market comparison.
+        self.assertIsNone(result["market_comparison"])
 
     def test_missing_event_id_fails_typed(self):
         result = run_calculator({"category": "soccer", "market_prices": {"home": 1.9, "away": 2.0}})

@@ -181,6 +181,19 @@ class EloEngineTests(unittest.TestCase):
         result2 = engine2.process_ordered_matches(copy.deepcopy(records))
         self.assertEqual(result1, result2)
 
+    def test_snapshot_ratings_and_matches_played_reflect_current_state(self):
+        engine = EloEngine()
+        engine.apply_match_result("E0", "Home", "Away", "H")
+        ratings = engine.snapshot_ratings()
+        matches_played = engine.snapshot_matches_played()
+        self.assertEqual(ratings[("E0", "Home")], engine.get_pre_match_state("E0", "Home").rating)
+        self.assertEqual(ratings[("E0", "Away")], engine.get_pre_match_state("E0", "Away").rating)
+        self.assertEqual(matches_played[("E0", "Home")], 1)
+        self.assertEqual(matches_played[("E0", "Away")], 1)
+        # Must be a copy -- mutating it must never affect the engine's own state.
+        ratings[("E0", "Home")] = -1.0
+        self.assertNotEqual(engine.get_pre_match_state("E0", "Home").rating, -1.0)
+
 
 class SortMatchesChronologicallyTests(unittest.TestCase):
     def test_sorts_ascending_and_is_stable_on_ties(self):
@@ -232,6 +245,16 @@ class FeaturesTests(unittest.TestCase):
         dummies = vector[league_start : league_start + len(DUMMY_LEAGUE_CODES)]
         self.assertEqual(sum(dummies), 1.0)
         self.assertEqual(dummies[DUMMY_LEAGUE_CODES.index("SP1")], 1.0)
+
+    def test_season_stage_tracker_snapshot_counts_reflects_current_state(self):
+        tracker = SeasonStageTracker()
+        tracker.record_played("E0", "2324", "Alpha")
+        tracker.record_played("E0", "2324", "Alpha")
+        snapshot = tracker.snapshot_counts()
+        self.assertEqual(snapshot[("E0", "2324", "Alpha")], 2)
+        # Must be a copy -- mutating it must never affect the tracker's own state.
+        snapshot[("E0", "2324", "Alpha")] = 999
+        self.assertEqual(tracker.get_pre_match_count("E0", "2324", "Alpha"), 2)
 
     def test_home_advantage_constant_one_on_every_row(self):
         records = [

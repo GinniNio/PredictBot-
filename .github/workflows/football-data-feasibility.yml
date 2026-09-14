@@ -471,6 +471,14 @@ jobs:
           print_reliability_table("Model", rolling["model_metrics"])
           PY
 
+      # Exports the derived, aggregate live-ratings snapshot (never raw
+      # third-party row content) as a file for the upload-artifact step
+      # below to carry -- the correct transport for a multi-KB/MB JSON
+      # file (GitHub Actions artifacts support direct download with
+      # digest validation, unlike the job log).
+      - name: Export live Elo ratings snapshot
+        run: python -m research.soccer_1x2_elo_baseline.export_live_snapshot
+
       - uses: actions/upload-artifact@v4
         with:
           name: football-data-feasibility-evidence
@@ -483,7 +491,10 @@ jobs:
           # URLs, no CSV content), the source-attempt/feasibility report,
           # the fixture-validation report, the dataset build report
           # (counts/hashes/diagnostic/sanitized sample, no row content),
-          # and this run's metadata are uploaded.
+          # this run's metadata, and the derived/aggregate live-ratings
+          # snapshot (see the step above, consumed by
+          # adapters/soccer_1x2_elo_v1/build_manifest.py on artifact
+          # refresh) are uploaded.
           path: |
             data_pipeline/retrieval_log.json
             data_pipeline/reports/feasibility_report.json
@@ -496,4 +507,5 @@ jobs:
             research/soccer_1x2_elo_baseline/reports/model_artifact.json
             research/soccer_1x2_elo_baseline/reports/evaluation_report.json
             research/soccer_1x2_elo_baseline/reports/evaluation_report.md
+            research/soccer_1x2_elo_baseline/reports/live_snapshot.json
           if-no-files-found: error

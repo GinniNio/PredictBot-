@@ -21,3 +21,4 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "pcbf_calculator.registries.data" = ["*.yaml"]
+"pcbf_calculator.adapters.soccer_1x2_elo_v1.data" = ["*.json", "*.yaml"]
