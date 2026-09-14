@@ -14,10 +14,29 @@ pcbf-runtime-probe = "pcbf_football.runtime_probe:main"
 pcbf-calculator = "pcbf_calculator.cli:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+# "" (the default/root prefix) resolves under src/, covering
+# pcbf_calculator/pcbf_football; the "ledgers" package is a sibling of
+# src/ at the repo root (deliberately not moved -- see
+# ledgers/forecast_ledger.py's own module docstring for why it is a
+# standalone, repo-relative package) and gets its own explicit override
+# so it resolves to its real, unmoved location instead of src/ledgers.
+package-dir = {"" = "src", "ledgers" = "ledgers"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+# Two independent search roots: src/ (auto-discovers every
+# pcbf_calculator/pcbf_football subpackage as before, unaffected) and the
+# repo root (only for "ledgers" -- include= keeps this from also sweeping
+# up unrelated top-level directories like data_pipeline/, docs/, tests/,
+# research/, browser_extension/, registries/). exclude= additionally
+# blocks the repo's own gitignored local-build staging directory
+# (build/lib/pcbf_calculator/... from a prior `pip wheel .`/`python -m
+# build` run) -- without it, a stray build/ left over from an earlier
+# local build gets swept in as a second, stale copy of pcbf_calculator*
+# by the "." root above; excluding it keeps this robust regardless of
+# what a contributor's local build tooling has left lying around.
+where = ["src", "."]
+include = ["pcbf_calculator*", "pcbf_football*", "ledgers"]
+exclude = ["build*", "build.*"]
 
 [tool.setuptools.package-data]
 "pcbf_calculator.registries.data" = ["*.yaml"]

@@ -62,7 +62,7 @@ Every category in the sports/adapter registry ships at `classification_ceiling: 
 
 ## What remains unbuilt
 
-- Automatic linking from a ranked research market into the *forecast ledger* specifically: `run-bet9ja-research` (below) produces a deterministic, model-enriched research queue, but does not itself write to `ledgers/` — `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps a human takes from a ranked market (see `docs/LEDGER_DAILY_WORKFLOW.md`). Bet9ja ticket/settlement capture is unaffected.
+- Ticket placement from a ranked research market: `run-bet9ja-research --ledger-dir` (below) idempotently records every ranked market and forecast abstention into the forecast ledger, but `python -m ledgers.cli place-ticket` is still a separate, manual step a human takes from a recorded forecast (see `docs/LEDGER_DAILY_WORKFLOW.md`). Results settlement (`record-result`/`SCORED` events) is likewise still manual. Bet9ja ticket/settlement capture is unaffected.
 - Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
 - Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
@@ -110,6 +110,17 @@ Reuses — never reimplements — `ingest-bet9ja`'s ingestion, `screen-research-
 `forecast-research-ranked.json` is ranked by `research_priority_score` — the pricing engine's own already-documented market-quality prioritization signal, the exact same score `screen-research-batch` orders its own queue by — **never** by model probability, model-vs-market divergence, or expected value. Every ranked market carries the fixed, non-configurable block `classification_ceiling: "RESEARCH-MODEL"`, `cash_stake: 0`, `simulated_stake: 0`, `recommendation_status: "NOT_AVAILABLE"`, `operator_decision: null` — this is a research shortlist for a human-controlled decision process to act on next, never a betting slip, and no outcome is ever singled out, named "best," or reduced to a stake.
 
 The lower-level `ingest-bet9ja` and `screen-research-batch` commands (below) remain available unchanged, for debugging or for a workflow that only needs one stage at a time; `run-bet9ja-research` is additive, not a replacement.
+
+### Optional: write straight into the forecast ledger (`--ledger-dir`)
+
+```bash
+python -m pcbf_calculator run-bet9ja-research \
+  bet9ja-soccer-all-soccer-2026-09-12T15-30-23Z.json \
+  --output-dir runs/session-id \
+  --ledger-dir ledger_data
+```
+
+Omitting `--ledger-dir` leaves everything above byte-for-byte unchanged — no ledger is touched. Supplying it also idempotently writes one `RECORDED` event per ranked market and per typed forecast abstention into `ledger_data/forecast-ledger.jsonl` (`src/pcbf_calculator/orchestration/forecast_ledger_writer.py`), reusing the ledger's own existing natural key and duplicate/conflict rules (`ledgers/forecast_ledger.py`/`ledgers/storage.py`) — never reimplemented. The whole batch is preflighted before a single byte is written: if any record would conflict with existing ledger content under an unchanged natural key, **nothing is written at all** — neither the ledger nor that call's own four research output files above — and the command exits non-zero. A ranked market's event carries its full H/D/A model probabilities and provenance; a forecast abstention's carries `model_probabilities: null` and its exact typed `stop_reason`, with `model_version`/`artifact_hash` still recorded since the adapter always loads its real artifact even when it declines to forecast. Every event fixes `selection: null`, `selection_status: "considered"`, `operator_decision: null`, `classification: "RESEARCH-MODEL"` — this never places a ticket, sizes a stake, or touches `ledgers/betting_ledger.py` at all.
 
 ## Bet9ja capture ingestion (research batch preparation)
 
