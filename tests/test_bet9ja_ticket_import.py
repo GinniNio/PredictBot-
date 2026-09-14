@@ -300,6 +300,30 @@ class CurrencyTests(TmpLedgersMixin, unittest.TestCase):
         outcome = importer.evaluate_ticket(_open_single_ticket(), currency="EUR", forecast_index=forecast_index)
         self.assertEqual(outcome.event["payload"]["currency"], "EUR")
 
+    def test_no_raw_ticket_field_is_ever_read_for_currency(self):
+        # A raw ticket carrying its OWN (bogus) currency-shaped field is
+        # completely ignored -- currency is exclusively the operator's
+        # own --currency argument, applied identically to every ticket.
+        forecast_index = importer.ForecastIndex.build(self.forecast_ledger_path)
+        ticket = _open_single_ticket(currency="USD", currency_raw="USD")
+        outcome = importer.evaluate_ticket(ticket, currency="NGN", forecast_index=forecast_index)
+        self.assertEqual(outcome.event["payload"]["currency"], "NGN")
+
+    def test_currency_is_identical_across_every_accepted_ticket_in_one_batch(self):
+        # One run_import call takes exactly one --currency value -- it is
+        # structurally impossible for two tickets in the same batch to
+        # end up with different currencies, since no raw ticket field is
+        # ever consulted for it (see the test above).
+        report = importer.run_import(
+            [_open_single_ticket(bet9ja_ticket_id="c1"), _open_single_ticket(bet9ja_ticket_id="c2")],
+            currency="NGN",
+            betting_ledger_path=self.betting_ledger_path,
+            forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["accepted"], 2)
+        currencies = {r["payload"]["currency"] for r in read_all(self.betting_ledger_path)}
+        self.assertEqual(currencies, {"NGN"})
+
 
 class OpenSystemStakeDerivationTests(TmpLedgersMixin, unittest.TestCase):
     """Stake-structure resolution for OPEN (not-yet-settled) SYSTEM
@@ -338,6 +362,23 @@ class OpenSystemStakeDerivationTests(TmpLedgersMixin, unittest.TestCase):
         self.assertEqual(outcome.status, "ACCEPTED")
         self.assertIsNone(outcome.event["payload"]["unit_stake"])
         self.assertEqual(outcome.event["payload"]["stake_buckets"][0]["fold_size"], 1)
+
+    def test_stake_buckets_disagreeing_with_the_tickets_own_total_stake_is_quarantined(self):
+        # build_placed_event derives the PLACED total_stake from the
+        # buckets' own sum -- a raw ticket whose separately-captured
+        # top-level total_stake disagrees with that sum must never be
+        # silently accepted with the buckets' figure quietly winning.
+        forecast_index = importer.ForecastIndex.build(self.forecast_ledger_path)
+        ticket = _system_ticket_singles(
+            unit_stake=None,
+            total_stake="999999.00",  # wildly disagrees with the buckets below
+            stake_buckets=[
+                {"fold_size": 1, "combination_count": 5, "unit_stake": "35.00", "total_stake": "175.00"}
+            ],
+        )
+        outcome = importer.evaluate_ticket(ticket, currency="NGN", forecast_index=forecast_index)
+        self.assertEqual(outcome.status, "QUARANTINED")
+        self.assertEqual(outcome.reasons, [importer.REASON_STAKE_BUCKETS_TOTAL_MISMATCH])
 
     def test_ambiguous_quotient_across_multiple_fold_sizes_is_quarantined(self):
         forecast_index = importer.ForecastIndex.build(self.forecast_ledger_path)
@@ -452,6 +493,119 @@ class BookmakerObservedSettlementTests(TmpLedgersMixin, unittest.TestCase):
         outcome = importer.evaluate_ticket(ticket, currency="NGN", forecast_index=forecast_index)
         self.assertEqual(outcome.status, "QUARANTINED")
         self.assertIn(importer.REASON_UNSUPPORTED_SETTLEMENT_STATUS, outcome.reasons)
+
+    def test_void_ticket_status_is_also_unsupported_and_quarantined(self):
+        # A whole-ticket VOID (e.g. a postponed match voiding the whole
+        # slip) is not one of the two real statuses this session's own
+        # capture ever produces ({"WON", "LOST"}) -- never silently
+        # treated as either.
+        forecast_index = importer.ForecastIndex.build(self.forecast_ledger_path)
+        ticket = _settled_system_ticket(ticket_status="VOID")
+        outcome = importer.evaluate_ticket(ticket, currency="NGN", forecast_index=forecast_index)
+        self.assertEqual(outcome.status, "QUARANTINED")
+        self.assertIn(importer.REASON_UNSUPPORTED_SETTLEMENT_STATUS, outcome.reasons)
+
+    def test_partial_ticket_status_is_also_unsupported_and_quarantined(self):
+        forecast_index = importer.ForecastIndex.build(self.forecast_ledger_path)
+        ticket = _settled_system_ticket(ticket_status="PARTIAL")
+        outcome = importer.evaluate_ticket(ticket, currency="NGN", forecast_index=forecast_index)
+        self.assertEqual(outcome.status, "QUARANTINED")
+        self.assertIn(importer.REASON_UNSUPPORTED_SETTLEMENT_STATUS, outcome.reasons)
+
+    def test_mixed_leg_outcomes_never_recompute_the_trusted_payout(self):
+        # A real, multi-leg SYSTEM ticket with a genuine MIX of WON/LOST/
+        # VOID legs -- leg_results is recorded verbatim for audit, but
+        # actual_return is the bookmaker's own figure, NEVER a naive
+        # recombination of these leg outcomes. Deliberately choose an
+        # actual_payout that a per-leg recompute (impossible here anyway,
+        # since the fold-size structure is unknown) could never produce,
+        # to prove nothing is silently re-derived from leg_results.
+        forecast_index = importer.ForecastIndex.build(self.forecast_ledger_path)
+        legs = [
+            {
+                "competition_raw": "Premier League",
+                "fixture_and_time_raw": f"Team{i}A - Team{i}B",
+                "fixture_id": f"bxf_{i}",
+                "leg_status": status,
+                "market_raw": "1X2",
+                "odds": "2.00",
+                "selection": "H",
+                "selection_raw": "H",
+            }
+            for i, status in enumerate(["WON", "LOST", "VOID", "WON"])
+        ]
+        ticket = _settled_system_ticket(actual_payout="12345.67", legs=legs)
+        outcome = importer.evaluate_ticket(ticket, currency="NGN", forecast_index=forecast_index)
+        self.assertEqual(outcome.status, "ACCEPTED")
+        settled_payload = outcome.settled_event["payload"]
+        self.assertEqual(settled_payload["actual_return"], "12345.67")
+        self.assertEqual(settled_payload["settlement_basis"], "BOOKMAKER_OBSERVED")
+        self.assertEqual(
+            settled_payload["leg_results"],
+            [
+                {"leg_index": 0, "outcome": "WON"},
+                {"leg_index": 1, "outcome": "LOST"},
+                {"leg_index": 2, "outcome": "VOID"},
+                {"leg_index": 3, "outcome": "WON"},
+            ],
+        )
+        # The PLACED event's own structure is honestly unknown -- never
+        # derived from these leg outcomes either.
+        self.assertEqual(outcome.event["payload"]["stake_structure_basis"], "TOTAL_ONLY_UNKNOWN_BREAKDOWN")
+        self.assertIsNone(outcome.event["payload"]["combination_count"])
+
+    def test_profit_equals_trusted_payout_minus_trusted_total_stake_exactly_once(self):
+        # End-to-end through run_import + the real ledger's own
+        # current_state -- profit_loss is stored, never recomputed by
+        # any downstream reader (ledgers/summary.py sums this SAME
+        # stored field once per ticket_id; it never re-subtracts).
+        report = importer.run_import(
+            [_settled_system_ticket(actual_payout="343.08")],
+            currency="NGN",
+            betting_ledger_path=self.betting_ledger_path,
+            forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["settled"]["appended"], 1)
+        ticket_id = read_all(self.betting_ledger_path)[0]["ticket_id"]
+        state = betting_ledger.current_state(self.betting_ledger_path, ticket_id)
+        actual_return_d = Decimal(state["actual_return"])
+        total_stake_d = Decimal(state["total_stake"])
+        profit_loss_d = Decimal(state["profit_loss"])
+        self.assertEqual(actual_return_d, Decimal("343.08"))
+        self.assertEqual(total_stake_d, Decimal("250.00"))
+        self.assertEqual(profit_loss_d, actual_return_d - total_stake_d)
+        self.assertEqual(profit_loss_d, Decimal("93.08"))
+
+    def test_null_max_return_does_not_affect_settlement_or_ledger_totals(self):
+        # A settled ticket's max_return is always null (see the PLACED
+        # payload assertion in the first test in this class) -- confirm
+        # this null never leaks into, or is substituted for, any real
+        # money figure: total_stake/actual_return/profit_loss are
+        # unaffected by its presence or absence.
+        forecast_index = importer.ForecastIndex.build(self.forecast_ledger_path)
+        with_null = _settled_system_ticket(actual_payout="343.08")
+        without = _settled_system_ticket(actual_payout="343.08")
+        del without["potential_return"]  # not even present, vs. explicitly null in the default fixture
+        outcome_a = importer.evaluate_ticket(with_null, currency="NGN", forecast_index=forecast_index)
+        outcome_b = importer.evaluate_ticket(without, currency="NGN", forecast_index=forecast_index)
+        for outcome in (outcome_a, outcome_b):
+            self.assertEqual(outcome.status, "ACCEPTED")
+            self.assertIsNone(outcome.event["payload"]["max_return"])
+            self.assertEqual(outcome.event["payload"]["total_stake"], "250.00")
+            self.assertEqual(outcome.settled_event["payload"]["actual_return"], "343.08")
+            self.assertEqual(outcome.settled_event["payload"]["profit_loss"], "93.08")
+
+    def test_settle_computed_is_structurally_incapable_of_running_on_a_total_only_ticket(self):
+        # Belt-and-braces confirmation (see also
+        # test_settle_computed_can_never_be_used_on_this_tickets_own_structure
+        # below): TOTAL_ONLY_UNKNOWN_BREAKDOWN's own combination_count/
+        # system_sizes are null in the payload, so even if some future
+        # caller mistakenly tried settle_computed against this ticket, it
+        # has no combinatorial structure to iterate over at all.
+        forecast_index = importer.ForecastIndex.build(self.forecast_ledger_path)
+        outcome = importer.evaluate_ticket(_settled_system_ticket(), currency="NGN", forecast_index=forecast_index)
+        self.assertIsNone(outcome.event["payload"]["system_sizes"] if "system_sizes" in outcome.event["payload"] else None)
+        self.assertNotIn("stake_buckets", outcome.event["payload"])
 
     def test_missing_leg_outcome_is_quarantined(self):
         forecast_index = importer.ForecastIndex.build(self.forecast_ledger_path)
@@ -672,10 +826,16 @@ class RunImportBatchSafetyTests(TmpLedgersMixin, unittest.TestCase):
             betting_ledger_path=self.betting_ledger_path,
             forecast_ledger_path=self.forecast_ledger_path,
         )
+        # The ticket is already PLACED after the first run -- the second
+        # import recognizes that and settles directly against it,
+        # attempting NO new PLACED build/write at all (see
+        # evaluate_ticket's own "already_placed" settle-only path), so
+        # settled duplicate_skipped is where this no-op actually shows.
+        self.assertEqual(report["placed"]["attempted"], 0)
         self.assertEqual(report["placed"]["appended"], 0)
-        self.assertEqual(report["placed"]["duplicate_skipped"], 1)
         self.assertEqual(report["settled"]["appended"], 0)
         self.assertEqual(report["settled"]["duplicate_skipped"], 1)
+        self.assertEqual(report["settled_against_pre_existing_placement"], 1)
         self.assertEqual(len(read_all(self.betting_ledger_path)), 2)  # never duplicated
 
     def test_quarantined_tickets_never_block_accepted_siblings_in_the_same_batch(self):
@@ -752,12 +912,12 @@ class RunImportBatchSafetyTests(TmpLedgersMixin, unittest.TestCase):
         self.assertEqual(len(records_after_first_run), 2)
 
         # Re-import the SAME ticket but with a different actual_payout.
-        # source_raw preserves the whole raw record verbatim, so this
-        # also changes the PLACED event's own payload -- both batches
-        # correctly refuse to silently accept a changed financial figure
-        # under the same ticket_id, exactly the "duplicate ticket IDs
-        # with different financial values abort the whole batch"
-        # guarantee, at the PLACED layer this time rather than SETTLED.
+        # The ticket is already PLACED, so this takes the settle-only
+        # path (no new PLACED event attempted at all -- ticket_type/
+        # total_stake/legs/currency all still agree with what's on
+        # record, so the mismatch guard does not fire either); the
+        # SETTLED batch itself is what correctly refuses the changed
+        # financial figure under the same ticket_id.
         conflicting_settlement = _settled_system_ticket(actual_payout="1.00")
         report = importer.run_import(
             [conflicting_settlement],
@@ -765,8 +925,8 @@ class RunImportBatchSafetyTests(TmpLedgersMixin, unittest.TestCase):
             betting_ledger_path=self.betting_ledger_path,
             forecast_ledger_path=self.forecast_ledger_path,
         )
-        self.assertEqual(report["placed"]["conflicted"], 1)
-        self.assertEqual(report["settled"]["attempted"], 0)  # never even reached -- PLACED conflicted first
+        self.assertEqual(report["placed"]["attempted"], 0)
+        self.assertEqual(report["settled"]["conflicted"], 1)
         # The already-committed PLACED+SETTLED pair from the first run is
         # untouched -- this run wrote nothing at all.
         self.assertEqual(read_all(self.betting_ledger_path), records_after_first_run)
@@ -797,6 +957,298 @@ class RunImportBatchSafetyTests(TmpLedgersMixin, unittest.TestCase):
         with self.assertRaises(betting_ledger.BettingLedgerTerminalBatchConflictError):
             betting_ledger.write_batch_terminal(self.betting_ledger_path, [conflicting_event])
         self.assertEqual(read_all(self.betting_ledger_path), records_after_first_run)
+
+
+def _settled_version_of(open_ticket, *, actual_payout, ticket_status="WON", leg_status="WON"):
+    """The SAME physical ticket (same bet9ja_ticket_id/legs/total_stake),
+    captured again once it has settled -- exactly the shape
+    settled_bets_parser.js produces for a ticket ticket_parser.js already
+    captured while open: no unit_stake/potential_return, a real
+    ticket_status/actual_payout, a leg_status per leg."""
+
+    settled = dict(open_ticket)
+    settled.update(
+        {
+            "actual_payout": actual_payout,
+            "potential_return": None,
+            "ticket_status": ticket_status,
+            "unit_stake": None,
+        }
+    )
+    settled["legs"] = [dict(leg, leg_status=leg_status) for leg in open_ticket["legs"]]
+    return settled
+
+
+class LifecycleTransitionTests(TmpLedgersMixin, unittest.TestCase):
+    """A real ticket's own two-phase life: captured OPEN (with a real,
+    resolvable stake structure), then captured again once SETTLED. The
+    two captures share one ticket_id but have very different shapes --
+    this must never be treated as a spurious PLACED conflict."""
+
+    def _open_ticket(self):
+        return _system_ticket_full_accumulator(bet9ja_ticket_id="LIFECYCLE-1")
+
+    def test_open_then_settled_appends_a_valid_terminal_event_without_a_placed_conflict(self):
+        open_ticket = self._open_ticket()
+        report1 = importer.run_import(
+            [open_ticket], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report1["placed"]["appended"], 1)
+        self.assertEqual(report1["accepted"], 1)
+
+        settled_ticket = _settled_version_of(open_ticket, actual_payout="806.40")
+        report2 = importer.run_import(
+            [settled_ticket], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report2["accepted"], 1)
+        self.assertEqual(report2["quarantined"], 0)
+        # No new PLACED event was attempted at all -- and definitely not
+        # a conflict merely because the ticket_id already existed.
+        self.assertEqual(report2["placed"]["attempted"], 0)
+        self.assertEqual(report2["placed"]["conflicted"], 0)
+        self.assertEqual(report2["settled"]["appended"], 1)
+        self.assertEqual(report2["settled_against_pre_existing_placement"], 1)
+
+        records = read_all(self.betting_ledger_path)
+        self.assertEqual(len(records), 2)
+        self.assertEqual({r["event_type"] for r in records}, {"PLACED", "SETTLED"})
+        settled_record = next(r for r in records if r["event_type"] == "SETTLED")
+        self.assertEqual(settled_record["payload"]["actual_return"], "806.40")
+        self.assertEqual(settled_record["payload"]["profit_loss"], "566.40")  # 806.40 - 240.00
+        self.assertEqual(settled_record["payload"]["settlement_basis"], "BOOKMAKER_OBSERVED")
+        # The original PLACED event's own real, resolved structure is
+        # completely untouched by the later settlement.
+        placed_record = next(r for r in records if r["event_type"] == "PLACED")
+        self.assertEqual(placed_record["payload"]["system_sizes"], [3])
+        self.assertEqual(placed_record["payload"]["unit_stake"], "240.00")
+
+    def test_reimporting_the_original_open_capture_after_settlement_is_refused_not_silently_replayed(self):
+        # Once a ticket_id has a real terminal event on the ledger, ANY
+        # later capture of it that looks OPEN is refused outright --
+        # unconditionally, even one whose content is byte-identical to
+        # the original placement. This is a deliberately simple, strict
+        # rule (never "safe because the content happens to still
+        # match"): the ledger has no un-settle operation, so an
+        # open-shaped capture of an already-settled ticket_id is always
+        # treated as suspicious, never silently replayed.
+        open_ticket = self._open_ticket()
+        importer.run_import(
+            [open_ticket], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        importer.run_import(
+            [_settled_version_of(open_ticket, actual_payout="806.40")], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        records_after_settlement = read_all(self.betting_ledger_path)
+
+        report = importer.run_import(
+            [open_ticket], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["quarantined"], 1)
+        self.assertEqual(
+            report["quarantine_reason_matrix"]["LIFECYCLE-1"], [importer.REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN]
+        )
+        self.assertEqual(read_all(self.betting_ledger_path), records_after_settlement)
+
+    def test_reimporting_the_identical_settled_state_is_a_no_op(self):
+        open_ticket = self._open_ticket()
+        importer.run_import(
+            [open_ticket], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        settled_ticket = _settled_version_of(open_ticket, actual_payout="806.40")
+        importer.run_import(
+            [settled_ticket], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        records_after_first_settlement = read_all(self.betting_ledger_path)
+
+        report = importer.run_import(
+            [settled_ticket], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["settled"]["duplicate_skipped"], 1)
+        self.assertEqual(report["settled"]["conflicted"], 0)
+        self.assertEqual(read_all(self.betting_ledger_path), records_after_first_settlement)
+
+    def test_a_differently_shaped_open_recapture_of_an_already_settled_ticket_is_explicitly_refused(self):
+        open_ticket = self._open_ticket()
+        importer.run_import(
+            [open_ticket], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        importer.run_import(
+            [_settled_version_of(open_ticket, actual_payout="806.40")], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        records_after_settlement = read_all(self.betting_ledger_path)
+
+        # A DIFFERENT-looking OPEN capture of the same already-settled
+        # ticket_id (e.g. a stale re-scrape with a changed max_return) --
+        # this is exactly the case that would otherwise slip through the
+        # "byte-identical no-op" path above and needs the explicit guard.
+        reverted = dict(open_ticket)
+        reverted["potential_return"] = 999.0
+        report = importer.run_import(
+            [reverted], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["quarantined"], 1)
+        self.assertEqual(
+            report["quarantine_reason_matrix"]["LIFECYCLE-1"], [importer.REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN]
+        )
+        self.assertEqual(read_all(self.betting_ledger_path), records_after_settlement)
+
+    def test_a_settled_recapture_that_disagrees_with_its_own_placement_is_quarantined_not_silently_settled(self):
+        open_ticket = self._open_ticket()
+        importer.run_import(
+            [open_ticket], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        records_after_placement = read_all(self.betting_ledger_path)
+
+        mismatched_settlement = _settled_version_of(open_ticket, actual_payout="806.40")
+        mismatched_settlement["total_stake"] = "999.00"  # disagrees with the real, recorded 240.00
+        report = importer.run_import(
+            [mismatched_settlement], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["quarantined"], 1)
+        self.assertIn(importer.REASON_SETTLEMENT_TICKET_MISMATCH, report["quarantine_reason_matrix"]["LIFECYCLE-1"])
+        self.assertEqual(read_all(self.betting_ledger_path), records_after_placement)
+
+    def test_a_settled_only_ticket_never_seen_open_still_imports_normally(self):
+        # The ordinary real-data case (113/158 real tickets): no prior
+        # PLACED capture exists at all -- the settle-only path must never
+        # apply here, and the usual bookmaker-observed build runs as
+        # before.
+        report = importer.run_import(
+            [_settled_system_ticket()], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["accepted"], 1)
+        self.assertEqual(report["placed"]["appended"], 1)
+        self.assertEqual(report["settled"]["appended"], 1)
+        self.assertEqual(report["settled_against_pre_existing_placement"], 0)
+
+
+class AtomicityAndCompatibilityTests(TmpLedgersMixin, unittest.TestCase):
+    def test_a_mixed_open_and_settled_batch_commits_the_whole_placed_phase_atomically(self):
+        # An intra-batch PLACED conflict (two OPEN tickets sharing one
+        # ticket_id with different stakes) sits alongside an otherwise
+        # completely clean, unrelated, first-time SETTLED ticket in the
+        # SAME batch -- the settled ticket's own PLACED+SETTLED events
+        # must NOT slip through just because the conflict is elsewhere in
+        # the same batch: the whole mixed-shape PLACED phase is one
+        # atomic unit, not per-ticket.
+        dup_a = _open_single_ticket(bet9ja_ticket_id="dup-1", total_stake=35, unit_stake=35)
+        dup_b = _open_single_ticket(bet9ja_ticket_id="dup-1", total_stake=99, unit_stake=99)
+        clean_settled = _settled_system_ticket(bet9ja_ticket_id="settled-clean-1", actual_payout="343.08")
+
+        report = importer.run_import(
+            [dup_a, dup_b, clean_settled], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertGreaterEqual(report["placed"]["conflicted"], 1)
+        self.assertEqual(report["placed"]["appended"], 0)
+        # Not even the clean settled ticket's PLACED event was written --
+        # and by extension its SETTLED event was never even attempted.
+        self.assertEqual(read_all(self.betting_ledger_path), [])
+        self.assertEqual(report["settled"]["attempted"], 0)
+
+    def test_a_mixed_batchs_placed_phase_and_settled_phase_are_each_atomic_but_sequential(self):
+        # Documents this pipeline's ACTUAL, deliberate atomicity
+        # boundary: PLACED and SETTLED are two SEPARATE atomic phases,
+        # not one joint transaction (see run_import's own docstring) --
+        # a same-batch SETTLED-phase conflict never undoes an
+        # already-committed PLACED phase. Each phase is still
+        # all-or-nothing on its own.
+        clean_open = _open_single_ticket(bet9ja_ticket_id="phase-clean-1")
+        settled_ok = _settled_system_ticket(bet9ja_ticket_id="phase-ok-1", actual_payout="343.08")
+        settled_bad_status = _settled_system_ticket(bet9ja_ticket_id="phase-bad-1", ticket_status="CASHOUT")
+
+        report = importer.run_import(
+            [clean_open, settled_ok, settled_bad_status], currency="NGN",
+            betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["quarantined"], 1)  # settled_bad_status only
+        self.assertEqual(report["placed"]["appended"], 2)  # clean_open + settled_ok's own PLACED
+        self.assertEqual(report["settled"]["appended"], 1)  # settled_ok only
+
+    def test_a_rejected_batch_leaves_both_ledger_and_report_byte_for_byte_reproducible(self):
+        first = betting_ledger.build_placed_event(
+            ticket_type="SINGLE", max_return="999.00", currency="NGN",
+            legs=[{"forecast_id": None, "fixture_id": "bxf_aaa", "market_type": "1X2", "selection": "X", "placed_odds": "9.00"}],
+            unit_stake="35.00", external_ticket_ref="000111222",
+        )
+        betting_ledger.append_placed(self.betting_ledger_path, first)
+        records_before = read_all(self.betting_ledger_path)
+
+        run_kwargs = dict(
+            currency="NGN", betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path
+        )
+        report_1 = importer.run_import([_open_single_ticket()], **run_kwargs)
+        report_2 = importer.run_import([_open_single_ticket()], **run_kwargs)
+        self.assertEqual(report_1, report_2)  # byte-for-byte (structurally) identical, not just "similar"
+        self.assertEqual(read_all(self.betting_ledger_path), records_before)  # ledger untouched, both times
+
+    def test_settle_computed_still_works_on_an_old_shape_row_predating_settlement_basis(self):
+        # A ledger row settled BEFORE settlement_basis existed at all
+        # (settle_computed's own default -- no settlement_basis key
+        # present) must still re-settle as a safe no-op today: the new
+        # optional field must never turn an old, valid row into a
+        # spurious conflict.
+        event = betting_ledger.build_placed_event(
+            ticket_type="SINGLE", unit_stake="10.00", max_return="19.00", currency="NGN",
+            legs=[_leg_for_compat_test(0, "1.9")], external_ticket_ref="old-shape-1",
+        )
+        betting_ledger.append_placed(self.betting_ledger_path, event)
+        leg_results = [{"leg_index": 0, "outcome": "WON"}]
+        first = betting_ledger.settle_computed(self.betting_ledger_path, event["ticket_id"], leg_results)
+        self.assertEqual(first.status, "APPENDED")
+        self.assertNotIn("settlement_basis", first.record["payload"])
+
+        second = betting_ledger.settle_computed(self.betting_ledger_path, event["ticket_id"], leg_results)
+        self.assertEqual(second.status, "DUPLICATE_SKIPPED")
+
+    def test_concurrent_imports_of_the_identical_settled_ticket_never_duplicate(self):
+        # A real, OS-level fcntl.flock lock (ledgers/locking.py) serializes
+        # the preflight-then-commit sequence across concurrent writers --
+        # fired here from two threads racing against the SAME ledger file
+        # to give real evidence, not just a reading of the lock code.
+        import concurrent.futures
+
+        ticket = _settled_system_ticket(bet9ja_ticket_id="concurrent-1", actual_payout="343.08")
+        run_kwargs = dict(
+            currency="NGN", betting_ledger_path=self.betting_ledger_path, forecast_ledger_path=self.forecast_ledger_path
+        )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(importer.run_import, [ticket], **run_kwargs) for _ in range(2)]
+            reports = [f.result() for f in futures]
+
+        records = read_all(self.betting_ledger_path)
+        self.assertEqual(len(records), 2)  # exactly one PLACED + one SETTLED -- never duplicated
+        self.assertEqual({r["event_type"] for r in records}, {"PLACED", "SETTLED"})
+        total_placed_appended = sum(r["placed"]["appended"] for r in reports)
+        total_settled_appended = sum(r["settled"]["appended"] for r in reports)
+        self.assertEqual(total_placed_appended, 1)  # exactly one of the two runs actually appended it
+        self.assertEqual(total_settled_appended, 1)
+
+
+def _leg_for_compat_test(i, odds):
+    return {
+        "leg_index": i,
+        "forecast_id": None,
+        "fixture_id": f"fixture-{i}",
+        "market_type": "1X2",
+        "selection": "H",
+        "placed_odds": odds,
+    }
 
 
 if __name__ == "__main__":

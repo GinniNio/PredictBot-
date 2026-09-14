@@ -318,6 +318,25 @@ python -m pcbf_calculator import-bet9ja-tickets \
   way. Every original Bet9ja field is preserved verbatim (`source_raw`)
   alongside a content hash (`source_raw_hash`), quarantined tickets
   included.
+- **Lifecycle transitions.** A ticket captured OPEN, then captured AGAIN
+  once it settles, shares one deterministic ticket_id across both
+  captures -- `run_import` reads the ledger's current state once up
+  front so a settled recapture of an ALREADY-placed ticket settles
+  directly against that existing record instead of rebuilding a
+  (structurally different, since a settled capture never carries a
+  resolvable stake structure) PLACED payload that would otherwise
+  spuriously conflict with its own real placement. That settle-only path
+  still cross-checks the recapture's own ticket_type/total_stake/leg
+  count/currency against what was actually placed
+  (`TICKET_SETTLEMENT_MISMATCH_WITH_EXISTING_PLACEMENT` if they
+  disagree -- never silently settled against a mismatched record), and a
+  ticket_id with a real terminal event that later shows up looking OPEN
+  again is refused outright
+  (`TICKET_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN`) -- the ledger has no
+  "un-settle" operation. A structured `stake_buckets` field is also
+  cross-checked against the ticket's own separately-reported
+  `total_stake` (`TICKET_STAKE_BUCKETS_TOTAL_MISMATCH` on disagreement)
+  rather than silently letting the buckets' own sum override it.
 
 **Real-data status (this session's own two capture files, 158 tickets
 total):** **131 of 158 now import cleanly** -- all 113 real settled

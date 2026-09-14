@@ -247,6 +247,11 @@ REASON_PLACED_AT_UNPARSEABLE = "TICKET_PLACED_AT_UNPARSEABLE"
 REASON_NO_LEGS = "TICKET_NO_LEGS"
 REASON_INVALID_TOTAL_STAKE = "TICKET_INVALID_TOTAL_STAKE"
 REASON_BUILD_FAILED = "TICKET_BUILD_FAILED"
+# Lifecycle-transition reasons -- see evaluate_ticket's own "already
+# placed"/"already terminal" handling below.
+REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN = "TICKET_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN"
+REASON_SETTLEMENT_TICKET_MISMATCH = "TICKET_SETTLEMENT_MISMATCH_WITH_EXISTING_PLACEMENT"
+REASON_STAKE_BUCKETS_TOTAL_MISMATCH = "TICKET_STAKE_BUCKETS_TOTAL_MISMATCH"
 
 QUARANTINE_REASON_CODES = frozenset(
     {
@@ -261,6 +266,9 @@ QUARANTINE_REASON_CODES = frozenset(
         REASON_NO_LEGS,
         REASON_INVALID_TOTAL_STAKE,
         REASON_BUILD_FAILED,
+        REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN,
+        REASON_SETTLEMENT_TICKET_MISMATCH,
+        REASON_STAKE_BUCKETS_TOTAL_MISMATCH,
     }
 )
 
@@ -578,18 +586,60 @@ class TicketOutcome:
 
 
 def evaluate_ticket(
-    raw_ticket: dict[str, Any], *, currency: str, forecast_index: ForecastIndex
+    raw_ticket: dict[str, Any],
+    *,
+    currency: str,
+    forecast_index: ForecastIndex,
+    existing_ticket_states: dict[str, dict[str, Any]] | None = None,
 ) -> TicketOutcome:
     """Runs EVERY independent check against one raw Bet9ja ticket record --
     never stops at the first failure -- and returns either a fully-built
     ``TicketOutcome`` (``status="ACCEPTED"``, ``reasons=[]``) or a
     quarantine outcome carrying every applicable reason
     (``status="QUARANTINED"``, ``reasons`` non-empty). Never raises for a
-    malformed ticket."""
+    malformed ticket.
+
+    ``existing_ticket_states`` (default ``None`` -- treated as empty, no
+    ticket_id has ever been seen) maps a ticket_id already on the
+    LEDGER (``betting_ledger.latest_state``'s own merged shape, keyed by
+    that same ticket_id) to its current state, as of BEFORE this run --
+    ``run_import`` builds this once per call from the real ledger file.
+    It exists for exactly one reason: a ticket already PLACED, captured
+    again once it has settled, must never be treated as a brand-new
+    placement whose (structurally different -- see
+    ``settle_bookmaker_observed``'s own docstring) settled-shape payload
+    would spuriously CONFLICT with its own earlier, real PLACED record.
+    When this ticket's own ticket_id is already present here, this
+    function skips rebuilding a PLACED event entirely and settles
+    directly against the EXISTING one -- after cross-checking that the
+    settled capture's own ticket_type/total_stake/leg-count/currency
+    still agree with what was actually placed (``REASON_
+    SETTLEMENT_TICKET_MISMATCH`` if not -- a settled capture that
+    disagrees with its own recorded placement is never silently
+    trusted). A settled ticket's own ticket_id showing up again in an
+    OPEN-shaped capture (no ``ticket_status``) is refused outright
+    (``REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN``) -- the ledger has
+    no "un-settle" operation, and this module never pretends one is
+    needed by silently treating that capture as harmless."""
 
     bet9ja_id = raw_ticket.get("bet9ja_ticket_id")
     source_raw_hash = _sha256_of(raw_ticket)
     reasons: list[str] = []
+    existing_ticket_states = existing_ticket_states or {}
+
+    # Computed the SAME way build_placed_event itself derives ticket_id
+    # from an external_ticket_ref -- so this lookup finds exactly the
+    # record a fresh build would collide with, without needing to build
+    # one first. Every real Bet9ja capture carries bet9ja_ticket_id; a
+    # malformed record without one falls back to the ordinary
+    # content-derived path below with no lifecycle reconciliation at all
+    # (there is no external ref to look an existing ticket_id up by).
+    ticket_id_hint = betting_ledger.ids.ticket_id_from_external_ref(bet9ja_id) if bet9ja_id else None
+    existing_state = existing_ticket_states.get(ticket_id_hint) if ticket_id_hint else None
+    already_placed = existing_state is not None
+    already_terminal = already_placed and any(
+        event_type in betting_ledger.TERMINAL_EVENTS for event_type in existing_state.get("_event_types_seen", [])
+    )
 
     ticket_type = raw_ticket.get("ticket_type_normalized")
     ticket_type_ok = ticket_type in betting_ledger.TICKET_TYPES
@@ -609,6 +659,17 @@ def evaluate_ticket(
     # capture carries "status": "OPEN" instead -- the two keys never
     # collide, so this is an exact, never-guessed distinction.
     is_settled = raw_ticket.get("ticket_status") is not None
+
+    if not is_settled and already_terminal:
+        # This ticket_id already has a real terminal event on the ledger
+        # (settled/voided/cashed out) -- a later capture of it looking
+        # OPEN again (a stale re-scrape, a UI glitch, a wrong ticket_id
+        # collision) is refused outright. The ledger itself has no
+        # "un-settle" event to even attempt this with; refusing here,
+        # explicitly and audibly, is strictly better than silently
+        # attempting a PLACED dedupe that happens to be harmless today
+        # only because the two captures' payloads happen to still agree.
+        reasons.append(REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN)
 
     max_return: str | None = None
     actual_return_value: str | None = None
@@ -651,11 +712,34 @@ def evaluate_ticket(
         else:
             max_return = str(max_return_raw)
 
+    if is_settled and already_placed:
+        # A settled capture of an already-PLACED ticket settles directly
+        # against that existing record (see this function's own
+        # docstring) -- but only once its own hard facts still agree
+        # with what was actually placed. Checked independently of
+        # ticket_type_ok/total_stake_ok above (a genuinely malformed
+        # settled capture is still caught by those on their own); this
+        # is specifically about DISAGREEMENT with a DIFFERENT, otherwise
+        # well-formed value already on record.
+        mismatch = (
+            (ticket_type_ok and existing_state.get("ticket_type") != ticket_type)
+            or (total_stake_ok and _to_decimal_or_none(existing_state.get("total_stake")) != total_stake_d)
+            or (len(existing_state.get("legs") or []) != len(raw_legs))
+            or (existing_state.get("currency") != currency)
+        )
+        if mismatch:
+            reasons.append(REASON_SETTLEMENT_TICKET_MISMATCH)
+
     placed_at_utc = parse_placed_at_utc(raw_ticket.get("placed_at_raw"))
     if placed_at_utc is None:
         reasons.append(REASON_PLACED_AT_UNPARSEABLE)
 
-    # Stake structure. A settled SYSTEM ticket never needs this at all
+    # Stake structure. Skipped ENTIRELY when this settled capture
+    # references an already-PLACED ticket (settle-only path, see above)
+    # -- there is no new PLACED payload to build, so nothing here is
+    # needed at all (a settled capture's own missing/unresolvable
+    # unit_stake must never quarantine a settlement that doesn't need
+    # it). Otherwise: a settled SYSTEM ticket never needs this either
     # (settle_bookmaker_observed never replays combinatorics) -- checked
     # ONLY for an open SYSTEM ticket, or any non-SYSTEM ticket (whose
     # combination_count is always trivially 1, so the only thing that can
@@ -666,7 +750,9 @@ def evaluate_ticket(
     stake_structure_known = True
     total_stake_arg: Any = None
 
-    if ticket_type_ok and ticket_type == "SYSTEM" and is_settled:
+    if is_settled and already_placed:
+        pass
+    elif ticket_type_ok and ticket_type == "SYSTEM" and is_settled:
         stake_structure_known = False
         total_stake_arg = str(raw_ticket["total_stake"]) if total_stake_ok else None
     elif ticket_type_ok and ticket_type == "SYSTEM":
@@ -684,6 +770,21 @@ def evaluate_ticket(
                 }
                 for bucket in raw_ticket["stake_buckets"]
             ]
+            # build_placed_event derives the PLACED total_stake from the
+            # buckets' own sum, ignoring this ticket's separately-
+            # captured top-level total_stake entirely -- so a genuine
+            # disagreement between the two would otherwise be silently
+            # overridden by whichever figure the buckets happen to sum
+            # to, with no reason ever recorded. Reconciled here, against
+            # the same total_stake_d already validated above (skipped
+            # only when that field is itself invalid -- REASON_
+            # INVALID_TOTAL_STAKE already covers that case on its own).
+            if total_stake_ok:
+                buckets_total_d = sum(
+                    (_to_decimal_or_none(b["total_stake"]) or Decimal(0) for b in stake_buckets_arg), Decimal(0)
+                )
+                if buckets_total_d != total_stake_d:
+                    reasons.append(REASON_STAKE_BUCKETS_TOTAL_MISMATCH)
         else:
             unit_stake_d = _to_decimal_or_none(raw_ticket.get("unit_stake"))
             fold_size = None
@@ -740,6 +841,22 @@ def evaluate_ticket(
 
     if reasons:
         return TicketOutcome(bet9ja_ticket_id=bet9ja_id, status="QUARANTINED", reasons=reasons)
+
+    if is_settled and already_placed:
+        # Settle-only path: this ticket_id is already on the ledger --
+        # see this function's own docstring for why a fresh PLACED event
+        # is never rebuilt/reconciled here. total_stake_d is this
+        # capture's OWN total_stake (already cross-checked against the
+        # existing record above), used only to compute this settlement's
+        # own profit_loss -- the mismatch check above already guarantees
+        # it agrees with what's on record.
+        settled_event = _build_settled_event_dict(
+            ticket_id_hint, actual_return_value, leg_results or [], total_stake_d,
+            settled_at_utc=raw_ticket.get("captured_at_utc"),
+        )
+        return TicketOutcome(
+            bet9ja_ticket_id=bet9ja_id, status="ACCEPTED", event=None, settled_event=settled_event, unlinked_leg_count=0
+        )
 
     try:
         placed_event = betting_ledger.build_placed_event(
@@ -835,10 +952,27 @@ def run_import(
     list of quarantine reasons), then preflights and (unless ``dry_run``)
     commits the accepted PLACED events as one atomic batch, followed by
     the accepted SETTLED events as a second atomic batch. A quarantined
-    ticket never blocks the accepted tickets around it in either batch."""
+    ticket never blocks the accepted tickets around it in either batch.
+
+    Reads the ledger's CURRENT state once up front (before building any
+    event) so ``evaluate_ticket`` can tell a settled capture of an
+    ALREADY-placed ticket apart from a brand-new one -- see that
+    function's own docstring for exactly why that distinction matters
+    (a same-ticket_id open -> settled transition must never spuriously
+    conflict on the PLACED payload shape)."""
 
     forecast_index = ForecastIndex.build(forecast_ledger_path)
-    outcomes = [evaluate_ticket(t, currency=currency, forecast_index=forecast_index) for t in raw_tickets]
+
+    existing_records = read_all(betting_ledger_path)
+    existing_ticket_states = {
+        ticket_id: latest_state(existing_records, "ticket_id", ticket_id)
+        for ticket_id in all_entity_ids(existing_records, "ticket_id")
+    }
+
+    outcomes = [
+        evaluate_ticket(t, currency=currency, forecast_index=forecast_index, existing_ticket_states=existing_ticket_states)
+        for t in raw_tickets
+    ]
 
     accepted = [o for o in outcomes if o.status == "ACCEPTED"]
     quarantined = [o for o in outcomes if o.status == "QUARANTINED"]
@@ -863,6 +997,13 @@ def run_import(
         "unlinked_leg_count": sum(o.unlinked_leg_count for o in accepted),
         "quarantined_ticket_ids": sorted(str(o.bet9ja_ticket_id) for o in quarantined),
         "settled_via_bookmaker_observed": sum(1 for o in accepted if o.settled_event is not None),
+        # An accepted ticket whose own event is None is a settle-only
+        # outcome: its ticket_id was already PLACED before this run, so
+        # no new PLACED event was built or attempted at all -- see
+        # evaluate_ticket's own docstring.
+        "settled_against_pre_existing_placement": sum(
+            1 for o in accepted if o.event is None and o.settled_event is not None
+        ),
         "placed": {"attempted": 0, "appended": 0, "duplicate_skipped": 0, "conflicted": 0},
         "settled": {"attempted": 0, "appended": 0, "duplicate_skipped": 0, "conflicted": 0},
     }
@@ -870,7 +1011,7 @@ def run_import(
     if not accepted:
         return report
 
-    placed_events = [o.event for o in accepted]
+    placed_events = [o.event for o in accepted if o.event is not None]
     report["placed"]["attempted"] = len(placed_events)
 
     if dry_run:
