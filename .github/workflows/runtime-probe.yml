@@ -37,6 +37,28 @@ jobs:
           runtime-test/bin/python -m pcbf_football examples/mock-fixture.json result-b.json
           cmp result-a.json result-b.json
           cmp result-a.json examples/expected-result.json
+      - name: Fresh-wheel test -- ledgers.cli validate against forecast + betting samples
+        # Same installed wheel as the step above (it ships the "ledgers"
+        # package too -- see pyproject.toml's own package-dir mapping).
+        # Run from a directory OUTSIDE the checkout: this repo's own root
+        # also contains a real ledgers/ directory, so running from
+        # $GITHUB_WORKSPACE would let Python's own cwd-first sys.path
+        # entry silently resolve "import ledgers" back to the checkout's
+        # source instead of the installed wheel, defeating the whole
+        # point of this check -- see ledgers/validation.py's own
+        # importlib.resources fix and pyproject.toml's own package-data
+        # entry, both added specifically because ledgers/schemas/*.json
+        # was missing from the wheel before.
+        run: |
+          venv_python="$GITHUB_WORKSPACE/runtime-test/bin/python"
+          check_dir="$RUNNER_TEMP/ledgers-wheel-check"
+          mkdir -p "$check_dir"
+          cd "$check_dir"
+          "$venv_python" -c "import ledgers.validation as v; assert 'site-packages' in v.__file__, v.__file__"
+          "$venv_python" -m ledgers.cli init --dir sample-ledger
+          "$venv_python" -m ledgers.cli record-forecast --dir sample-ledger "$GITHUB_WORKSPACE/ledgers/examples/forecast_example.json"
+          "$venv_python" -m ledgers.cli place-ticket --dir sample-ledger "$GITHUB_WORKSPACE/ledgers/examples/ticket_example.json"
+          "$venv_python" -m ledgers.cli validate --dir sample-ledger --ledger both
       - name: Assemble host test pack
         run: |
           wheel_file="$(ls dist/*.whl)"

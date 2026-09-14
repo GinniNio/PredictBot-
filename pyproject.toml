@@ -65,3 +65,11 @@ exclude = ["build*", "build.*"]
 # wheel. The other two YAML files here are shipped alongside it (same
 # directory, same glob) even though no runtime code currently loads them.
 "docs.adapters.data" = ["*.yaml"]
+# ledgers.validation.load_schema() reads these at runtime (via
+# importlib.resources, never a checkout-relative path -- see that
+# module's own docstring) -- must ship in the wheel or an installed
+# package's `ledgers.cli validate` (and every internal schema check)
+# raises FileNotFoundError. "schemas" is a plain data subdirectory of
+# the "ledgers" package, not its own subpackage (no __init__.py), so
+# this glob is relative to "ledgers"'s own package root.
+"ledgers" = ["schemas/*.json"]
