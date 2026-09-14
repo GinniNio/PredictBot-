@@ -356,5 +356,112 @@ class MissingLedgerTests(unittest.TestCase):
             self.assertEqual(result["performance_summary"]["overall"]["sample_count"], 0)
 
 
+class CalibrationBinBoundaryTests(unittest.TestCase):
+    """A probability that is "morally" exactly at a bin edge (e.g.
+    0.7) can be computed as a value fractionally BELOW it purely from
+    floating-point representation -- e.g. a normalize-then-renormalize
+    style computation (``0.7 * 3 / 3 == 0.6999999999999998``, not
+    ``0.7``) -- confirmed to actually occur, not a theoretical concern.
+    ``_bin_index`` must still place it in the bin its true value
+    belongs to."""
+
+    def test_float_representation_noise_just_below_an_edge_lands_in_the_upper_bin(self):
+        noisy_point_seven = 0.7 * 3 / 3
+        self.assertNotEqual(noisy_point_seven, 0.7)  # confirms the float noise is real
+        self.assertEqual(fpr._bin_index(noisy_point_seven), 7)  # bin [0.7, 0.8), not [0.6, 0.7)
+
+    def test_every_noisy_decile_lands_in_its_true_bin(self):
+        for i in range(1, 10):
+            noisy = (i / 10) * 3 / 3
+            with self.subTest(i=i, noisy=noisy):
+                self.assertEqual(fpr._bin_index(noisy), i)
+
+    def test_exact_bin_edges_from_calibration_bin_edges_itself_are_stable(self):
+        for i, edge in enumerate(fpr.CALIBRATION_BIN_EDGES[:-1]):
+            self.assertEqual(fpr._bin_index(edge), i)
+
+
+class DuplicateScoredEventTests(unittest.TestCase):
+    def test_a_forecast_id_with_two_scored_events_on_disk_is_excluded_never_silently_merged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / forecast_ledger.DEFAULT_FILENAME
+            fid = _record_and_score(
+                ledger_path, "bxf_1", "E0", "Arsenal", "Chelsea", "2026-09-20",
+                {"H": 0.6, "D": 0.25, "A": 0.15}, "H",
+            )
+            # Simulate a ledger that somehow accumulated a second, DIFFERENT
+            # SCORED event for the same forecast_id (never producible by
+            # the real write path -- append_terminal_if_new refuses this).
+            lines = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+            scored_line = next(r for r in lines if r["forecast_id"] == fid and r["event_type"] == "SCORED")
+            tampered = json.loads(json.dumps(scored_line))
+            tampered["payload"]["actual_result"] = "A"
+            tampered["payload"]["brier_score"] = 0.0
+            tampered["payload"]["log_loss"] = 0.0
+            lines.append(tampered)
+            ledger_path.write_text("\n".join(json.dumps(r) for r in lines) + "\n")
+
+            states = fpr.load_scored_states(ledger_path)
+            self.assertEqual(len(states), 1)
+            self.assertEqual(states[0]["_event_types_seen"].count("SCORED"), 2)
+
+            included, excluded = fpr.classify_and_filter(states)
+            self.assertEqual(included, [])
+            self.assertEqual(len(excluded), 1)
+            self.assertIn(fpr.REASON_DUPLICATE_SCORED_EVENTS, excluded[0]["reasons"])
+
+
+class ReconciliationInvariantTests(unittest.TestCase):
+    def test_reconciles_is_true_and_totals_match_for_a_mixed_batch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / forecast_ledger.DEFAULT_FILENAME
+            # One valid forecast.
+            _record_and_score(
+                ledger_path, "bxf_1", "E0", "Arsenal", "Chelsea", "2026-09-20",
+                {"H": 0.6, "D": 0.25, "A": 0.15}, "H",
+            )
+            # One malformed-probabilities forecast.
+            fid2 = _record_and_score(
+                ledger_path, "bxf_2", "D1", "Bayern Munich", "Dortmund", "2026-09-21",
+                {"H": 0.6, "D": 0.25, "A": 0.15}, "H",
+            )
+            lines = [json.loads(line) for line in ledger_path.read_text().splitlines()]
+            for rec in lines:
+                if rec["forecast_id"] == fid2 and rec["event_type"] == "RECORDED":
+                    rec["payload"]["model_probabilities"] = {"H": 0.6, "D": 0.25, "A": 0.3}
+            ledger_path.write_text("\n".join(json.dumps(r) for r in lines) + "\n")
+            # Two forecasts sharing a fixture_id with conflicting results.
+            _record_and_score(
+                ledger_path, "bxf_shared", "SP1", "Real Madrid", "Barcelona", "2026-09-22",
+                {"H": 0.5, "D": 0.3, "A": 0.2}, "H", artifact_hash="sha256:a", model_version="va",
+            )
+            _record_and_score(
+                ledger_path, "bxf_shared", "SP1", "Real Madrid", "Barcelona", "2026-09-22",
+                {"H": 0.4, "D": 0.3, "A": 0.3}, "A", artifact_hash="sha256:b", model_version="vb",
+            )
+
+            states = fpr.load_scored_states(ledger_path)
+            included, excluded = fpr.classify_and_filter(states)
+            self.assertEqual(len(included) + len(excluded), len(states))
+            self.assertEqual(len(included), 1)
+            self.assertEqual(len(excluded), 3)
+
+            # No forecast_id appears in both lists.
+            included_ids = {s["forecast_id"] for s in included}
+            excluded_ids = {e["forecast_id"] for e in excluded}
+            self.assertEqual(included_ids & excluded_ids, set())
+
+            summary = fpr.build_performance_summary(included, excluded, len(states))
+            self.assertTrue(summary["reconciles"])
+            self.assertEqual(
+                summary["counts"]["included"] + summary["counts"]["excluded"],
+                summary["counts"]["total_scored_events_on_disk"],
+            )
+
+    def test_reconciles_is_true_for_the_empty_case(self):
+        summary = fpr.build_performance_summary([], [], 0)
+        self.assertTrue(summary["reconciles"])
+
+
 if __name__ == "__main__":
     unittest.main()

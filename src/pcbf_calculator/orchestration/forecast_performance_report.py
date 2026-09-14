@@ -71,6 +71,28 @@ from every metric (and reported, with a typed reason, in
   (``REASON_CONFLICTING_ACTUAL_RESULT_FOR_FIXTURE``) -- the same real
   match cannot have two different results; every forecast sharing that
   fixture_id is excluded, never resolved by picking one.
+- A single forecast_id's own ledger history somehow carries more than
+  one ``SCORED`` event (``REASON_DUPLICATE_SCORED_EVENTS``) -- normal
+  operation can never produce this (``ledgers.storage.append_terminal_if_new``
+  only ever writes a forecast_id's FIRST ``SCORED`` event; a later
+  identical re-import is a no-op and a later different one is refused),
+  so this is a defensive check against that invariant somehow being
+  violated elsewhere (a hand-edited ledger, a future bug). Without it,
+  ``ledgers.storage.latest_state``'s own last-event-wins merge would
+  otherwise silently prefer whichever of the two disagreeing SCORED
+  events happens to be LAST in file order -- never guessed here either;
+  the forecast is excluded instead.
+
+**Explicit reconciliation invariant.** Every eligible scored record --
+one entry per forecast_id carrying a SCORED event, per
+``load_scored_states`` -- appears in EXACTLY ONE of ``included`` or
+``excluded-records.json``, never both, never neither.
+``classify_and_filter`` asserts this directly (raising if violated -- a
+bug in this module, never a caller input problem), and
+``performance-summary.json`` additionally reports it as its own
+``reconciles`` boolean, independently recomputed from that report's own
+``counts`` block, so a caller reading the report alone can confirm the
+totals reconcile without re-deriving anything.
 
 Explicit boundaries: this module produces reports only.
 """
@@ -132,6 +154,7 @@ REASON_MALFORMED_PROBABILITIES = "REPORT_MALFORMED_PROBABILITIES"
 REASON_INVALID_ACTUAL_RESULT = "REPORT_INVALID_ACTUAL_RESULT"
 REASON_SCORE_MISMATCH = "REPORT_SCORE_MISMATCH"
 REASON_CONFLICTING_ACTUAL_RESULT_FOR_FIXTURE = "REPORT_CONFLICTING_ACTUAL_RESULT_FOR_FIXTURE"
+REASON_DUPLICATE_SCORED_EVENTS = "REPORT_DUPLICATE_SCORED_EVENTS_FOR_FORECAST"
 
 UNKNOWN_BUCKET = "UNKNOWN"
 
@@ -191,6 +214,19 @@ def classify_and_filter(states: list[dict[str, Any]]) -> tuple[list[dict[str, An
             reasons.append(REASON_UNSUPPORTED_MARKET_TYPE)
         if state.get("fixture_id") in conflicting_fixture_ids:
             reasons.append(REASON_CONFLICTING_ACTUAL_RESULT_FOR_FIXTURE)
+        # In normal operation a forecast_id can never accumulate more than
+        # one SCORED event on disk -- storage.append_terminal_if_new only
+        # ever writes the FIRST SCORED event for a forecast_id; a later,
+        # identical re-import is DUPLICATE_SKIPPED (never written) and a
+        # later, DIFFERENT one is CONFLICT (also never written). This is a
+        # defensive check against that invariant somehow being violated
+        # (a hand-edited ledger, a future bug elsewhere) -- if it fires,
+        # ``latest_state``'s own last-event-wins merge would otherwise
+        # silently prefer whichever SCORED event happens to be LAST in
+        # file order, never flagging the disagreement. Never guessed
+        # which of two scores is "the real one" -- both are excluded.
+        if state.get("_event_types_seen", []).count("SCORED") > 1:
+            reasons.append(REASON_DUPLICATE_SCORED_EVENTS)
 
         probabilities = state.get("model_probabilities")
         probabilities_valid = _is_valid_probabilities(probabilities)
@@ -224,6 +260,29 @@ def classify_and_filter(states: list[dict[str, Any]]) -> tuple[list[dict[str, An
             included.append(state)
 
     excluded.sort(key=lambda e: e["forecast_id"])
+
+    # Explicit invariant: every eligible scored record (one entry per
+    # forecast_id in ``states``, per ``load_scored_states``) must end up
+    # in EXACTLY ONE of ``included``/``excluded`` -- never both, never
+    # neither. If this ever fires it is a bug in this function, never a
+    # caller input problem (every branch above either appends to
+    # ``excluded`` or falls through to ``included``, with no path that
+    # skips both or does both).
+    if len(included) + len(excluded) != len(states):
+        raise AssertionError(
+            f"Reconciliation failed: {len(included)} included + {len(excluded)} excluded != "
+            f"{len(states)} total scored forecast_ids. This is a bug in classify_and_filter, "
+            "never a caller input problem -- every scored forecast_id must end up in exactly "
+            "one of the two lists."
+        )
+    included_ids = {state["forecast_id"] for state in included}
+    excluded_ids = {entry["forecast_id"] for entry in excluded}
+    if included_ids & excluded_ids:
+        raise AssertionError(
+            f"Reconciliation failed: forecast_id(s) {sorted(included_ids & excluded_ids)} appear in "
+            "BOTH included and excluded -- this is a bug in classify_and_filter."
+        )
+
     return included, excluded
 
 
@@ -338,6 +397,13 @@ def build_performance_summary(
             "with_closing_odds": sum(1 for state in included if state.get("closing_odds") is not None),
             "missing_closing_odds": sum(1 for state in included if state.get("closing_odds") is None),
         },
+        # Explicit invariant, recomputed here (not merely trusted from
+        # classify_and_filter's own assertion) so a caller reading this
+        # report alone -- without re-deriving included/excluded -- can
+        # still confirm every eligible scored record was accounted for
+        # exactly once: total_scored_events_on_disk == included +
+        # excluded.
+        "reconciles": (len(included) + len(excluded)) == total_scored_events_on_disk,
         "overall": compute_metrics(included),
         "breakdown_by_competition": breakdown_by(included, _competition_key),
         "breakdown_by_artifact_hash": breakdown_by(included, _artifact_hash_key),
@@ -345,8 +411,27 @@ def build_performance_summary(
     }
 
 
+_BIN_INDEX_ROUNDING_DIGITS = 9  # far below bin-edge spacing (0.1); only cancels float representation noise
+
+
 def _bin_index(probability: float) -> int:
-    index = int(probability * (len(CALIBRATION_BIN_EDGES) - 1))
+    """Left-inclusive, 0.1-wide bin index (bin 9 is closed on both ends,
+    so ``probability == 1.0`` lands in bin 9, never out of range).
+
+    Rounds to ``_BIN_INDEX_ROUNDING_DIGITS`` decimal places before
+    scaling -- a probability that is "morally" exactly at a bin edge
+    (e.g. a normalize-then-renormalize computation like
+    ``0.7 * 3 / 3``, which lands a hair below the true value purely
+    from float representation -- see this module's own test suite for
+    the exact reproduction) must land in the bin its true value belongs
+    to (index 7, ``[0.7, 0.8)``), never the one below it (index 6)
+    because of representation error a caller had no control over.
+    Confirmed this actually occurs for realistic probability values,
+    not merely a theoretical concern -- this is not a correctness
+    nicety."""
+
+    rounded = round(probability, _BIN_INDEX_ROUNDING_DIGITS)
+    index = int(rounded * (len(CALIBRATION_BIN_EDGES) - 1))
     return max(0, min(index, len(CALIBRATION_BIN_EDGES) - 2))
 
 
@@ -443,7 +528,13 @@ def build_closing_line_report(included: list[dict[str, Any]]) -> dict[str, Any]:
             "or blended into one number. A lower closing_market Brier/log-loss than model's own "
             "means the closing line still carried more information than the model captured, "
             "exactly the same comparison this project's README already reports from its backtest, "
-            "now computed prospectively from real settled forecasts."
+            "now computed prospectively from real settled forecasts. "
+            f"This comparison is an OBSERVATION over exactly {len(model_states)} forecast(s) -- "
+            "see model.small_sample/closing_market.small_sample below. A single-digit or "
+            "otherwise small sample_count is never evidence for a promotion decision or a claim "
+            "of stable, ongoing performance in either direction; it describes what happened on "
+            "this specific batch of forecasts, nothing more, until sample_count clears "
+            f"{SMALL_SAMPLE_THRESHOLD}."
         ),
         "small_sample_threshold": SMALL_SAMPLE_THRESHOLD,
         "sample_count_with_complete_closing_odds": len(model_states),
