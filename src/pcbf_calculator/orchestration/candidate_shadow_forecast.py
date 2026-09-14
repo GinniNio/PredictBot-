@@ -713,22 +713,34 @@ COMPARISON_BOTH_UNRESOLVED_IDENTITY = "BOTH_ABSTAINED_UNRESOLVED_IDENTITY"
 COMPARISON_BOTH_ABSTAINED_OTHER = "BOTH_ABSTAINED_OTHER_REASON"
 COMPARISON_NOT_ELIGIBLE_ON_BOTH_SIDES = "NOT_ELIGIBLE_ON_BOTH_SIDES"
 
+# A forecast-vs-forecast pair is never labeled fully comparable
+# (COMPARISON_BOTH_FORECAST_IDENTICAL/_DIFFERENT) unless the incumbent's
+# and candidate's own alias_hash are both known and equal -- see
+# pair_incumbent_and_candidate_results's own docstring.
+ALIAS_PROVENANCE_UNAVAILABLE = "ALIAS_PROVENANCE_UNAVAILABLE"
+ALIAS_HASH_MISMATCH = "ALIAS_HASH_MISMATCH"
+
 _UNRESOLVED_IDENTITY_REASONS = {"FORECAST_COMPETITION_UNRESOLVED", "FORECAST_TEAM_UNRESOLVED"}
 
 
-def _index_by_fixture_id(forecasts: list[dict[str, Any]], abstentions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _index_by_fixture_id(
+    forecasts: list[dict[str, Any]],
+    abstentions: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     indexed: dict[str, dict[str, Any]] = {}
     for market in forecasts:
         indexed[market["source_fixture_id"]] = {
             "forecast_available": True,
             "forecast": market["forecast"],
             "reason": None,
+            "alias_hash": market.get("alias_hash"),
         }
     for item in abstentions:
         indexed[item["source_fixture_id"]] = {
             "forecast_available": False,
             "forecast": None,
             "reason": item["reason"],
+            "alias_hash": item.get("alias_hash"),
         }
     return indexed
 
@@ -736,6 +748,8 @@ def _index_by_fixture_id(forecasts: list[dict[str, Any]], abstentions: list[dict
 def pair_incumbent_and_candidate_results(
     incumbent_result: dict[str, Any],
     candidate_session_result: dict[str, Any],
+    *,
+    incumbent_alias_hash: str | None = None,
 ) -> list[dict[str, Any]]:
     """Pairs ``bet9ja_research_session.run_bet9ja_research_session``'s own
     incumbent result with ``run_shadow_forecast_session``'s own candidate
@@ -757,7 +771,35 @@ def pair_incumbent_and_candidate_results(
     which is identical for both runs against the same capture) are
     considered; ingestion-quarantined/pricing-quality-excluded fixtures
     never reach either adapter and are out of scope for this comparison
-    entirely."""
+    entirely.
+
+    ``incumbent_alias_hash`` -- the incumbent's own ``alias_hash`` for
+    this run. The incumbent's own output carries no such field itself
+    (its ledger/output rows are never touched by this PR -- see this
+    module's own docstring on why), so a caller comparing two LIVE,
+    in-process runs over the identical capture passes
+    ``compute_alias_hash()`` here (the incumbent has no override path at
+    all, so this is always exactly what it used). A caller instead
+    pairing against an OLDER, already-settled incumbent ledger row that
+    predates this field entirely (or any other case where the incumbent
+    side's alias provenance is genuinely unknown) passes ``None``.
+
+    A forecast-vs-forecast pair is NEVER labeled fully comparable
+    (``COMPARISON_BOTH_FORECAST_IDENTICAL``/``_DIFFERENT``) unless BOTH
+    sides' ``alias_hash`` are known and equal -- a probability difference
+    that could be entirely explained by the two sides resolving team
+    names differently (rather than by any real difference between the
+    two models) must never be reported as a clean, comparable
+    probability difference. ``incumbent_alias_hash`` missing (``None``)
+    yields ``ALIAS_PROVENANCE_UNAVAILABLE``; both present but unequal
+    yields ``ALIAS_HASH_MISMATCH``; either way, the raw probabilities are
+    still included so a caller can inspect them, just never under a
+    status implying they were safely compared. Abstention-based statuses
+    (``COMPARISON_CANDIDATE_ABSTAINED``/etc.) are unaffected -- each
+    already carries its own specific, typed abstention reason regardless
+    of alias provenance, and settlement/performance reporting on either
+    ledger independently is likewise unaffected (this function does not
+    gate anything but its own comparison output)."""
 
     incumbent_by_fixture = _index_by_fixture_id(
         incumbent_result["forecast_research_ranked"]["markets"],
@@ -790,11 +832,20 @@ def pair_incumbent_and_candidate_results(
             continue
 
         if incumbent_side["forecast_available"] and candidate_side["forecast_available"]:
-            same = incumbent_side["forecast"]["probabilities"] == candidate_side["forecast"]["probabilities"]
+            candidate_alias_hash = candidate_side["alias_hash"]
+            if incumbent_alias_hash is None or candidate_alias_hash is None:
+                status = ALIAS_PROVENANCE_UNAVAILABLE
+            elif incumbent_alias_hash != candidate_alias_hash:
+                status = ALIAS_HASH_MISMATCH
+            else:
+                same = incumbent_side["forecast"]["probabilities"] == candidate_side["forecast"]["probabilities"]
+                status = COMPARISON_BOTH_FORECAST_IDENTICAL if same else COMPARISON_BOTH_FORECAST_DIFFERENT
             pairs.append(
                 {
                     "source_fixture_id": fixture_id,
-                    "comparison_status": COMPARISON_BOTH_FORECAST_IDENTICAL if same else COMPARISON_BOTH_FORECAST_DIFFERENT,
+                    "comparison_status": status,
+                    "incumbent_alias_hash": incumbent_alias_hash,
+                    "candidate_alias_hash": candidate_alias_hash,
                     "incumbent_probabilities": incumbent_side["forecast"]["probabilities"],
                     "candidate_probabilities": candidate_side["forecast"]["probabilities"],
                 }

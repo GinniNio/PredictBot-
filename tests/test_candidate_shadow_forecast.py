@@ -488,8 +488,11 @@ def _candidate_result(forecasts=(), abstentions=()):
     }
 
 
-def _market(fixture_id, probabilities):
-    return {"source_fixture_id": fixture_id, "forecast": {"probabilities": probabilities}}
+def _market(fixture_id, probabilities, alias_hash=None):
+    entry = {"source_fixture_id": fixture_id, "forecast": {"probabilities": probabilities}}
+    if alias_hash is not None:
+        entry["alias_hash"] = alias_hash
+    return entry
 
 
 def _abstention(fixture_id, reason):
@@ -505,20 +508,51 @@ class PairedFixtureIntegrityTests(unittest.TestCase):
     PROBS_A = {"home_win": 0.5, "draw": 0.3, "away_win": 0.2}
     PROBS_B = {"home_win": 0.2, "draw": 0.3, "away_win": 0.5}
 
+    SAME_ALIAS_HASH = "alias-hash-shared"
+
     def test_identical_probabilities(self):
         incumbent = _incumbent_result(markets=[_market("f1", self.PROBS_A)])
-        candidate = _candidate_result(forecasts=[_market("f1", dict(self.PROBS_A))])
-        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        candidate = _candidate_result(forecasts=[_market("f1", dict(self.PROBS_A), alias_hash=self.SAME_ALIAS_HASH)])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate, incumbent_alias_hash=self.SAME_ALIAS_HASH)
         self.assertEqual(len(pairs), 1)
         self.assertEqual(pairs[0]["comparison_status"], csf.COMPARISON_BOTH_FORECAST_IDENTICAL)
 
     def test_different_probabilities(self):
         incumbent = _incumbent_result(markets=[_market("f1", self.PROBS_A)])
-        candidate = _candidate_result(forecasts=[_market("f1", self.PROBS_B)])
-        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        candidate = _candidate_result(forecasts=[_market("f1", self.PROBS_B, alias_hash=self.SAME_ALIAS_HASH)])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate, incumbent_alias_hash=self.SAME_ALIAS_HASH)
         self.assertEqual(pairs[0]["comparison_status"], csf.COMPARISON_BOTH_FORECAST_DIFFERENT)
         self.assertEqual(pairs[0]["incumbent_probabilities"], self.PROBS_A)
         self.assertEqual(pairs[0]["candidate_probabilities"], self.PROBS_B)
+
+    def test_forecast_pair_without_incumbent_alias_hash_is_never_labeled_comparable(self):
+        # incumbent_alias_hash omitted (defaults to None) -- even though
+        # the probabilities are identical, this must NOT be reported as
+        # COMPARISON_BOTH_FORECAST_IDENTICAL: alias provenance on the
+        # incumbent side is unknown, so the pair could be "identical"
+        # purely by coincidence, or because team resolution masked a
+        # real difference either way -- never assumed safe.
+        incumbent = _incumbent_result(markets=[_market("f1", self.PROBS_A)])
+        candidate = _candidate_result(forecasts=[_market("f1", dict(self.PROBS_A), alias_hash=self.SAME_ALIAS_HASH)])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        self.assertEqual(pairs[0]["comparison_status"], csf.ALIAS_PROVENANCE_UNAVAILABLE)
+        # Raw probabilities are still surfaced for inspection.
+        self.assertEqual(pairs[0]["incumbent_probabilities"], self.PROBS_A)
+        self.assertEqual(pairs[0]["candidate_probabilities"], self.PROBS_A)
+
+    def test_forecast_pair_with_missing_candidate_alias_hash_is_never_labeled_comparable(self):
+        incumbent = _incumbent_result(markets=[_market("f1", self.PROBS_A)])
+        candidate = _candidate_result(forecasts=[_market("f1", dict(self.PROBS_A))])  # no alias_hash at all
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate, incumbent_alias_hash=self.SAME_ALIAS_HASH)
+        self.assertEqual(pairs[0]["comparison_status"], csf.ALIAS_PROVENANCE_UNAVAILABLE)
+
+    def test_forecast_pair_with_mismatched_alias_hashes_is_flagged_not_silently_compared(self):
+        incumbent = _incumbent_result(markets=[_market("f1", self.PROBS_A)])
+        candidate = _candidate_result(forecasts=[_market("f1", dict(self.PROBS_A), alias_hash="a-different-hash")])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate, incumbent_alias_hash=self.SAME_ALIAS_HASH)
+        self.assertEqual(pairs[0]["comparison_status"], csf.ALIAS_HASH_MISMATCH)
+        self.assertEqual(pairs[0]["incumbent_alias_hash"], self.SAME_ALIAS_HASH)
+        self.assertEqual(pairs[0]["candidate_alias_hash"], "a-different-hash")
 
     def test_candidate_abstention_incumbent_forecasts(self):
         incumbent = _incumbent_result(markets=[_market("f1", self.PROBS_A)])
@@ -577,7 +611,13 @@ class RealPipelinePairedComparisonTests(CandidateShadowForecastTestCase):
         incumbent_result = run_bet9ja_research_session(envelope)
         candidate_result = self._run()
 
-        pairs = csf.pair_incumbent_and_candidate_results(incumbent_result, candidate_result)
+        # Both runs used the identical, real, shipped team_aliases.json
+        # (the incumbent has no override path at all) -- passing it
+        # explicitly is exactly what a real, same-moment comparison
+        # caller does.
+        pairs = csf.pair_incumbent_and_candidate_results(
+            incumbent_result, candidate_result, incumbent_alias_hash=csf.compute_alias_hash()
+        )
         # Every fixture that reached FORECAST on either side is present,
         # and every one carries a typed comparison_status -- no crash, no
         # unlabeled bucket, regardless of how the two models actually
@@ -594,8 +634,36 @@ class RealPipelinePairedComparisonTests(CandidateShadowForecastTestCase):
                     csf.COMPARISON_BOTH_UNRESOLVED_IDENTITY,
                     csf.COMPARISON_BOTH_ABSTAINED_OTHER,
                     csf.COMPARISON_NOT_ELIGIBLE_ON_BOTH_SIDES,
+                    csf.ALIAS_PROVENANCE_UNAVAILABLE,
+                    csf.ALIAS_HASH_MISMATCH,
                 },
             )
+            if pair["comparison_status"] in (csf.COMPARISON_BOTH_FORECAST_IDENTICAL, csf.COMPARISON_BOTH_FORECAST_DIFFERENT):
+                # A genuinely eligible, fully-comparable pair in THIS test
+                # (same real alias file, same moment) must never fall
+                # back to the "unavailable" statuses.
+                self.assertEqual(pair["incumbent_alias_hash"], pair["candidate_alias_hash"])
+
+    def test_real_run_without_incumbent_alias_hash_never_claims_forecast_pairs_comparable(self):
+        from pcbf_calculator.orchestration.bet9ja_research_session import run_bet9ja_research_session
+
+        envelope = json.loads(self.capture_path.read_text())
+        incumbent_result = run_bet9ja_research_session(envelope)
+        candidate_result = self._run()
+
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent_result, candidate_result)
+        forecast_vs_forecast_pairs = [
+            p for p in pairs
+            if p["comparison_status"] in (
+                csf.COMPARISON_BOTH_FORECAST_IDENTICAL,
+                csf.COMPARISON_BOTH_FORECAST_DIFFERENT,
+                csf.ALIAS_PROVENANCE_UNAVAILABLE,
+                csf.ALIAS_HASH_MISMATCH,
+            )
+        ]
+        self.assertTrue(forecast_vs_forecast_pairs)
+        for pair in forecast_vs_forecast_pairs:
+            self.assertEqual(pair["comparison_status"], csf.ALIAS_PROVENANCE_UNAVAILABLE)
 
 
 if __name__ == "__main__":
