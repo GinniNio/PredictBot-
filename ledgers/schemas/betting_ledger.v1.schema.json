@@ -78,8 +78,32 @@
           "minimum": 1
         },
         "unit_stake": {
-          "type": "string",
-          "pattern": "^-?\\d+(\\.\\d+)?$"
+          "type": ["string", "null"],
+          "pattern": "^-?\\d+(\\.\\d+)?$",
+          "description": "null exactly when stake_buckets is present -- a real per-fold-size stake breakdown, not one uniform scalar (see stake_buckets)."
+        },
+        "stake_buckets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["fold_size", "combination_count", "unit_stake", "total_stake"],
+            "properties": {
+              "fold_size": {"type": "integer", "minimum": 1},
+              "combination_count": {"type": "integer", "minimum": 1},
+              "unit_stake": {"type": "string", "pattern": "^-?\\d+(\\.\\d+)?$"},
+              "total_stake": {"type": "string", "pattern": "^-?\\d+(\\.\\d+)?$"}
+            }
+          },
+          "description": "Structured per-fold-size stake breakdown for a real Bet9ja SYSTEM ticket whose bucket unit stakes differ (e.g. Singles at one stake, Doubles at another) -- never derived from system_table_raw text; only ever built from an already-structured source. See ledgers/betting_ledger.py::_validate_stake_buckets."
+        },
+        "source_raw": {
+          "type": ["object", "null"],
+          "description": "The exact original capture record this event was built from, preserved verbatim for audit -- never read by this module itself."
+        },
+        "source_raw_hash": {
+          "type": ["string", "null"],
+          "description": "Content hash of the exact original capture record, for provenance/dedup auditing independent of this module's own natural key."
         },
         "total_stake": {
           "type": "string",
@@ -117,7 +141,8 @@
                 "minimum": 0
               },
               "forecast_id": {
-                "type": "string"
+                "type": ["string", "null"],
+                "description": "null when this leg could not be linked to an exact canonical forecast identity -- a real wager is still recorded either way; missing forecast coverage never blocks recording an actual ticket."
               },
               "fixture_id": {
                 "type": "string"

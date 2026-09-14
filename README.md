@@ -62,7 +62,7 @@ Every category in the sports/adapter registry ships at `classification_ceiling: 
 
 ## What remains unbuilt
 
-- Ticket placement from a ranked research market: `run-bet9ja-research --ledger-dir` (below) idempotently records every ranked market and forecast abstention into the forecast ledger, but `python -m ledgers.cli place-ticket` is still a separate, manual step a human takes from a recorded forecast (see `docs/LEDGER_DAILY_WORKFLOW.md`). `ingest-football-data-results` (below) automates forecast-ledger settlement/scoring from football-data.co.uk files; Bet9ja ticket placement and settlement (the betting ledger) remain entirely manual and unaffected.
+- Ticket placement from a ranked research market: `run-bet9ja-research --ledger-dir` (below) idempotently records every ranked market and forecast abstention into the forecast ledger, but `python -m ledgers.cli place-ticket` is still a separate, manual step a human takes from a recorded forecast (see `docs/LEDGER_DAILY_WORKFLOW.md`). `ingest-football-data-results` (below) automates forecast-ledger settlement/scoring from football-data.co.uk files; the human decision of *which* market to bet, and the placement of the bet itself with Bet9ja, remain entirely manual. `import-bet9ja-tickets` (below) records the resulting real tickets into the betting ledger after the fact, but only once the capture-side system-stake and max-return gaps described there are closed -- every real ticket captured so far stays quarantined.
 - Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
 - Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
@@ -236,6 +236,67 @@ The ledger *filename* is deliberately the same one the incumbent's own ledger us
 **Idempotent, atomic.** The ledger write is preflighted as one whole batch, under an OS-level lock, before any output file is written — a conflicting batch leaves both completely unwritten. Re-running the identical candidate-bundle-plus-capture combination appends zero duplicate rows.
 
 Explicitly out of scope: promotion, admission-registry rows, ranking for operator action, staking, ticket construction, settlement/scoring (run the existing settlement engine against this command's own ledger location separately, as described above), new team aliases, scheduled/automatic shadow-forecast runs.
+
+## Bet9ja real-ticket import (`import-bet9ja-tickets`)
+
+Records REAL Bet9ja settled/open ticket captures
+(`browser_extension/bet9ja_capture/settled_bets_parser.js` /
+`ticket_parser.js`'s own output) into `ledgers/betting_ledger.py` as
+`PLACED` events. This is a distinct pipeline from every command above:
+those record and score *forecasts* (what the model would have bet);
+this one records *actual wagers*, whatever they were.
+
+```bash
+python -m pcbf_calculator import-bet9ja-tickets \
+  bet9ja-settled-bets.json bet9ja-open-bets.json \
+  --currency NGN \
+  --betting-ledger-dir ledger_data \
+  --forecast-ledger-dir ledger_data \
+  --output-dir runs/ticket-import-session-id \
+  [--dry-run]
+```
+
+- **Currency is mandatory and never inferred.** `--currency` is required
+  on every run and stored verbatim on every ticket produced — never
+  guessed from odds formatting, stake size, or the bookmaker's name.
+- **No `system_table_raw` parsing, ever.** A real Bet9ja SYSTEM ticket's
+  per-fold-size stake breakdown is either read from a genuine, already-
+  structured `stake_buckets` field (once a capture-side fix emits one --
+  not built in this change) or derived purely from already-structured
+  numbers (`len(legs)`, `unit_stake`, `total_stake`) when the binomial
+  identity `C(leg_count, k) == total_stake / unit_stake` has exactly one
+  solution -- which, because `C(n,k) == C(n,n-k)`, only ever happens for
+  a full-legs accumulator or an even leg count's exact midpoint. Every
+  other SYSTEM ticket is quarantined `SYSTEM_STAKE_BREAKDOWN_UNPARSEABLE`,
+  never guessed at from the raw table text.
+- **Exact canonical forecast linkage, never substring matching.** Each
+  leg is linked to a forecast only via the identical
+  `identity.resolve_competition`/`resolve_team` resolution the adapter
+  and `ingest-football-data-results` already use, matched against the
+  forecast ledger's own recorded `(competition_code, resolved_home_team,
+  resolved_away_team, market_type, scheduled_date)`. A leg that cannot
+  resolve this way keeps `forecast_id: null` -- unlinked, never a reason
+  to refuse recording the wager itself.
+- **Whole-batch import safety.** Every ticket is normalized, linked, and
+  quarantined entirely in memory before a byte is written; the accepted
+  set is committed as one atomic batch (`betting_ledger.write_batch_placed`)
+  -- nothing is written if any accepted ticket would conflict with
+  existing ledger content. `--dry-run` reports the same
+  accepted/duplicate/conflicted/quarantined/unlinked-leg counts without
+  writing anything at all. Every original Bet9ja field is preserved
+  verbatim (`source_raw`) alongside a content hash (`source_raw_hash`),
+  quarantined tickets included.
+
+**Real-data status (this session's own two capture files, 158 tickets
+total):** every ticket is currently quarantined -- 113 settled tickets for
+a missing `potential_return` (Bet9ja's settled-bets capture never records
+one), and 45 open tickets for an unresolvable system-stake breakdown (all
+are "Singles"-style sub-selections, the ambiguous case above, not a full
+accumulator). This is the correct, conservative outcome given today's
+capture output, not a bug in this importer -- see "Deferred, not built
+here" in `orchestration/bet9ja_ticket_import.py`'s own module docstring
+for exactly what closes this gap (a capture-side fix to emit a structured
+`stake_buckets` field and a `potential_return` field on settled tickets).
 
 ## Bet9ja capture ingestion (research batch preparation)
 

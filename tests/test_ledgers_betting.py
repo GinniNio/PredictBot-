@@ -495,5 +495,216 @@ class TicketLifecycleTests(unittest.TestCase):
         self.assertEqual(len(terminal), 1)
 
 
+def _real_system_stake_buckets():
+    """The real shape from a genuine Bet9ja 5-leg system ticket (Singles
+    35.00, Doubles/Trebles/4-Folds at 3.00 each) -- total_stake 250.00.
+    Never derived from system_table_raw text; hand-built here as
+    already-structured data, exactly what a real stake_buckets field
+    (once the capture emits one) would look like."""
+    return [
+        {"fold_size": 1, "combination_count": 5, "unit_stake": "35.00", "total_stake": "175.00"},
+        {"fold_size": 2, "combination_count": 10, "unit_stake": "3.00", "total_stake": "30.00"},
+        {"fold_size": 3, "combination_count": 10, "unit_stake": "3.00", "total_stake": "30.00"},
+        {"fold_size": 4, "combination_count": 5, "unit_stake": "3.00", "total_stake": "15.00"},
+    ]
+
+
+class StakeBucketsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = Path(self.tmp) / "betting-ledger.jsonl"
+        self.legs = [_leg(i, "2.00") for i in range(5)]
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_builds_correct_total_stake_and_null_unit_stake(self):
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM", max_return="9999", currency="NGN", legs=self.legs,
+            stake_buckets=_real_system_stake_buckets(),
+        )
+        self.assertIsNone(event["payload"]["unit_stake"])
+        self.assertEqual(Decimal(event["payload"]["total_stake"]), Decimal("250.00"))
+        self.assertEqual(event["payload"]["system_sizes"], [1, 2, 3, 4])
+        self.assertEqual(len(event["payload"]["stake_buckets"]), 4)
+
+    def test_validates_against_schema(self):
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM", max_return="9999", currency="NGN", legs=self.legs,
+            stake_buckets=_real_system_stake_buckets(),
+        )
+        errors = validation.validate_envelope(event, validation.load_schema("betting_ledger.v1"))
+        self.assertEqual(errors, [])
+
+    def test_omitting_stake_buckets_leaves_payload_byte_for_byte_as_before(self):
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM", unit_stake="5.00", max_return="9999", currency="NGN", legs=self.legs,
+            system_sizes=[1, 2],
+        )
+        self.assertNotIn("stake_buckets", event["payload"])
+        self.assertIsInstance(event["payload"]["unit_stake"], str)
+
+    def test_supplying_both_unit_stake_and_stake_buckets_is_rejected(self):
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SYSTEM", unit_stake="5.00", max_return="9999", currency="NGN", legs=self.legs,
+                stake_buckets=_real_system_stake_buckets(),
+            )
+
+    def test_supplying_neither_unit_stake_nor_stake_buckets_is_rejected(self):
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SYSTEM", max_return="9999", currency="NGN", legs=self.legs, system_sizes=[1, 2],
+            )
+
+    def test_rejects_bucket_combination_count_mismatch(self):
+        buckets = _real_system_stake_buckets()
+        buckets[0]["combination_count"] = 999
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SYSTEM", max_return="9999", currency="NGN", legs=self.legs, stake_buckets=buckets,
+            )
+
+    def test_rejects_bucket_total_stake_mismatch(self):
+        buckets = _real_system_stake_buckets()
+        buckets[0]["total_stake"] = "999.00"
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SYSTEM", max_return="9999", currency="NGN", legs=self.legs, stake_buckets=buckets,
+            )
+
+    def test_rejects_duplicate_fold_size(self):
+        buckets = _real_system_stake_buckets()
+        buckets.append(dict(buckets[0]))
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SYSTEM", max_return="9999", currency="NGN", legs=self.legs, stake_buckets=buckets,
+            )
+
+    def test_rejects_fold_size_larger_than_leg_count(self):
+        buckets = [{"fold_size": 6, "combination_count": 1, "unit_stake": "1.00", "total_stake": "1.00"}]
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SYSTEM", max_return="9999", currency="NGN", legs=self.legs, stake_buckets=buckets,
+            )
+
+    def test_rejects_stake_buckets_on_a_non_system_ticket_type(self):
+        with self.assertRaises(ValueError):
+            betting_ledger.build_placed_event(
+                ticket_type="SINGLE", max_return="9999", currency="NGN", legs=[self.legs[0]],
+                stake_buckets=[{"fold_size": 1, "combination_count": 1, "unit_stake": "1.00", "total_stake": "1.00"}],
+            )
+
+    def test_settlement_scores_each_bucket_at_its_own_stake(self):
+        legs = [_leg(i, "2.00") for i in range(5)]  # every leg odds 2.00 for easy arithmetic
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM", max_return="9999", currency="NGN", legs=legs,
+            stake_buckets=_real_system_stake_buckets(),
+        )
+        betting_ledger.append_placed(self.path, event)
+        # Every leg WON -> every combination wins. Singles: 5 combos * 35.00 * 2.00 = 350.00.
+        # Doubles: 10 combos * 3.00 * 2.00^2 = 120.00. Trebles: 10 * 3.00 * 2.00^3 = 240.00.
+        # 4-folds: 5 * 3.00 * 2.00^4 = 240.00. Total = 350+120+240+240 = 950.00.
+        result = betting_ledger.settle_computed(
+            self.path, event["ticket_id"], [{"leg_index": i, "outcome": "WON"} for i in range(5)]
+        )
+        self.assertEqual(Decimal(result.record["payload"]["actual_return"]), Decimal("950.00"))
+        # A naive single-uniform-stake computation (using e.g. the smallest
+        # bucket's own 3.00 stake across every combination) would give a
+        # very different, WRONG total -- proving buckets are genuinely
+        # scored separately, not collapsed into one stake.
+        self.assertNotEqual(Decimal(result.record["payload"]["actual_return"]), Decimal("3.00") * (5 + 10 + 10 + 5))
+
+    def test_settlement_with_a_lost_leg_only_pays_combinations_not_containing_it(self):
+        legs = [_leg(i, "2.00") for i in range(5)]
+        event = betting_ledger.build_placed_event(
+            ticket_type="SYSTEM", max_return="9999", currency="NGN", legs=legs,
+            stake_buckets=_real_system_stake_buckets(),
+        )
+        betting_ledger.append_placed(self.path, event)
+        outcomes = [{"leg_index": i, "outcome": "WON" if i != 0 else "LOST"} for i in range(5)]
+        result = betting_ledger.settle_computed(self.path, event["ticket_id"], outcomes)
+        # Leg 0 LOST: its own single (35.00) loses; every combo containing
+        # leg 0 across every fold size loses too. Only combos entirely
+        # among legs {1,2,3,4} survive: Singles legs 1-4 (4*35.00*2=280.00),
+        # Doubles among {1,2,3,4} (C(4,2)=6 combos *3.00*4=72.00),
+        # Trebles among {1,2,3,4} (C(4,3)=4 combos *3.00*8=96.00),
+        # the one 4-fold among {1,2,3,4} (1 combo *3.00*16=48.00).
+        expected = Decimal("280.00") + Decimal("72.00") + Decimal("96.00") + Decimal("48.00")
+        self.assertEqual(Decimal(result.record["payload"]["actual_return"]), expected)
+
+
+class NullForecastIdLegTests(unittest.TestCase):
+    def test_an_unlinked_leg_with_null_forecast_id_is_accepted_and_validates(self):
+        leg = _leg(0, "1.9")
+        leg["forecast_id"] = None
+        event = betting_ledger.build_placed_event(
+            ticket_type="SINGLE", unit_stake="10.00", max_return="19.00", currency="NGN", legs=[leg]
+        )
+        self.assertIsNone(event["payload"]["legs"][0]["forecast_id"])
+        errors = validation.validate_envelope(event, validation.load_schema("betting_ledger.v1"))
+        self.assertEqual(errors, [])
+        # An unlinked leg is never STOP-checked -- check_legs_not_stopped
+        # skips it outright (nothing to look up).
+        tmp = tempfile.mkdtemp()
+        try:
+            forecast_path = Path(tmp) / "forecast-ledger.jsonl"
+            betting_ledger.check_legs_not_stopped(forecast_path, event["payload"]["legs"])  # must not raise
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class WriteBatchPlacedTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = Path(self.tmp) / "betting-ledger.jsonl"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _event(self, ref, stake="10.00"):
+        return betting_ledger.build_placed_event(
+            ticket_type="SINGLE", unit_stake=stake, max_return="19.00", currency="NGN",
+            legs=[_leg(0, "1.9")], external_ticket_ref=ref,
+        )
+
+    def test_a_clean_batch_appends_every_event(self):
+        events = [self._event("ref-1"), self._event("ref-2"), self._event("ref-3")]
+        summary = betting_ledger.write_batch_placed(self.path, events)
+        self.assertEqual(summary["attempted"], 3)
+        self.assertEqual(summary["appended"], 3)
+        self.assertEqual(summary["duplicate_skipped"], 0)
+        self.assertEqual(summary["conflicted"], 0)
+        self.assertEqual(summary["total_ledger_records"], 3)
+
+    def test_repeating_the_identical_batch_is_a_safe_no_op(self):
+        events = [self._event("ref-1"), self._event("ref-2")]
+        betting_ledger.write_batch_placed(self.path, events)
+        summary = betting_ledger.write_batch_placed(self.path, events)
+        self.assertEqual(summary["appended"], 0)
+        self.assertEqual(summary["duplicate_skipped"], 2)
+        self.assertEqual(summary["total_ledger_records"], 2)
+
+    def test_a_conflicting_batch_writes_nothing_at_all(self):
+        first = [self._event("ref-1", stake="10.00")]
+        betting_ledger.write_batch_placed(self.path, first)
+        records_before = read_all(self.path)
+
+        conflicting = [self._event("ref-1", stake="99.00"), self._event("ref-2", stake="10.00")]
+        with self.assertRaises(betting_ledger.BettingLedgerBatchConflictError):
+            betting_ledger.write_batch_placed(self.path, conflicting)
+        # Neither the conflicting ref-1 NOR the perfectly-clean ref-2 was
+        # written -- one bad item in the batch blocks the whole batch.
+        self.assertEqual(read_all(self.path), records_before)
+        self.assertEqual(len(read_all(self.path)), 1)
+
+    def test_an_intra_batch_duplicate_is_recognized_against_the_first_occurrence(self):
+        event = self._event("ref-1")
+        summary = betting_ledger.write_batch_placed(self.path, [event, event])
+        self.assertEqual(summary["appended"], 1)
+        self.assertEqual(summary["duplicate_skipped"], 1)
+        self.assertEqual(summary["total_ledger_records"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
