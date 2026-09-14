@@ -386,6 +386,19 @@ def main(argv: list[str] | None = None) -> int:
 
         return screen_research_batch_main(argv[1:])
 
+    # ``run-bet9ja-research`` is likewise additive -- see
+    # ``orchestration/bet9ja_research_session.py``'s own module docstring.
+    # It consumes the raw exported Bet9ja capture envelope directly (the
+    # same file ``ingest-bet9ja`` consumes), running ingestion, the
+    # existing market-quality gate, and the registered soccer forecast
+    # adapter end to end in one command. It reuses, and never redefines,
+    # ``ingest-bet9ja``'s and ``screen-research-batch``'s own contracts --
+    # both remain available unchanged for lower-level/debugging use.
+    if argv and argv[0] == "run-bet9ja-research":
+        from .orchestration.bet9ja_research_session import main as run_bet9ja_research_main
+
+        return run_bet9ja_research_main(argv[1:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
     parser.add_argument("output", type=Path, nargs="?", help="Optional output JSON file")

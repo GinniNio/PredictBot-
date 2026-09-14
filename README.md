@@ -1,6 +1,6 @@
 # PredictBot
 
-A deterministic, host-neutral statistical calculation package for sports betting analysis: a universal market-pricing engine, a sport-adapter framework, and a decision layer that gates real-money staking behind evidence — plus one closed research benchmark (Soccer 1X2) proving the pattern end to end on real data.
+A deterministic, host-neutral statistical calculation package for sports betting analysis: a universal market-pricing engine, a registered per-sport forecasting adapter, and a decision layer that gates real-money staking behind evidence.
 
 Zero runtime dependencies. Pure Python stdlib throughout (`pyproject.toml`: `dependencies = []`).
 
@@ -10,9 +10,9 @@ Zero runtime dependencies. Pure Python stdlib throughout (`pyproject.toml`: `dep
 
 - **Prices any multi-outcome market** (two-way, three-way, or N-way) from bookmaker prices alone: de-vigs the market, returns fair probabilities/odds and per-outcome expected value, and flags the market's own pricing quality (complete/incomplete, margin tier, arbitrage-shaped).
 - **Runs as a single, host-neutral JSON-in/JSON-out CLI** (`pcbf-calculator request.json`) — one JSON object in, one JSON object out, no network calls, deterministic byte-identical output for the same input (see `docs/HOST_CONTRACT.md`).
-- **Dispatches to a per-sport forecasting adapter** when one exists, and reports honestly when none does (`forecast_available: false`, a typed reason) rather than fabricating a probability.
+- **Dispatches to a per-sport forecasting adapter** when one exists, and reports honestly when none does or when it declines to forecast (`forecast_available: false`, a typed reason) rather than fabricating a probability. `category: "soccer"` has a real, registered adapter today (`soccer_1x2_elo_v1`, see below) — every other category still reports `forecast_available: false`.
 - **Gates any real or simulated stake behind an explicit decision layer** (evidence, freshness, liquidity, uncertainty) — no market being priced, and no forecast existing, ever implies a stake is authorized.
-- **Ships one closed research benchmark**: a Soccer 1X2 Elo + logistic-regression baseline (`research/soccer_1x2_elo_baseline/`), validated against real downloaded match data, kept structurally outside the production path described above.
+- **Registered Soccer 1X2 forecasting adapter** (`src/pcbf_calculator/adapters/soccer_1x2_elo_v1/`): the same Elo + logistic-regression research baseline below, wired into `adapters/registry.py` with its real trained artifact, real evidence provenance, and typed fail-closed abstention for every unresolved identity, stale artifact, or already-started fixture. Still capped at `classification_ceiling: RESEARCH-MODEL` (see below) — a real forecast, never a betting decision.
 
 ## Verified host support
 
@@ -38,9 +38,9 @@ Five European leagues via [football-data.co.uk](https://www.football-data.co.uk/
 - Per-outcome expected value at a given stake; an optional calibrated lower-confidence-bound EV when an adapter supplies real sample-size/uncertainty data (never fabricated when it doesn't).
 - Market-quality signals: `NORMAL` / `LOW_EVIDENCE_HIGH_MARGIN` (margin > 0.5) / `ANOMALOUS_NEGATIVE_MARGIN` (implied probabilities sum to under 1.0 — an arbitrage-shaped market) — a signal about the *market's* pricing, never a per-outcome betting recommendation.
 
-## Frozen Soccer 1X2 baseline — closed research track
+## Registered Soccer 1X2 Elo v1 adapter
 
-`research/soccer_1x2_elo_baseline/`: a pre-match Elo rating engine feeding a pure-Python multinomial logistic regression, temperature-calibrated, evaluated against real downloaded football-data.co.uk content. Real-data results (workflow run [34590227850](https://github.com/GinniNio/PredictBot-/actions/runs/34590227850), `evidence_class: LIVE_SOURCE_VALIDATED`, all four frozen-split hashes `CONFIRMED`):
+`src/pcbf_calculator/adapters/soccer_1x2_elo_v1/`, registered in `adapters/registry.py::_ADAPTER_IMPLEMENTATIONS["soccer"]`: a pre-match Elo rating engine feeding a pure-Python multinomial logistic regression, temperature-calibrated, trained and evaluated against real downloaded football-data.co.uk content (5 leagues: Premier League/E0, Bundesliga/D1, La Liga/SP1, Serie A/I1, Ligue 1/F1). Real-data results (workflow run [34590227850](https://github.com/GinniNio/PredictBot-/actions/runs/34590227850), `evidence_class: LIVE_SOURCE_VALIDATED`, all four frozen-split hashes `CONFIRMED`):
 
 | | Locked test (2024-25) | Out-of-time holdout (2025-26) |
 |---|---|---|
@@ -48,24 +48,25 @@ Five European leagues via [football-data.co.uk](https://www.football-data.co.uk/
 | Naive league-frequency baseline | 0.6526 | 0.6479 |
 | De-vigged opening bookmaker odds | 0.5734 | 0.5827 |
 
-**Beats the naive baseline. Trails de-vigged opening odds.** The model carries real information but less than the market's own aggregated information — exactly the outcome that sets the minimum bar every future soccer model must clear. This track is closed:
+**Beats the naive baseline. Trails de-vigged opening odds.** The model carries real information but less than the market's own aggregated information. The adapter is:
 
-- Deterministic (`run_twice_determinism_check`: byte-identical model artifacts across independent runs).
-- Frozen (four model-development inputs individually hashed and pinned in `expected_hashes.json`; a later run whose real data drifts fails loudly, never silently).
-- Real-data validated (`evidence_class: LIVE_SOURCE_VALIDATED`, confirmed by SHA-256 match against a genuine football-data.co.uk download — never inferred from row counts or fixture content alone).
-- Unregistered: no model-admission-registry row, no adapter dispatch-table wiring, no promotion-threshold change.
+- Deterministic (`run_twice_determinism_check`: byte-identical model artifacts across independent runs; every CLI/pipeline command built on it is likewise proven byte-identical on a repeated run).
+- Frozen/provenance-pinned (`data/model_artifact_manifest.json` records the exact workflow run, commit, and hash-provenance status this artifact was built from; `build_manifest.py` refuses to build a manifest unless `evidence_class: LIVE_SOURCE_VALIDATED` and every frozen-split hash is `CONFIRMED`).
+- Real-data validated (confirmed by SHA-256 match against a genuine football-data.co.uk download — never inferred from row counts or fixture content alone).
+- Fail-closed by identity, not fuzzy-matched: an unresolved competition or team name, a stale artifact, or an already-started fixture abstains with a typed `FORECAST_*` reason rather than guessing (`adapters/soccer_1x2_elo_v1/errors.py`).
+- Still capped at `classification_ceiling: RESEARCH-MODEL` (see below) — registering the adapter changes nothing about staking authorization.
 
 ## Status: RESEARCH-MODEL
 
-Every category in the sports/adapter registry ships at `classification_ceiling: RESEARCH-MODEL` (`src/pcbf_calculator/registries/data/adapter-registry.yaml`). No adapter is registered in `adapters/registry.py::_ADAPTER_IMPLEMENTATIONS`; no row exists in the model-admission registry; every soccer promotion threshold is `PROPOSED_OPERATOR_DECISION` or `DISABLED`. `PAPER` and `CASH` are unreachable in this codebase as shipped — the decision layer (`src/pcbf_calculator/decision/`) exists and is tested, but nothing currently feeds it a registered forecast to act on.
+Every category in the sports/adapter registry ships at `classification_ceiling: RESEARCH-MODEL` (`src/pcbf_calculator/registries/data/adapter-registry.yaml`). `category: "soccer"` has one registered adapter (`soccer_1x2_elo_v1`, above); no other category does. No row exists in the model-admission registry (`registries/data/model-admission-registry.yaml` — zero rows, by design); every soccer promotion threshold is `PROPOSED_OPERATOR_DECISION` or `DISABLED`. `PAPER` and `CASH` are unreachable in this codebase as shipped — the decision layer (`src/pcbf_calculator/decision/`) exists and is tested, but a registered forecast existing is not itself an admission: nothing currently feeds the decision layer a `decision_input` to act on, and no model-admission row exists to authorize one even if it did.
 
 ## What remains unbuilt
 
-- A real forecasting adapter registered against the Soccer 1X2 spec (`docs/adapters/SOCCER_1X2_ADAPTER_SPEC.md`) — the research baseline above is a benchmark, not an admitted adapter.
-- Automatic linking from a Bet9ja capture into the *forecast ledger* specifically: `python -m pcbf_calculator ingest-bet9ja` (below) validates an assembled Bet9ja capture and produces a deterministic PCBF research batch, and `python -m pcbf_calculator screen-research-batch` (below) prices it and triages it into a research queue by pricing quality, but neither writes to `ledgers/` — `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps a human takes from a research queue item (see `docs/LEDGER_DAILY_WORKFLOW.md`). Bet9ja ticket/settlement capture is unaffected by either bridge.
+- Automatic linking from a ranked research market into the *forecast ledger* specifically: `run-bet9ja-research` (below) produces a deterministic, model-enriched research queue, but does not itself write to `ledgers/` — `python -m ledgers.cli record-forecast`/`place-ticket` are still separate, manual steps a human takes from a ranked market (see `docs/LEDGER_DAILY_WORKFLOW.md`). Bet9ja ticket/settlement capture is unaffected.
 - Capture tooling for any live-odds source other than Bet9ja pre-match Soccer 1X2, and for any Bet9ja market other than 1X2 (both are preserved in the capture's `unparsed_records` for a later adapter, never silently dropped).
 - Hosting, an API surface, or a UI — this is a local CLI/library today.
 - Any second sport's adapter (the framework is designed for one; only soccer has a design spec).
+- A country-aware competition identity check: `soccer_1x2_elo_v1`'s competition resolution currently matches on name text alone (e.g. "Premier League"), not name **and** country — a different country's league sharing one of the 5 covered leagues' name fails closed today only because team names don't happen to collide, not because identity is actually checked. Flagged as a known gap, not yet fixed.
 
 ## Local run example
 
@@ -85,7 +86,30 @@ JSON
 pcbf-calculator request.json
 ```
 
-Prints one JSON object: de-vigged fair probabilities/odds and per-outcome EV under `pricing`, `forecast.forecast_available: false` (no adapter registered yet), `decision: null` (no decision input supplied), and `classification_ceiling: "RESEARCH-MODEL"`.
+Prints one JSON object: de-vigged fair probabilities/odds and per-outcome EV under `pricing`, `forecast.forecast_available: false` (`FORECAST_INPUT_INCOMPLETE` — no `fixture` block was supplied, so the registered soccer adapter has nothing to identify a match by; see below for a request that does), `decision: null` (no decision input supplied), and `classification_ceiling: "RESEARCH-MODEL"`.
+
+## One-command Bet9ja forecast research pipeline
+
+Turns one Bet9ja capture into a deterministic, model-enriched research queue in a single command — ingestion, the existing market-quality gate, and the registered soccer forecast adapter, end to end:
+
+```bash
+python -m pcbf_calculator run-bet9ja-research \
+  bet9ja-soccer-all-soccer-2026-09-12T15-30-23Z.json \
+  --output-dir runs/session-id
+```
+
+Reuses — never reimplements — `ingest-bet9ja`'s ingestion, `screen-research-batch`'s own market-quality gate, and `pcbf-calculator`'s own pricing/forecasting (`src/pcbf_calculator/orchestration/bet9ja_research_session.py`). Every fixture in the raw capture ends up in exactly one of four typed buckets, each written to its own file:
+
+| File | Contents |
+|---|---|
+| `research-session-report.json` | Canonical reconciled totals and typed reason counts |
+| `forecast-research-ranked.json` | Every fixture with a real forecast — full H/D/A model probabilities, market probabilities, per-outcome differences, model point EV, artifact provenance, deterministic calculation hash |
+| `forecast-abstentions.json` | Every typed adapter abstention (unresolved team/competition, stale artifact, already started, …) |
+| `ingestion-and-screening-exclusions.json` | Every ingestion quarantine and pricing-quality exclusion |
+
+`forecast-research-ranked.json` is ranked by `research_priority_score` — the pricing engine's own already-documented market-quality prioritization signal, the exact same score `screen-research-batch` orders its own queue by — **never** by model probability, model-vs-market divergence, or expected value. Every ranked market carries the fixed, non-configurable block `classification_ceiling: "RESEARCH-MODEL"`, `cash_stake: 0`, `simulated_stake: 0`, `recommendation_status: "NOT_AVAILABLE"`, `operator_decision: null` — this is a research shortlist for a human-controlled decision process to act on next, never a betting slip, and no outcome is ever singled out, named "best," or reduced to a stake.
+
+The lower-level `ingest-bet9ja` and `screen-research-batch` commands (below) remain available unchanged, for debugging or for a workflow that only needs one stage at a time; `run-bet9ja-research` is additive, not a replacement.
 
 ## Bet9ja capture ingestion (research batch preparation)
 
