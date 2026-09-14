@@ -1,5 +1,22 @@
 {
   "schema_version": "soccer-1x2-elo-v1-team-aliases.v1",
   "note": "Explicit, checked-in alias mapping only -- resolution never falls back to fuzzy matching. Each league code (E0/D1/SP1/I1/F1) maps a display name (e.g. a Bet9ja capture's own spelling) to the exact team-name spelling used in this adapter's football-data.co.uk-derived live-ratings snapshot for that league. A name that already matches exactly after normalization (case/whitespace/safe punctuation) needs no entry here. Add an entry only when you can verify both names refer to the same real team -- never guessed.",
-  "leagues": {}
+  "leagues": {
+    "E0": {
+      "Manchester Utd": "Man United",
+      "Manchester City": "Man City"
+    },
+    "D1": {
+      "SV 07 Elversberg": "Elversberg",
+      "Eintracht Frankfurt": "Ein Frankfurt",
+      "Cologne": "FC Koln",
+      "Monchengladbach": "M'gladbach",
+      "Borussia Dortmund": "Dortmund"
+    },
+    "F1": {
+      "PSG": "Paris SG",
+      "Paris FC 98": "Paris FC",
+      "Stade Rennes": "Rennes"
+    }
+  }
 }
