@@ -115,6 +115,19 @@ ledger.
    overwritten — and a ticket already `VOIDED` or `CASHED_OUT` cannot
    then be `SETTLED` (or vice versa); once a ticket reaches any one
    terminal state, it stays there.
+
+   `ledgers.cli record-result` above is the one-forecast-at-a-time,
+   manual path. `python -m pcbf_calculator ingest-football-data-results
+   DIR_OR_FILES --ledger-dir ledger_data --output-dir runs/session-id`
+   (see the main `README.md`) is the batch, automated alternative for
+   *forecast* scoring specifically: it matches every already-recorded
+   forecast against football-data.co.uk result/closing-odds files by
+   canonical identity (never team-name text alone), scores every match,
+   and reports every unmatched row or conflict with a typed reason — the
+   same atomic-batch, preflight-before-mutation discipline as
+   `run-bet9ja-research --ledger-dir`. It never touches ticket
+   settlement (`settle-ticket` above) — that stays this section's own
+   manual, per-ticket step.
 9. **Regenerate the CSV views** (`ledgers.cli export-csv`) whenever you
    want to look at the day's (or the running) ledger state in Excel.
    These files are always fully regenerated, never hand-edited, and

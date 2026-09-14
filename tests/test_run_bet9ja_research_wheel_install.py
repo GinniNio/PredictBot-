@@ -90,6 +90,8 @@ class WheelInstallationTests(unittest.TestCase):
             raise RuntimeError(f"wheel install failed:\n{install.stdout}\n{install.stderr}")
         if not (install_dir / "pcbf_calculator").is_dir():
             raise RuntimeError(f"pip install reported success but pcbf_calculator is missing from {install_dir}")
+        if not (install_dir / "data_pipeline").is_dir():
+            raise RuntimeError(f"pip install reported success but data_pipeline is missing from {install_dir}")
 
         cls.install_env = os.environ.copy()
         cls.install_env["PYTHONPATH"] = str(install_dir)
@@ -157,6 +159,56 @@ class WheelInstallationTests(unittest.TestCase):
             record = json.loads(lines[0])
             self.assertEqual(record["payload"]["classification"], "RESEARCH-MODEL")
             self.assertIsNotNone(record["payload"]["model_probabilities"])
+
+    def test_ingest_football_data_results_works_from_the_installed_wheel(self):
+        """Closes the full loop from a real installed wheel: capture ->
+        forecast -> record (run-bet9ja-research --ledger-dir) -> settle ->
+        score (ingest-football-data-results), proving
+        data_pipeline/schema_inspection.py and validation.py -- packaged
+        as a standalone repo-root package alongside pcbf_calculator and
+        ledgers -- are genuinely importable from the wheel, not just the
+        repo checkout."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            input_path = tmp_path / "capture.json"
+            input_path.write_text(json.dumps(CAPTURE_ENVELOPE), encoding="utf-8")
+            ledger_dir = tmp_path / "ledger_data"
+
+            record_result = subprocess.run(
+                [
+                    sys.executable, "-m", "pcbf_calculator", "run-bet9ja-research", str(input_path),
+                    "--output-dir", str(tmp_path / "research_out"), "--ledger-dir", str(ledger_dir),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(tmp_path),
+                env=self.install_env,
+            )
+            self.assertEqual(record_result.returncode, 0, f"stdout={record_result.stdout!r} stderr={record_result.stderr!r}")
+
+            results_csv = tmp_path / "results.csv"
+            results_csv.write_text(
+                "Div,Date,HomeTeam,AwayTeam,FTR,PSCH,PSCD,PSCA\nE0,20/09/2026,Arsenal,Chelsea,H,1.88,3.55,4.15\n",
+                encoding="utf-8",
+            )
+            output_dir = tmp_path / "settlement_out"
+
+            settle_result = subprocess.run(
+                [
+                    sys.executable, "-m", "pcbf_calculator", "ingest-football-data-results", str(results_csv),
+                    "--ledger-dir", str(ledger_dir), "--output-dir", str(output_dir),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(tmp_path),
+                env=self.install_env,
+            )
+            self.assertEqual(settle_result.returncode, 0, f"stdout={settle_result.stdout!r} stderr={settle_result.stderr!r}")
+
+            settled = json.loads((output_dir / "settled-forecasts.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(settled["settled"]), 1)
+            self.assertEqual(settled["settled"][0]["closing_odds"], {"H": 1.88, "D": 3.55, "A": 4.15})
 
     def test_host_contract_invocation_also_works_from_the_installed_wheel(self):
         with tempfile.TemporaryDirectory() as tmp:

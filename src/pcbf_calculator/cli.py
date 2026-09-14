@@ -399,6 +399,18 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_bet9ja_research_main(argv[1:])
 
+    # ``ingest-football-data-results`` is likewise additive -- see
+    # ``orchestration/football_data_settlement.py``'s own module
+    # docstring. It never reads a Bet9ja capture at all: it settles
+    # already-recorded forecasts (any source) against football-data.co.uk
+    # result/closing-odds files, appending SCORED events to
+    # ``ledgers/forecast_ledger.py``. Never touches
+    # ``ledgers/betting_ledger.py``.
+    if argv and argv[0] == "ingest-football-data-results":
+        from .orchestration.football_data_settlement import main as ingest_football_data_results_main
+
+        return ingest_football_data_results_main(argv[1:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
     parser.add_argument("output", type=Path, nargs="?", help="Optional output JSON file")

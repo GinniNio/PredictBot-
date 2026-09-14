@@ -50,7 +50,11 @@
         "captured_at_utc": {"type": ["string", "null"]},
         "selection": {"type": ["string", "null"]},
         "stop_reason": {"type": ["string", "null"]},
-        "operator_decision": {"type": ["string", "null"]}
+        "operator_decision": {"type": ["string", "null"]},
+        "competition_code": {"type": ["string", "null"]},
+        "resolved_home_team": {"type": ["string", "null"]},
+        "resolved_away_team": {"type": ["string", "null"]},
+        "scheduled_date": {"type": ["string", "null"]}
       }
     },
     "SELECTION_UPDATED": {
@@ -71,6 +75,7 @@
           "type": ["object", "null"],
           "properties": {"H": {"type": "number"}, "D": {"type": "number"}, "A": {"type": "number"}}
         },
+        "closing_odds_source": {"type": ["string", "null"]},
         "market_comparison": {"type": ["object", "null"]},
         "settled_at_utc": {"type": "string", "format": "date-time"}
       }
