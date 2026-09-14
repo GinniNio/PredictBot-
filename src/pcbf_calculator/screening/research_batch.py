@@ -201,6 +201,24 @@ def _price_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
     return run_calculator(request)
 
 
+def market_quality_gate(pricing: dict[str, Any]) -> tuple[str, str] | None:
+    """The one, shared implementation of this platform's market-quality
+    exclusion rule (see this module's own docstring for the full
+    reasoning) -- reused verbatim by every module that needs the same
+    gate, never reimplemented elsewhere. Takes an already-computed
+    ``pricing`` result (``run_calculator(...)["pricing"]``) and returns
+    ``(reason_code, detail)`` if it excludes this market, or ``None`` if
+    it clears the gate."""
+    market_quality = pricing["market_quality"]
+    if market_quality["evidence_quality"] != "NORMAL":
+        return (
+            SCREEN_MARKET_QUALITY_NOT_NORMAL,
+            f"market_quality.evidence_quality is {market_quality['evidence_quality']!r} "
+            f"(bookmaker_margin={market_quality['bookmaker_margin']}), not NORMAL.",
+        )
+    return None
+
+
 def screen_research_batch(batch: dict[str, Any]) -> dict[str, Any]:
     """Triage every fixture in an ``ingestion/bet9ja.py``-produced
     ``pcbf-research-batch.json`` object by pricing quality.
@@ -248,12 +266,10 @@ def screen_research_batch(batch: dict[str, Any]) -> dict[str, Any]:
 
         pricing = result["pricing"]
         market_quality = pricing["market_quality"]
-        if market_quality["evidence_quality"] != "NORMAL":
-            exclude(
-                SCREEN_MARKET_QUALITY_NOT_NORMAL,
-                f"market_quality.evidence_quality is {market_quality['evidence_quality']!r} "
-                f"(bookmaker_margin={market_quality['bookmaker_margin']}), not NORMAL.",
-            )
+        gate_result = market_quality_gate(pricing)
+        if gate_result is not None:
+            reason_code, detail = gate_result
+            exclude(reason_code, detail)
             continue
 
         _assert_queued_market_stays_research_only(result)
