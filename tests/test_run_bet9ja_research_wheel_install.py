@@ -160,14 +160,15 @@ class WheelInstallationTests(unittest.TestCase):
             self.assertEqual(record["payload"]["classification"], "RESEARCH-MODEL")
             self.assertIsNotNone(record["payload"]["model_probabilities"])
 
-    def test_ingest_football_data_results_works_from_the_installed_wheel(self):
+    def test_full_forecast_lifecycle_works_from_the_installed_wheel(self):
         """Closes the full loop from a real installed wheel: capture ->
         forecast -> record (run-bet9ja-research --ledger-dir) -> settle ->
-        score (ingest-football-data-results), proving
-        data_pipeline/schema_inspection.py and validation.py -- packaged
-        as a standalone repo-root package alongside pcbf_calculator and
-        ledgers -- are genuinely importable from the wheel, not just the
-        repo checkout."""
+        score (ingest-football-data-results) -> report
+        (report-forecast-performance), proving
+        data_pipeline/schema_inspection.py, validation.py, and
+        orchestration/forecast_performance_report.py -- packaged
+        alongside pcbf_calculator and ledgers -- are genuinely importable
+        from the wheel, not just the repo checkout."""
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -209,6 +210,31 @@ class WheelInstallationTests(unittest.TestCase):
             settled = json.loads((output_dir / "settled-forecasts.json").read_text(encoding="utf-8"))
             self.assertEqual(len(settled["settled"]), 1)
             self.assertEqual(settled["settled"][0]["closing_odds"], {"H": 1.88, "D": 3.55, "A": 4.15})
+
+            performance_out = tmp_path / "performance_out"
+            report_result = subprocess.run(
+                [
+                    sys.executable, "-m", "pcbf_calculator", "report-forecast-performance",
+                    "--ledger-dir", str(ledger_dir), "--output-dir", str(performance_out),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(tmp_path),
+                env=self.install_env,
+            )
+            self.assertEqual(report_result.returncode, 0, f"stdout={report_result.stdout!r} stderr={report_result.stderr!r}")
+
+            for filename in (
+                "performance-summary.json", "calibration-report.json",
+                "closing-line-report.json", "excluded-records.json",
+            ):
+                self.assertTrue((performance_out / filename).exists(), filename)
+
+            summary = json.loads((performance_out / "performance-summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["counts"]["included"], 1)
+            self.assertEqual(summary["counts"]["excluded"], 0)
+            self.assertEqual(summary["counts"]["with_closing_odds"], 1)
+            self.assertTrue(summary["overall"]["small_sample"])
 
     def test_host_contract_invocation_also_works_from_the_installed_wheel(self):
         with tempfile.TemporaryDirectory() as tmp:
