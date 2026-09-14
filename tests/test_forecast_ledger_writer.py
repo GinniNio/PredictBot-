@@ -14,6 +14,8 @@ import copy
 import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -28,6 +30,7 @@ from pcbf_calculator.orchestration.bet9ja_research_session import (  # noqa: E40
     run_bet9ja_research_session,
     run_session,
 )
+from pcbf_calculator.orchestration import forecast_ledger_writer  # noqa: E402
 from pcbf_calculator.orchestration.forecast_ledger_writer import (  # noqa: E402
     LedgerBatchConflictError,
     build_ledger_events,
@@ -270,6 +273,62 @@ class ReconciliationTests(unittest.TestCase):
             self.assertEqual(summary["attempted"], 2)  # bxf_3 (pricing-quality excluded) never attempted
 
 
+class ConcurrencyTests(unittest.TestCase):
+    """Acceptance: two simultaneous writers cannot both pass preflight
+    and corrupt or duplicate the ledger. Forces the race deterministically
+    by widening the window between read_all's on-disk read and the real
+    commit (patching ledgers.storage.read_all with a small sleep) --
+    without write_batch's own exclusive lock, this reliably reproduces two
+    duplicate lines under the same forecast_id; with it, exactly one."""
+
+    def test_two_concurrent_batches_for_the_same_new_fixture_never_duplicate(self):
+        envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_race")])
+        result = run_bet9ja_research_session(envelope)
+        events = build_ledger_events(result)
+        self.assertEqual(len(events), 1)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+
+            original_read_all = forecast_ledger_writer.read_all
+
+            def slow_read_all(path):
+                records = original_read_all(path)
+                time.sleep(0.2)
+                return records
+
+            forecast_ledger_writer.read_all = slow_read_all
+            try:
+                results = []
+                errors = []
+
+                def worker():
+                    try:
+                        results.append(write_batch(ledger_path, events))
+                    except Exception as exc:  # pragma: no cover -- only on a real failure
+                        errors.append(exc)
+
+                t1 = threading.Thread(target=worker)
+                t2 = threading.Thread(target=worker)
+                t1.start()
+                time.sleep(0.05)  # ensure t1 is inside its slow read_all before t2 starts
+                t2.start()
+                t1.join(timeout=10)
+                t2.join(timeout=10)
+            finally:
+                forecast_ledger_writer.read_all = original_read_all
+
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), 2)
+            total_appended = sum(r["appended"] for r in results)
+            total_duplicate_skipped = sum(r["duplicate_skipped"] for r in results)
+            self.assertEqual(total_appended, 1)
+            self.assertEqual(total_duplicate_skipped, 1)
+
+            records = original_read_all(ledger_path)
+            self.assertEqual(len(records), 1, f"expected exactly one record, found {len(records)}: {records}")
+
+
 class NoBettingLedgerChangeTests(unittest.TestCase):
     def test_writing_the_forecast_ledger_never_touches_a_betting_ledger_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -278,7 +337,12 @@ class NoBettingLedgerChangeTests(unittest.TestCase):
             result = run_bet9ja_research_session(envelope)
             write_batch(ledger_dir / "forecast-ledger.jsonl", build_ledger_events(result))
             self.assertFalse((ledger_dir / "betting-ledger.jsonl").exists())
-            self.assertEqual(sorted(p.name for p in ledger_dir.iterdir()), ["forecast-ledger.jsonl"])
+            # forecast-ledger.jsonl.lock is the write lock's own dedicated
+            # file (never the ledger file itself) -- expected alongside it.
+            self.assertEqual(
+                sorted(p.name for p in ledger_dir.iterdir()),
+                ["forecast-ledger.jsonl", "forecast-ledger.jsonl.lock"],
+            )
 
 
 class LedgerDirCliOptionTests(unittest.TestCase):

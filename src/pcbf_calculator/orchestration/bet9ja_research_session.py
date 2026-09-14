@@ -566,6 +566,9 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(exc, forecast_ledger_writer.LedgerBatchConflictError):
             print(f"CONFLICT: {exc}")
             return 2
+        if isinstance(exc, forecast_ledger_writer.LedgerLockTimeoutError):
+            print(f"LOCKED: {exc}")
+            return 2
         raise
 
     counts = result["research_session_report"]["counts"]

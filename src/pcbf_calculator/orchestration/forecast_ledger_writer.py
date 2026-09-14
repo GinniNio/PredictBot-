@@ -29,6 +29,28 @@ conflict-free does this module actually append (each item's real
 ``append_recorded`` call then only ever returns ``APPENDED`` or
 ``DUPLICATE_SKIPPED`` -- the preflight already ruled out ``CONFLICT``).
 
+**Concurrency.** ``write_batch`` holds a real, OS-level exclusive lock
+(POSIX advisory, ``fcntl.flock`` on a dedicated ``<ledger>.lock`` file
+next to the ledger -- never the ledger file itself, so a plain reader
+using ``read_all``/``current_state`` never needs to take it) for its
+ENTIRE preflight-then-commit sequence. This is what makes the
+preflight-then-commit atomic across separate PROCESSES, not merely
+within one call: two ``run-bet9ja-research --ledger-dir`` invocations
+racing against the same ledger directory serialize on this lock -- the
+second blocks until the first's whole batch has fully committed, so it
+can never preflight against a stale "not yet written" on-disk state and
+duplicate an append (confirmed directly: without this lock, two
+concurrent batches targeting the same new fixture both observed an empty
+ledger during preflight and both appended, producing two lines under the
+one ``forecast_id`` -- exactly the corruption this lock exists to
+prevent). A writer that cannot acquire the lock within
+``DEFAULT_LOCK_TIMEOUT_SECONDS`` raises ``LedgerLockTimeoutError`` rather
+than hanging forever or writing anyway -- nothing is written either way.
+This lock covers this module's own batch-write path only; it does not
+retrofit locking onto ``ledgers/storage.py``'s lower-level primitives
+(used by ``ledgers/betting_ledger.py`` too, out of scope here -- see this
+module's own "no betting-ledger changes" note below).
+
 **Natural key.** Every event's ``forecast_id`` is the ledger's own
 existing deterministic key (``ledgers/ids.py::forecast_id``, hashing
 ``(fixture_id, market_type, model_version)``) -- ``fixture_id`` is the
@@ -76,9 +98,13 @@ files written outside this module, database writes, automatic betting.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import os
 import sys
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 def _ensure_ledgers_importable() -> None:
@@ -148,6 +174,51 @@ class LedgerBatchConflictError(Exception):
             f"{len(conflicts)} record(s) would conflict with existing ledger content under an "
             f"unchanged natural key -- nothing written: {summary}"
         )
+
+
+class LedgerLockTimeoutError(Exception):
+    """Raised when ``write_batch`` cannot acquire the exclusive ledger
+    lock within ``DEFAULT_LOCK_TIMEOUT_SECONDS`` -- another process is
+    currently writing to the same ledger. Nothing is written when this is
+    raised, same as ``LedgerBatchConflictError``."""
+
+
+DEFAULT_LOCK_TIMEOUT_SECONDS = 30.0
+_LOCK_POLL_INTERVAL_SECONDS = 0.1  # arbitrary short poll interval, unrelated to any backtest/promotion threshold
+
+
+@contextlib.contextmanager
+def _exclusive_ledger_lock(ledger_path: Path, timeout: float = DEFAULT_LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
+    """Held for ``write_batch``'s entire preflight-then-commit sequence
+    -- see this module's own "Concurrency" section for why. A real,
+    OS-level (POSIX advisory, ``fcntl.flock``) exclusive lock on a
+    dedicated ``<ledger_path>.lock`` file next to the ledger, never the
+    ledger file itself, so a plain reader (``read_all``/``current_state``)
+    is never blocked by a writer. Polls rather than blocking indefinitely
+    on the lock, so a writer that cannot acquire it within ``timeout``
+    raises ``LedgerLockTimeoutError`` (nothing written) instead of
+    hanging forever behind a stuck or crashed prior writer."""
+
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = ledger_path.with_name(ledger_path.name + ".lock")
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise LedgerLockTimeoutError(
+                        f"Could not acquire the write lock for {ledger_path} within {timeout}s -- "
+                        "another process appears to be writing to this ledger. Nothing was written."
+                    )
+                time.sleep(_LOCK_POLL_INTERVAL_SECONDS)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def _hda_probabilities(probabilities: dict[str, float]) -> dict[str, float]:
@@ -289,50 +360,58 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
           "conflicted": int,   # always 0 on a successful return
           "total_ledger_records": int,  # RECORDED events now on disk
         }
+    Holds an exclusive, OS-level lock (see ``_exclusive_ledger_lock``) for
+    this entire preflight-then-commit sequence, so two concurrent calls
+    against the same ``ledger_path`` (from separate processes) cannot
+    both preflight against the same stale on-disk state and both append
+    -- the second call blocks until the first's whole batch has
+    committed. Raises ``LedgerLockTimeoutError`` (nothing written) if the
+    lock cannot be acquired within ``DEFAULT_LOCK_TIMEOUT_SECONDS``.
     """
-    on_disk = read_all(ledger_path)
-    staged: list[dict[str, Any]] = list(on_disk)
+    with _exclusive_ledger_lock(ledger_path):
+        on_disk = read_all(ledger_path)
+        staged: list[dict[str, Any]] = list(on_disk)
 
-    conflicts: list[dict[str, Any]] = []
-    for event in events:
-        existing = find_existing(staged, "forecast_id", event["forecast_id"], event["event_type"])
-        plan = decide_append(existing, event, ignore_keys_in_payload_comparison=frozenset({"created_at_utc"}))
-        if plan.status == CONFLICT:
-            conflicts.append(
-                {
-                    "forecast_id": event["forecast_id"],
-                    "source_fixture_id": event["payload"].get("fixture_id"),
-                    "new": event,
-                    "existing": plan.conflicting_record,
-                }
-            )
-        elif plan.status == APPENDED:
-            staged.append(event)
-        # DUPLICATE_SKIPPED: leave `staged` as-is -- a second identical
-        # item later in the same batch still correctly compares against
-        # the ALREADY-staged (or on-disk) original, not against itself.
+        conflicts: list[dict[str, Any]] = []
+        for event in events:
+            existing = find_existing(staged, "forecast_id", event["forecast_id"], event["event_type"])
+            plan = decide_append(existing, event, ignore_keys_in_payload_comparison=frozenset({"created_at_utc"}))
+            if plan.status == CONFLICT:
+                conflicts.append(
+                    {
+                        "forecast_id": event["forecast_id"],
+                        "source_fixture_id": event["payload"].get("fixture_id"),
+                        "new": event,
+                        "existing": plan.conflicting_record,
+                    }
+                )
+            elif plan.status == APPENDED:
+                staged.append(event)
+            # DUPLICATE_SKIPPED: leave `staged` as-is -- a second identical
+            # item later in the same batch still correctly compares against
+            # the ALREADY-staged (or on-disk) original, not against itself.
 
-    if conflicts:
-        raise LedgerBatchConflictError(conflicts)
+        if conflicts:
+            raise LedgerBatchConflictError(conflicts)
 
-    appended = 0
-    duplicate_skipped = 0
-    for event in events:
-        result = forecast_ledger.append_recorded(ledger_path, event)
-        if result.status == APPENDED:
-            appended += 1
-        elif result.status == DUPLICATE_SKIPPED:
-            duplicate_skipped += 1
-        else:  # pragma: no cover -- ruled out by the preflight above
-            raise AssertionError(
-                f"Policy violation: preflight found no conflict for forecast_id={event['forecast_id']!r}, "
-                f"but the real append returned CONFLICT. This is a bug in this module's preflight logic."
-            )
+        appended = 0
+        duplicate_skipped = 0
+        for event in events:
+            result = forecast_ledger.append_recorded(ledger_path, event)
+            if result.status == APPENDED:
+                appended += 1
+            elif result.status == DUPLICATE_SKIPPED:
+                duplicate_skipped += 1
+            else:  # pragma: no cover -- ruled out by the preflight above
+                raise AssertionError(
+                    f"Policy violation: preflight found no conflict for forecast_id={event['forecast_id']!r}, "
+                    f"but the real append returned CONFLICT. This is a bug in this module's preflight logic."
+                )
 
-    return {
-        "attempted": len(events),
-        "appended": appended,
-        "duplicate_skipped": duplicate_skipped,
-        "conflicted": 0,
-        "total_ledger_records": len(read_all(ledger_path)),
-    }
+        return {
+            "attempted": len(events),
+            "appended": appended,
+            "duplicate_skipped": duplicate_skipped,
+            "conflicted": 0,
+            "total_ledger_records": len(read_all(ledger_path)),
+        }

@@ -31,6 +31,11 @@ ledger_data/
 # ledgers/examples/*.json (never *.jsonl), so this blanket rule never
 # hides anything meant to be tracked.
 *.jsonl
+# forecast_ledger_writer.py's own write lock (a dedicated <ledger>.lock
+# file next to the real ledger, held only for the duration of one
+# write_batch call) -- same "wherever an operator points --ledger-dir"
+# reasoning as the *.jsonl rule above; never itself ledger content.
+*.jsonl.lock
 # Regenerated CSV views (ledgers.cli export-csv, default output
 # location) -- always a derived export of the JSONL ledgers above, never
 # hand-edited, never the source of truth, and never itself a repository
