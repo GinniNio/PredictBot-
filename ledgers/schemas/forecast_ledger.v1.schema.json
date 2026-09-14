@@ -61,7 +61,8 @@
         "capture_hash": {"type": ["string", "null"], "description": "Content hash of the exact capture file used -- distinct from capture_id, the capture's own session id."},
         "capture_session_id": {"type": ["string", "null"]},
         "forecast_cutoff_utc": {"type": ["string", "null"]},
-        "recommendation_status": {"type": ["string", "null"]}
+        "recommendation_status": {"type": ["string", "null"]},
+        "alias_hash": {"type": ["string", "null"], "description": "SHA-256 of the exact team_aliases.json content used to resolve this fixture -- see ledgers/forecast_ledger.py::build_recorded_event's own docstring."}
       }
     },
     "SELECTION_UPDATED": {

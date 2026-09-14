@@ -70,6 +70,38 @@ One command::
   identity mapping, but never a second, parallel ledger-writing
   implementation.
 
+**The injected alias book is never an unrecorded external dependency.**
+``alias_hash`` -- the SHA-256 of the exact ``team_aliases.json`` bytes
+the injected ``alias_book`` was built from (see
+``adapters.soccer_1x2_elo_v1.default_team_aliases_path``) -- is recorded
+on every forecast/abstention in every output document AND on every
+ledger row this module writes (``ledgers/forecast_ledger.py``'s own new
+``alias_hash`` field). Because the incumbent has no override path at
+all (``adapters.registry`` always constructs its adapter with
+``alias_book=None``, i.e. always the one real, shipped file), the
+incumbent's own "alias hash" is always this same, single, re-derivable
+value -- so confirming a candidate's recorded ``alias_hash`` against a
+fresh ``compute_alias_hash()`` call is exactly "candidate and incumbent
+used the same aliases," with nothing incumbent-side to change or record
+to make that comparison possible.
+
+``check_alias_hash_consistency`` is called before this module writes
+anything: it reads whatever is ALREADY on disk at this candidate's own
+ledger path (if anything) and compares the current, live
+``alias_hash`` against the value recorded on that ledger's own first
+RECORDED event. A mismatch -- ``team_aliases.json`` changed since an
+earlier run of this exact candidate against this exact ledger location
+-- raises the typed ``AliasHashMismatchError`` BEFORE any new ledger
+row or output file is written, rather than silently mixing rows
+resolved under two different alias books in one ledger (which could
+silently change which fixtures are "eligible" between runs for a reason
+having nothing to do with the candidate's own model). This is the
+"fail with a typed alias-hash mismatch" half of the two acceptable
+designs for reproducibility -- there is no code path that reproduces an
+old run under changed aliases instead; an operator who deliberately
+wants new aliases picked up must start a fresh candidate ledger
+location.
+
 **Never ranks candidate forecasts for operator action.** This module
 deliberately drops ``research_priority_score``/``queue_position`` (the
 research-queue-ordering concept ``run-bet9ja-research`` computes for its
@@ -97,6 +129,21 @@ for the identical fixture are DELIBERATELY different (the natural key,
 candidate's own ``model_version`` string is never the incumbent's) --
 relying on ``forecast_id`` equality to pair them up would be relying on
 an accident that structurally cannot happen.
+
+``pair_incumbent_and_candidate_results`` (a separate, real utility
+function this module also exports) pairs a SINGLE in-process incumbent
+run (``bet9ja_research_session.run_bet9ja_research_session``) against a
+SINGLE in-process candidate run (``run_shadow_forecast_session``) over
+the identical capture, joined by ``source_fixture_id`` instead (a valid,
+simpler key when both results are already in hand from the same
+capture, unlike the ledger-time join key above, which exists for
+exactly the case where a shared fixture id is NOT available -- reading
+two ledgers back independently, potentially days apart). Every coverage
+difference it finds is a typed ``comparison_status``
+(``COMPARISON_BOTH_FORECAST_IDENTICAL``/``_DIFFERENT``,
+``COMPARISON_CANDIDATE_ABSTAINED``, ``COMPARISON_INCUMBENT_ABSTAINED``,
+``COMPARISON_BOTH_UNRESOLVED_IDENTITY``, ``COMPARISON_BOTH_ABSTAINED_OTHER``)
+-- never an unlabeled "these differ."
 
 **Ledger location.** ``<ledger-dir>/<candidate_bundle_hash>/forecast-ledger.jsonl``
 -- one directory per candidate, keyed by that candidate's own
@@ -154,7 +201,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ..adapters.soccer_1x2_elo_v1 import SoccerOneXTwoEloV1Adapter, load_team_alias_book
+from ..adapters.soccer_1x2_elo_v1 import (
+    SoccerOneXTwoEloV1Adapter,
+    default_team_aliases_path,
+    load_team_alias_book,
+)
 from .bet9ja_research_session import CATEGORY
 from .bet9ja_research_session import run_bet9ja_research_session as _run_bet9ja_research_session
 from .soccer_artifact_refresh import verify_candidate_bundle
@@ -179,6 +230,8 @@ def _ensure_ledgers_importable() -> None:
 _ensure_ledgers_importable()
 
 from ledgers import forecast_ledger  # noqa: E402
+
+from ledgers.storage import read_all  # noqa: E402
 
 from . import forecast_ledger_writer  # noqa: E402
 from .forecast_ledger_writer import (  # noqa: E402
@@ -245,6 +298,56 @@ def load_candidate_identity(candidate_dir: Path) -> dict[str, str]:
     }
 
 
+class AliasHashMismatchError(Exception):
+    """``team_aliases.json`` changed since an earlier run of this exact
+    candidate bundle against this exact ledger location -- see this
+    module's own docstring, "The injected alias book is never an
+    unrecorded external dependency." Raised BEFORE any new ledger row or
+    output file is written for this run."""
+
+
+def compute_alias_hash(data_dir: Path | None = None) -> str:
+    """SHA-256 of the exact ``team_aliases.json`` bytes
+    ``load_team_alias_book(data_dir)`` would parse -- always the same,
+    single value for the incumbent (which never overrides ``data_dir``),
+    and the value stamped as ``alias_hash`` on every row this module
+    writes."""
+
+    return _sha256_bytes(default_team_aliases_path(data_dir).read_bytes())
+
+
+def check_alias_hash_consistency(ledger_path: Path, current_alias_hash: str) -> None:
+    """Reads whatever is ALREADY on disk at ``ledger_path`` (a no-op if
+    nothing is there yet -- a candidate's first run under a fresh ledger
+    location has nothing to compare against) and compares
+    ``current_alias_hash`` against the ``alias_hash`` recorded on that
+    ledger's own first ``RECORDED`` event. Raises
+    ``AliasHashMismatchError`` on a mismatch, BEFORE this module writes
+    anything new. A ledger with existing rows that predate this field
+    entirely (``alias_hash`` missing/``None``) is treated as "nothing to
+    compare against" -- never a manufactured mismatch against historical
+    rows that simply never recorded one."""
+
+    if not ledger_path.exists():
+        return
+    records = read_all(ledger_path)
+    recorded_alias_hash = None
+    for record in records:
+        if record.get("event_type") == forecast_ledger.EVENT_RECORDED:
+            recorded_alias_hash = (record.get("payload") or {}).get("alias_hash")
+            break
+    if recorded_alias_hash is None:
+        return
+    if recorded_alias_hash != current_alias_hash:
+        raise AliasHashMismatchError(
+            f"team_aliases.json has changed since an earlier run against {ledger_path}: this run's "
+            f"alias_hash is {current_alias_hash!r}, but that ledger's own first RECORDED event "
+            f"already carries alias_hash={recorded_alias_hash!r}. Refusing to mix rows resolved "
+            "under two different alias books in one candidate ledger. Start a fresh --ledger-dir "
+            "location if the new aliases are an intentional change."
+        )
+
+
 def _assert_candidate_event_stays_inert(event: dict[str, Any]) -> None:
     """Defense-in-depth invariant, mirroring
     ``forecast_ledger_writer._assert_event_stays_research_only``: it must
@@ -285,6 +388,7 @@ def _build_forecast_event(
     build_identity: str,
     capture_hash: str,
     capture_session_id: str,
+    alias_hash: str,
 ) -> dict[str, Any]:
     forecast = market["forecast"]
     event = forecast_ledger.build_recorded_event(
@@ -314,6 +418,7 @@ def _build_forecast_event(
         capture_session_id=capture_session_id,
         forecast_cutoff_utc=market["forecast_cutoff_utc"],
         recommendation_status=RECOMMENDATION_STATUS,
+        alias_hash=alias_hash,
         **_settlement_identity_kwargs(forecast),
     )
     _assert_candidate_event_stays_inert(event)
@@ -327,6 +432,7 @@ def _build_abstention_event(
     build_identity: str,
     capture_hash: str,
     capture_session_id: str,
+    alias_hash: str,
 ) -> dict[str, Any]:
     forecast = item.get("forecast") or {}
     event = forecast_ledger.build_recorded_event(
@@ -356,6 +462,7 @@ def _build_abstention_event(
         capture_session_id=capture_session_id,
         forecast_cutoff_utc=item["forecast_cutoff_utc"],
         recommendation_status=RECOMMENDATION_STATUS,
+        alias_hash=alias_hash,
         **_settlement_identity_kwargs(forecast),
     )
     _assert_candidate_event_stays_inert(event)
@@ -365,20 +472,32 @@ def _build_abstention_event(
 def run_shadow_forecast_session(
     candidate_dir: Path,
     capture_path: Path,
+    ledger_dir: Path,
 ) -> dict[str, Any]:
     """Runs the full candidate shadow-forecast pipeline against one
     already-verified-on-disk candidate bundle and one Bet9ja capture file.
     Performs no ledger or output-file I/O itself (see ``run_session`` for
-    that) so it can be tested/composed directly.
+    that) so it can be tested/composed directly -- ``ledger_dir`` is only
+    needed here to locate this candidate's own ledger path for the
+    alias-hash consistency check below, before any of the (comparatively
+    expensive) ingestion/pricing/forecasting work runs at all.
 
     Raises ``ArtifactRefreshError`` subclasses from
     ``verify_candidate_bundle`` (imported from ``soccer_artifact_refresh``)
-    if the candidate bundle is missing/tampered -- BEFORE this function
-    loads a single byte of the candidate's own model files.
+    if the candidate bundle is missing/tampered, or
+    ``AliasHashMismatchError`` if ``team_aliases.json`` has changed since
+    an earlier run of this candidate against this ledger location --
+    BOTH checked BEFORE this function loads a single byte of the
+    candidate's own model files or does anything else.
     """
 
     verify_candidate_bundle(candidate_dir)
     identity = load_candidate_identity(candidate_dir)
+
+    alias_hash = compute_alias_hash()
+    ledger_path = ledger_dir / identity["candidate_bundle_hash"] / forecast_ledger.DEFAULT_FILENAME
+    check_alias_hash_consistency(ledger_path, alias_hash)
+
     candidate_manifest = json.loads((candidate_dir / "model_artifact_manifest.json").read_text(encoding="utf-8"))
 
     capture_bytes = capture_path.read_bytes()
@@ -390,7 +509,8 @@ def run_shadow_forecast_session(
     # the shipped adapter's own _DATA_DIR for anything but the real,
     # shared team_aliases.json (see this module's own docstring on why
     # that one file is injected separately from data_dir).
-    candidate_adapter = SoccerOneXTwoEloV1Adapter(data_dir=candidate_dir, alias_book=load_team_alias_book())
+    alias_book = load_team_alias_book()
+    candidate_adapter = SoccerOneXTwoEloV1Adapter(data_dir=candidate_dir, alias_book=alias_book)
 
     def forecast_override(category: str, fixture: dict[str, Any]) -> dict[str, Any]:
         assert category == CATEGORY, f"candidate_shadow_forecast only supports {CATEGORY!r}, got {category!r}"
@@ -413,6 +533,7 @@ def run_shadow_forecast_session(
         entry["model_role"] = MODEL_ROLE_CANDIDATE_SHADOW
         entry["operator_decision"] = OPERATOR_DECISION
         entry["recommendation_status"] = RECOMMENDATION_STATUS
+        entry["alias_hash"] = alias_hash
         forecasts.append(entry)
     forecasts.sort(key=_fixture_sort_key)
 
@@ -425,6 +546,7 @@ def run_shadow_forecast_session(
         entry["capture_hash"] = capture_hash
         entry["capture_session_id"] = capture_session_id
         entry["model_role"] = MODEL_ROLE_CANDIDATE_SHADOW
+        entry["alias_hash"] = alias_hash
         abstentions.append(entry)
 
     quarantine: list[dict[str, Any]] = []
@@ -452,6 +574,7 @@ def run_shadow_forecast_session(
             build_identity=identity["build_identity"],
             capture_hash=capture_hash,
             capture_session_id=capture_session_id,
+            alias_hash=alias_hash,
         )
         for market in result["forecast_research_ranked"]["markets"]
     ]
@@ -462,6 +585,7 @@ def run_shadow_forecast_session(
             build_identity=identity["build_identity"],
             capture_hash=capture_hash,
             capture_session_id=capture_session_id,
+            alias_hash=alias_hash,
         )
         for item in result["forecast_abstentions"]["abstentions"]
     )
@@ -513,6 +637,7 @@ def run_shadow_forecast_session(
         "build_identity": identity["build_identity"],
         "candidate_model_version": candidate_manifest["model_version"],
         "capture_hash": capture_hash,
+        "alias_hash": alias_hash,
         "source_capture_session_id": capture_session_id,
         "source_captured_at_utc": session_report_in["source_captured_at_utc"],
         "forecast_cutoff_utc": session_report_in["forecast_cutoff_utc"],
@@ -546,6 +671,8 @@ def run_shadow_forecast_session(
         "ledger_events": ledger_events,
         "candidate_bundle_hash": identity["candidate_bundle_hash"],
         "build_identity": identity["build_identity"],
+        "alias_hash": alias_hash,
+        "ledger_path": ledger_path,
     }
 
 
@@ -555,11 +682,14 @@ def run_session(candidate_dir: Path, capture_path: Path, ledger_dir: Path, outpu
     ``bet9ja_research_session.run_session``'s own ordering): a conflicting
     batch (``forecast_ledger_writer.LedgerBatchConflictError``) or a lock
     timeout (``LedgerLockTimeoutError``) leaves BOTH the ledger and this
-    run's own output files completely unwritten."""
+    run's own output files completely unwritten. ``AliasHashMismatchError``
+    (from ``run_shadow_forecast_session`` itself) leaves everything --
+    ledger included -- untouched too, since it is raised before this
+    function is even entered."""
 
-    session = run_shadow_forecast_session(candidate_dir, capture_path)
+    session = run_shadow_forecast_session(candidate_dir, capture_path, ledger_dir)
 
-    ledger_path = ledger_dir / session["candidate_bundle_hash"] / forecast_ledger.DEFAULT_FILENAME
+    ledger_path = session["ledger_path"]
     ledger_write_summary = forecast_ledger_writer.write_batch(ledger_path, session["ledger_events"])
     session["ledger_write_summary"] = ledger_write_summary
     session["ledger_path"] = str(ledger_path)
@@ -570,6 +700,135 @@ def run_session(candidate_dir: Path, capture_path: Path, ledger_dir: Path, outpu
     _write_json(output_dir / "candidate-shadow-quarantine.json", session["candidate_shadow_quarantine"])
     _write_json(output_dir / "candidate-shadow-session-report.json", session["candidate_shadow_session_report"])
     return session
+
+
+# Typed comparison_status values pair_incumbent_and_candidate_results can
+# produce -- every coverage difference between the incumbent and a
+# candidate is one of these, never an unlabeled "different" bucket.
+COMPARISON_BOTH_FORECAST_IDENTICAL = "BOTH_FORECAST_IDENTICAL_PROBABILITIES"
+COMPARISON_BOTH_FORECAST_DIFFERENT = "BOTH_FORECAST_DIFFERENT_PROBABILITIES"
+COMPARISON_CANDIDATE_ABSTAINED = "CANDIDATE_ABSTAINED_INCUMBENT_FORECAST"
+COMPARISON_INCUMBENT_ABSTAINED = "INCUMBENT_ABSTAINED_CANDIDATE_FORECAST"
+COMPARISON_BOTH_UNRESOLVED_IDENTITY = "BOTH_ABSTAINED_UNRESOLVED_IDENTITY"
+COMPARISON_BOTH_ABSTAINED_OTHER = "BOTH_ABSTAINED_OTHER_REASON"
+COMPARISON_NOT_ELIGIBLE_ON_BOTH_SIDES = "NOT_ELIGIBLE_ON_BOTH_SIDES"
+
+_UNRESOLVED_IDENTITY_REASONS = {"FORECAST_COMPETITION_UNRESOLVED", "FORECAST_TEAM_UNRESOLVED"}
+
+
+def _index_by_fixture_id(forecasts: list[dict[str, Any]], abstentions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    indexed: dict[str, dict[str, Any]] = {}
+    for market in forecasts:
+        indexed[market["source_fixture_id"]] = {
+            "forecast_available": True,
+            "forecast": market["forecast"],
+            "reason": None,
+        }
+    for item in abstentions:
+        indexed[item["source_fixture_id"]] = {
+            "forecast_available": False,
+            "forecast": None,
+            "reason": item["reason"],
+        }
+    return indexed
+
+
+def pair_incumbent_and_candidate_results(
+    incumbent_result: dict[str, Any],
+    candidate_session_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Pairs ``bet9ja_research_session.run_bet9ja_research_session``'s own
+    incumbent result with ``run_shadow_forecast_session``'s own candidate
+    result, joined by ``source_fixture_id`` -- both runs process the
+    IDENTICAL capture, so the raw fixture id is a valid, simple join key
+    for this one in-process comparison. This is deliberately NOT the same
+    join key this module's own docstring documents for a LATER,
+    out-of-process comparison against real settlement data
+    (``capture_hash`` + ``settlement_identity`` + ``forecast_cutoff_utc``
+    + ``market_type``) -- that one exists precisely because a shared raw
+    fixture id is not available once results are read back from a ledger
+    file days or weeks later, independent of the run that produced them.
+
+    Every coverage difference between the incumbent and the candidate
+    gets a typed ``comparison_status`` (one of the ``COMPARISON_*``
+    constants above) -- never an unlabeled "these differ" result. Only
+    ELIGIBLE fixtures (ones that reached the FORECAST stage on at least
+    one side -- i.e. cleared the shared ingestion/pricing-quality gate,
+    which is identical for both runs against the same capture) are
+    considered; ingestion-quarantined/pricing-quality-excluded fixtures
+    never reach either adapter and are out of scope for this comparison
+    entirely."""
+
+    incumbent_by_fixture = _index_by_fixture_id(
+        incumbent_result["forecast_research_ranked"]["markets"],
+        incumbent_result["forecast_abstentions"]["abstentions"],
+    )
+    candidate_by_fixture = _index_by_fixture_id(
+        candidate_session_result["candidate_shadow_forecasts"]["forecasts"],
+        candidate_session_result["candidate_shadow_abstentions"]["abstentions"],
+    )
+
+    pairs: list[dict[str, Any]] = []
+    for fixture_id in sorted(set(incumbent_by_fixture) | set(candidate_by_fixture)):
+        incumbent_side = incumbent_by_fixture.get(fixture_id)
+        candidate_side = candidate_by_fixture.get(fixture_id)
+
+        if incumbent_side is None or candidate_side is None:
+            # Structurally should not happen against the identical
+            # capture (ingestion/pricing-quality are model-independent
+            # and reused verbatim on both sides) -- recorded as its own
+            # typed status rather than silently skipped or crashing, so
+            # a real divergence here is visible, not hidden.
+            pairs.append(
+                {
+                    "source_fixture_id": fixture_id,
+                    "comparison_status": COMPARISON_NOT_ELIGIBLE_ON_BOTH_SIDES,
+                    "incumbent_reached_forecast_stage": incumbent_side is not None,
+                    "candidate_reached_forecast_stage": candidate_side is not None,
+                }
+            )
+            continue
+
+        if incumbent_side["forecast_available"] and candidate_side["forecast_available"]:
+            same = incumbent_side["forecast"]["probabilities"] == candidate_side["forecast"]["probabilities"]
+            pairs.append(
+                {
+                    "source_fixture_id": fixture_id,
+                    "comparison_status": COMPARISON_BOTH_FORECAST_IDENTICAL if same else COMPARISON_BOTH_FORECAST_DIFFERENT,
+                    "incumbent_probabilities": incumbent_side["forecast"]["probabilities"],
+                    "candidate_probabilities": candidate_side["forecast"]["probabilities"],
+                }
+            )
+        elif incumbent_side["forecast_available"] and not candidate_side["forecast_available"]:
+            pairs.append(
+                {
+                    "source_fixture_id": fixture_id,
+                    "comparison_status": COMPARISON_CANDIDATE_ABSTAINED,
+                    "candidate_abstention_reason": candidate_side["reason"],
+                }
+            )
+        elif candidate_side["forecast_available"] and not incumbent_side["forecast_available"]:
+            pairs.append(
+                {
+                    "source_fixture_id": fixture_id,
+                    "comparison_status": COMPARISON_INCUMBENT_ABSTAINED,
+                    "incumbent_abstention_reason": incumbent_side["reason"],
+                }
+            )
+        else:
+            both_unresolved = (
+                incumbent_side["reason"] in _UNRESOLVED_IDENTITY_REASONS
+                and candidate_side["reason"] in _UNRESOLVED_IDENTITY_REASONS
+            )
+            pairs.append(
+                {
+                    "source_fixture_id": fixture_id,
+                    "comparison_status": COMPARISON_BOTH_UNRESOLVED_IDENTITY if both_unresolved else COMPARISON_BOTH_ABSTAINED_OTHER,
+                    "incumbent_abstention_reason": incumbent_side["reason"],
+                    "candidate_abstention_reason": candidate_side["reason"],
+                }
+            )
+    return pairs
 
 
 def main(argv: list[str] | None = None) -> int:

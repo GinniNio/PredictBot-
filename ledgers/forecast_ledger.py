@@ -148,6 +148,7 @@ def build_recorded_event(
     capture_session_id: str | None = None,
     forecast_cutoff_utc: str | None = None,
     recommendation_status: str | None = None,
+    alias_hash: str | None = None,
 ) -> dict[str, Any]:
     """Build (never appends) one RECORDED event. ``forecast_id`` is
     derived deterministically from ``(fixture_id, market_type,
@@ -189,7 +190,8 @@ def build_recorded_event(
 
     ``model_role``/``candidate_bundle_hash``/``build_identity``/
     ``capture_hash``/``capture_session_id``/``forecast_cutoff_utc``/
-    ``recommendation_status`` are ALL optional and default to ``None`` --
+    ``recommendation_status``/``alias_hash`` are ALL optional and default
+    to ``None`` --
     every existing caller (the incumbent's own
     ``forecast_ledger_writer.py``) omits them, so its own events are
     byte-for-byte unaffected by their addition. They exist for
@@ -212,9 +214,22 @@ def build_recorded_event(
     ``recommendation_status`` mirrors the same always-``"NOT_AVAILABLE"``
     marker ``run-bet9ja-research`` already stamps onto every ranked
     market, carried into the ledger row itself for a candidate so a
-    reader never has to assume it. None of these seven fields is ever
-    read by ``score_and_append``/``current_state``/any other function in
-    this module -- they are provenance only."""
+    reader never has to assume it. ``alias_hash`` is the SHA-256 of the
+    exact ``team_aliases.json`` file content the forecasting adapter used
+    to resolve this fixture's teams (see
+    ``adapters.soccer_1x2_elo_v1.default_team_aliases_path``) -- recorded
+    so a candidate's own team-name resolution is never an unrecorded
+    external dependency: a later reader can confirm a candidate's rows
+    used the identical aliases the incumbent always uses (the incumbent
+    has no override path and therefore only ever has one possible
+    ``alias_hash`` value, re-derivable at any time from the one real,
+    shipped file), and ``candidate_shadow_forecast.py`` itself refuses
+    (typed ``AliasHashMismatchError``) to append further rows for the
+    same candidate once a change to that file would produce a different
+    hash than an earlier run under the same ledger already recorded.
+    None of these eight fields is ever read by
+    ``score_and_append``/``current_state``/any other function in this
+    module -- they are provenance only."""
 
     if selection_status not in SELECTION_STATUSES:
         raise ValueError(f"selection_status must be one of {SELECTION_STATUSES}, got {selection_status!r}")
@@ -255,6 +270,7 @@ def build_recorded_event(
         "capture_session_id": capture_session_id,
         "forecast_cutoff_utc": forecast_cutoff_utc,
         "recommendation_status": recommendation_status,
+        "alias_hash": alias_hash,
     }
     return {
         "schema_version": SCHEMA_VERSION,

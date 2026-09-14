@@ -163,6 +163,19 @@ def load_team_alias_book(data_dir: Path | None = None) -> TeamAliasBook:
     return _load_alias_book(data_dir or _DATA_DIR)
 
 
+def default_team_aliases_path(data_dir: Path | None = None) -> Path:
+    """The real, checked-in ``team_aliases.json`` file
+    ``load_team_alias_book(data_dir)`` reads (``data_dir`` defaulting the
+    same way, to this adapter's own shipped ``_DATA_DIR``). A path, not a
+    parsed ``TeamAliasBook`` -- exists so a caller can hash the file's own
+    raw bytes directly (e.g.
+    ``pcbf_calculator.orchestration.candidate_shadow_forecast``'s own
+    ``alias_hash`` provenance field) without re-serializing the already-
+    normalized, already-lossy ``TeamAliasBook`` object back into bytes."""
+
+    return (data_dir or _DATA_DIR) / "team_aliases.json"
+
+
 class SoccerOneXTwoEloV1Adapter(SportAdapter):
     """Registered in ``adapters/registry.py::_ADAPTER_IMPLEMENTATIONS["soccer"]``."""
 

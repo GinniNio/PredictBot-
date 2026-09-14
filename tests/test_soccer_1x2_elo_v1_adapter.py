@@ -166,6 +166,58 @@ class AdapterForecastTests(unittest.TestCase):
             self.assertEqual(banned & set(result_dict.keys()), set())
 
 
+class AliasBookInjectionRegressionTests(unittest.TestCase):
+    """Direct regression coverage for the ``alias_book`` constructor
+    parameter added to ``SoccerOneXTwoEloV1Adapter`` for
+    ``pcbf_calculator.orchestration.candidate_shadow_forecast``'s own
+    use. Every existing caller (the registry's own default
+    instantiation, every other test in this file) never passes it --
+    these tests confirm the current packaged-alias behavior
+    (``data_dir``'s own ``team_aliases.json``, or an empty book when
+    that file is absent) is preserved exactly when it is omitted."""
+
+    def test_alias_book_none_still_reads_data_dirs_own_team_aliases_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = make_test_artifact_dir(Path(tmp))
+            (data_dir / "team_aliases.json").write_text(
+                json.dumps({"leagues": {"E0": {"The Team Formerly Known As A": "Team A"}}}),
+                encoding="utf-8",
+            )
+            adapter = SoccerOneXTwoEloV1Adapter(data_dir=data_dir, config_path=data_dir / "config.yaml")
+            result = adapter.forecast(make_fixture(home="The Team Formerly Known As A"))
+            self.assertTrue(result.forecast_available, result.no_forecast_reason)
+
+    def test_alias_book_none_with_no_team_aliases_file_falls_back_to_empty_exactly_as_before(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = make_test_artifact_dir(Path(tmp))  # no team_aliases.json written
+            adapter = SoccerOneXTwoEloV1Adapter(data_dir=data_dir, config_path=data_dir / "config.yaml")
+            self.assertEqual(adapter._alias_book.lookup("E0", "Team A"), None)
+            result = adapter.forecast(make_fixture(home="Some Alias Only A Real Book Would Know"))
+            self.assertFalse(result.forecast_available)
+            self.assertEqual(result.no_forecast_reason, FORECAST_TEAM_UNRESOLVED)
+
+    def test_explicit_alias_book_overrides_data_dirs_own_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = make_test_artifact_dir(Path(tmp))
+            (data_dir / "team_aliases.json").write_text(
+                json.dumps({"leagues": {"E0": {"Data Dir Alias": "Team A"}}}),
+                encoding="utf-8",
+            )
+            injected_book = TeamAliasBook({"leagues": {"E0": {"Injected Alias": "Team A"}}})
+            adapter = SoccerOneXTwoEloV1Adapter(
+                data_dir=data_dir, config_path=data_dir / "config.yaml", alias_book=injected_book
+            )
+            self.assertIs(adapter._alias_book, injected_book)
+            # The injected book's own alias resolves...
+            result = adapter.forecast(make_fixture(home="Injected Alias"))
+            self.assertTrue(result.forecast_available, result.no_forecast_reason)
+            # ...but data_dir's OWN file's alias does not -- it was never
+            # consulted once alias_book was supplied explicitly.
+            result2 = adapter.forecast(make_fixture(home="Data Dir Alias"))
+            self.assertFalse(result2.forecast_available)
+            self.assertEqual(result2.no_forecast_reason, FORECAST_TEAM_UNRESOLVED)
+
+
 class AbstentionTests(unittest.TestCase):
     def test_missing_required_field_abstains(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -236,6 +236,12 @@ class LedgerFieldsAndSeparationTests(CandidateShadowForecastTestCase):
         # ledger_dir itself (only under its own bundle-hash subdirectory).
         self.assertFalse((self.ledger_dir / "forecast-ledger.jsonl").exists())
 
+    def test_candidate_rows_can_only_ever_reach_the_one_expected_ledger_path(self):
+        self._run()
+        all_ledger_files = sorted(p for p in self.ledger_dir.rglob("*.jsonl"))
+        expected = self.ledger_dir / self.candidate_bundle_hash / "forecast-ledger.jsonl"
+        self.assertEqual(all_ledger_files, [expected])
+
     def test_repeating_the_command_appends_zero_duplicate_rows(self):
         first = self._run()
         self.assertEqual(first["ledger_write_summary"]["appended"], 2)
@@ -326,6 +332,85 @@ class RegistryAndAdapterIsolationTests(CandidateShadowForecastTestCase):
         self.assertIsNot(default._alias_book, alias_book)
 
 
+class AliasReproducibilityTests(CandidateShadowForecastTestCase):
+    def _patch_alias_path(self, path):
+        original = csf.default_team_aliases_path
+        csf.default_team_aliases_path = lambda data_dir=None: path
+        self.addCleanup(setattr, csf, "default_team_aliases_path", original)
+
+    def _write_alias_file(self, path, extra_entry=None):
+        # Base content: a minimal, well-formed alias book -- never reads
+        # or writes the real repo file, so this test can never leave it
+        # modified regardless of how it exits.
+        data = {"leagues": {"E0": {}}}
+        if extra_entry:
+            data["leagues"]["E0"].update(extra_entry)
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    def test_alias_hash_is_recorded_and_consistent_across_every_row(self):
+        alias_path = self.tmp_path / "team_aliases.json"
+        self._write_alias_file(alias_path)
+        self._patch_alias_path(alias_path)
+
+        result = self._run()
+        expected_hash = csf.compute_alias_hash()
+        self.assertTrue(expected_hash)
+
+        for row in result["candidate_shadow_forecasts"]["forecasts"]:
+            self.assertEqual(row["alias_hash"], expected_hash)
+        for row in result["candidate_shadow_abstentions"]["abstentions"]:
+            self.assertEqual(row["alias_hash"], expected_hash)
+        self.assertEqual(result["candidate_shadow_session_report"]["alias_hash"], expected_hash)
+
+        ledger_path = self.ledger_dir / self.candidate_bundle_hash / "forecast-ledger.jsonl"
+        for line in ledger_path.read_text().splitlines():
+            payload = json.loads(line)["payload"]
+            self.assertEqual(payload["alias_hash"], expected_hash)
+
+    def test_rerun_after_aliases_change_fails_with_a_typed_mismatch_not_silently(self):
+        alias_path = self.tmp_path / "team_aliases.json"
+        self._write_alias_file(alias_path)
+        self._patch_alias_path(alias_path)
+
+        first = self._run()
+        ledger_path = self.ledger_dir / self.candidate_bundle_hash / "forecast-ledger.jsonl"
+        lines_before = ledger_path.read_text().splitlines()
+
+        # Change the alias file's own content -- a different alias_hash,
+        # same candidate bundle, same ledger location.
+        self._write_alias_file(alias_path, extra_entry={"Some New Alias FC": "Liverpool"})
+
+        second_output_dir = self.tmp_path / "second_shadow_out"
+        with self.assertRaises(csf.AliasHashMismatchError):
+            csf.run_session(self.candidate_dir, self.capture_path, self.ledger_dir, second_output_dir)
+
+        # Nothing was mutated by the aborted run.
+        self.assertFalse(second_output_dir.exists())
+        self.assertEqual(ledger_path.read_text().splitlines(), lines_before)
+
+    def test_unchanged_aliases_still_rerun_idempotently(self):
+        alias_path = self.tmp_path / "team_aliases.json"
+        self._write_alias_file(alias_path)
+        self._patch_alias_path(alias_path)
+
+        first = self._run()
+        second = self._run()
+        self.assertEqual(second["ledger_write_summary"]["appended"], 0)
+        self.assertEqual(second["ledger_write_summary"]["duplicate_skipped"], first["ledger_write_summary"]["appended"])
+
+    def test_candidate_and_incumbent_share_the_same_alias_hash(self):
+        # The incumbent has no override path at all -- adapters.registry
+        # always constructs SoccerOneXTwoEloV1Adapter with alias_book=None,
+        # which resolves to the one real, shipped team_aliases.json. A
+        # candidate's own recorded alias_hash (using the REAL file, no
+        # patching here) must equal a fresh compute_alias_hash() call --
+        # exactly "candidate and incumbent used the same aliases."
+        result = self._run()
+        real_alias_hash = csf.compute_alias_hash()
+        for row in result["candidate_shadow_forecasts"]["forecasts"]:
+            self.assertEqual(row["alias_hash"], real_alias_hash)
+
+
 class SettlementAndReportingReuseTests(CandidateShadowForecastTestCase):
     def test_existing_settlement_engine_settles_the_candidate_ledger_unmodified(self):
         from pcbf_calculator.orchestration import football_data_settlement as settlement
@@ -387,6 +472,130 @@ class InertFieldsInvariantTests(CandidateShadowForecastTestCase):
         for row in result["candidate_shadow_forecasts"]["forecasts"]:
             self.assertIsNone(row["operator_decision"])
             self.assertEqual(row["recommendation_status"], "NOT_AVAILABLE")
+
+
+def _incumbent_result(markets=(), abstentions=()):
+    return {
+        "forecast_research_ranked": {"markets": list(markets)},
+        "forecast_abstentions": {"abstentions": list(abstentions)},
+    }
+
+
+def _candidate_result(forecasts=(), abstentions=()):
+    return {
+        "candidate_shadow_forecasts": {"forecasts": list(forecasts)},
+        "candidate_shadow_abstentions": {"abstentions": list(abstentions)},
+    }
+
+
+def _market(fixture_id, probabilities):
+    return {"source_fixture_id": fixture_id, "forecast": {"probabilities": probabilities}}
+
+
+def _abstention(fixture_id, reason):
+    return {"source_fixture_id": fixture_id, "reason": reason}
+
+
+class PairedFixtureIntegrityTests(unittest.TestCase):
+    """Direct, synthetic-input tests of
+    ``pair_incumbent_and_candidate_results`` -- a pure function, tested
+    at this granularity rather than by contorting a full pipeline run
+    into each of the five required scenarios."""
+
+    PROBS_A = {"home_win": 0.5, "draw": 0.3, "away_win": 0.2}
+    PROBS_B = {"home_win": 0.2, "draw": 0.3, "away_win": 0.5}
+
+    def test_identical_probabilities(self):
+        incumbent = _incumbent_result(markets=[_market("f1", self.PROBS_A)])
+        candidate = _candidate_result(forecasts=[_market("f1", dict(self.PROBS_A))])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0]["comparison_status"], csf.COMPARISON_BOTH_FORECAST_IDENTICAL)
+
+    def test_different_probabilities(self):
+        incumbent = _incumbent_result(markets=[_market("f1", self.PROBS_A)])
+        candidate = _candidate_result(forecasts=[_market("f1", self.PROBS_B)])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        self.assertEqual(pairs[0]["comparison_status"], csf.COMPARISON_BOTH_FORECAST_DIFFERENT)
+        self.assertEqual(pairs[0]["incumbent_probabilities"], self.PROBS_A)
+        self.assertEqual(pairs[0]["candidate_probabilities"], self.PROBS_B)
+
+    def test_candidate_abstention_incumbent_forecasts(self):
+        incumbent = _incumbent_result(markets=[_market("f1", self.PROBS_A)])
+        candidate = _candidate_result(abstentions=[_abstention("f1", "FORECAST_ARTIFACT_STALE")])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        self.assertEqual(pairs[0]["comparison_status"], csf.COMPARISON_CANDIDATE_ABSTAINED)
+        self.assertEqual(pairs[0]["candidate_abstention_reason"], "FORECAST_ARTIFACT_STALE")
+
+    def test_incumbent_abstention_candidate_forecasts(self):
+        incumbent = _incumbent_result(abstentions=[_abstention("f1", "FORECAST_ARTIFACT_STALE")])
+        candidate = _candidate_result(forecasts=[_market("f1", self.PROBS_A)])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        self.assertEqual(pairs[0]["comparison_status"], csf.COMPARISON_INCUMBENT_ABSTAINED)
+        self.assertEqual(pairs[0]["incumbent_abstention_reason"], "FORECAST_ARTIFACT_STALE")
+
+    def test_unresolved_identity_on_both_sides(self):
+        incumbent = _incumbent_result(abstentions=[_abstention("f1", "FORECAST_TEAM_UNRESOLVED")])
+        candidate = _candidate_result(abstentions=[_abstention("f1", "FORECAST_TEAM_UNRESOLVED")])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        self.assertEqual(pairs[0]["comparison_status"], csf.COMPARISON_BOTH_UNRESOLVED_IDENTITY)
+
+    def test_both_abstained_for_different_typed_reasons(self):
+        incumbent = _incumbent_result(abstentions=[_abstention("f1", "FORECAST_ARTIFACT_STALE")])
+        candidate = _candidate_result(abstentions=[_abstention("f1", "FORECAST_TEAM_NOT_IN_ARTIFACT")])
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        self.assertEqual(pairs[0]["comparison_status"], csf.COMPARISON_BOTH_ABSTAINED_OTHER)
+        self.assertEqual(pairs[0]["incumbent_abstention_reason"], "FORECAST_ARTIFACT_STALE")
+        self.assertEqual(pairs[0]["candidate_abstention_reason"], "FORECAST_TEAM_NOT_IN_ARTIFACT")
+
+    def test_every_pair_carries_a_typed_comparison_status(self):
+        incumbent = _incumbent_result(
+            markets=[_market("f1", self.PROBS_A)],
+            abstentions=[_abstention("f2", "FORECAST_TEAM_UNRESOLVED")],
+        )
+        candidate = _candidate_result(
+            forecasts=[_market("f1", self.PROBS_A)],
+            abstentions=[_abstention("f2", "FORECAST_TEAM_UNRESOLVED")],
+        )
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent, candidate)
+        self.assertEqual(len(pairs), 2)
+        for pair in pairs:
+            self.assertIn("comparison_status", pair)
+            self.assertTrue(pair["comparison_status"])
+
+
+class RealPipelinePairedComparisonTests(CandidateShadowForecastTestCase):
+    """One integration-style test: pairs a REAL incumbent run
+    (``run_bet9ja_research_session``, unmodified) against a REAL
+    candidate shadow-forecast run from this test case's own fixture
+    bundle, over the identical capture."""
+
+    def test_real_incumbent_and_candidate_runs_pair_cleanly(self):
+        from pcbf_calculator.orchestration.bet9ja_research_session import run_bet9ja_research_session
+
+        envelope = json.loads(self.capture_path.read_text())
+        incumbent_result = run_bet9ja_research_session(envelope)
+        candidate_result = self._run()
+
+        pairs = csf.pair_incumbent_and_candidate_results(incumbent_result, candidate_result)
+        # Every fixture that reached FORECAST on either side is present,
+        # and every one carries a typed comparison_status -- no crash, no
+        # unlabeled bucket, regardless of how the two models actually
+        # diverge on this tiny fixture set.
+        self.assertTrue(pairs)
+        for pair in pairs:
+            self.assertIn(
+                pair["comparison_status"],
+                {
+                    csf.COMPARISON_BOTH_FORECAST_IDENTICAL,
+                    csf.COMPARISON_BOTH_FORECAST_DIFFERENT,
+                    csf.COMPARISON_CANDIDATE_ABSTAINED,
+                    csf.COMPARISON_INCUMBENT_ABSTAINED,
+                    csf.COMPARISON_BOTH_UNRESOLVED_IDENTITY,
+                    csf.COMPARISON_BOTH_ABSTAINED_OTHER,
+                    csf.COMPARISON_NOT_ELIGIBLE_ON_BOTH_SIDES,
+                },
+            )
 
 
 if __name__ == "__main__":

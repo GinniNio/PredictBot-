@@ -429,12 +429,14 @@ class WheelInstallationTests(unittest.TestCase):
             self.assertEqual(row["candidate_bundle_hash"], candidate_bundle_hash)
             self.assertIsNone(row["operator_decision"])
             self.assertEqual(row["recommendation_status"], "NOT_AVAILABLE")
+            self.assertTrue(row["alias_hash"])
 
             ledger_path = ledger_dir / candidate_bundle_hash / "forecast-ledger.jsonl"
             self.assertTrue(ledger_path.exists())
             record = json.loads(ledger_path.read_text(encoding="utf-8").splitlines()[0])
             self.assertEqual(record["payload"]["model_role"], "CANDIDATE_SHADOW")
             self.assertEqual(record["payload"]["candidate_bundle_hash"], candidate_bundle_hash)
+            self.assertEqual(record["payload"]["alias_hash"], row["alias_hash"])
 
     def test_host_contract_invocation_also_works_from_the_installed_wheel(self):
         with tempfile.TemporaryDirectory() as tmp:
