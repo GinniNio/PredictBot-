@@ -12,7 +12,9 @@ notion of "test training data".
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -254,6 +256,120 @@ class RefreshSoccerArtifactTests(unittest.TestCase):
         )
         for split_entry in result["artifact_comparison"]["backtest_comparison"].values():
             self.assertIn("delta_note", split_entry)
+
+    def test_swapping_in_a_valid_file_from_a_genuinely_different_run_is_detected(self):
+        # Stronger than tampering a single field: build two candidates
+        # from genuinely different, real training inputs, then swap one
+        # run's own valid, self-consistent live_snapshot.json into the
+        # other's candidate directory. Both files are individually
+        # "valid" (well-formed, real output of this same pipeline) --
+        # verify_candidate_bundle must still catch the mix.
+        sparse_raw_dir = self.tmp_path / "sparse_raw_for_swap"
+        dest = raw_file_path(sparse_raw_dir, "E0", "1920")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(FIXTURES / "season_1920_with_kickoff.csv", dest)
+
+        out_full = self.tmp_path / "out_full_for_swap"
+        out_sparse = self.tmp_path / "out_sparse_for_swap"
+        self._run(out_full)
+        sar.refresh_soccer_artifact(
+            training_input=sparse_raw_dir,
+            incumbent_manifest_path=self.incumbent_manifest_path,
+            incumbent_performance_dir=self.incumbent_performance_dir,
+            output_dir=out_sparse,
+            generation_command="cmd",
+        )
+
+        full_snapshot = (out_full / "candidate" / "live_snapshot.json").read_bytes()
+        sparse_snapshot = (out_sparse / "candidate" / "live_snapshot.json").read_bytes()
+        self.assertNotEqual(full_snapshot, sparse_snapshot, "fixtures must actually differ for this test to mean anything")
+
+        shutil.copy(out_sparse / "candidate" / "live_snapshot.json", out_full / "candidate" / "live_snapshot.json")
+        with self.assertRaises(sar.CandidateBundleVerificationError) as ctx:
+            sar.verify_candidate_bundle(out_full / "candidate")
+        self.assertIn("live_snapshot.json", str(ctx.exception))
+
+    def test_mismatched_code_hash_between_live_snapshot_and_evaluation_report_aborts(self):
+        # export_live_snapshot.build_live_snapshot and
+        # run_training_and_evaluation are two separate calls against the
+        # same raw_dir -- their own independently-computed code_hash
+        # values must agree, or the run is not internally consistent.
+        original = sar.export_live_snapshot.build_live_snapshot
+
+        def _tampered(*args, **kwargs):
+            snapshot = original(*args, **kwargs)
+            snapshot["code_hash"] = "deliberately-wrong-code-hash"
+            return snapshot
+
+        sar.export_live_snapshot.build_live_snapshot = _tampered
+        try:
+            output_dir = self.tmp_path / "candidate_out_same_run_integrity"
+            with self.assertRaises(sar.SameRunIntegrityError):
+                self._run(output_dir)
+            self.assertFalse(output_dir.exists())
+        finally:
+            sar.export_live_snapshot.build_live_snapshot = original
+
+    def test_a_directory_appearing_at_output_dir_after_the_initial_check_is_refused_not_nested(self):
+        # Simulates the real TOCTOU window between refresh_soccer_artifact's
+        # own early output_dir.exists() guard and its final publish step
+        # (e.g. a concurrent refresh-soccer-artifact run finishing first
+        # against the identical --output-dir). Publication must refuse
+        # outright -- never silently nest the new build inside the
+        # existing directory while reporting success.
+        output_dir = self.tmp_path / "raced_output_dir"
+        output_dir.mkdir()
+        marker = output_dir / "PRE_EXISTING_MARKER.txt"
+        marker.write_text("do not touch me", encoding="utf-8")
+
+        original_exists = Path.exists
+        call_count = {"n": 0}
+
+        def _fake_exists(self):
+            if self == output_dir:
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    return False  # let refresh_soccer_artifact's own early check pass
+            return original_exists(self)
+
+        Path.exists = _fake_exists
+        try:
+            with self.assertRaises(sar.CandidateOutputExistsError):
+                self._run(output_dir)
+        finally:
+            Path.exists = original_exists
+
+        self.assertEqual(sorted(p.name for p in output_dir.iterdir()), ["PRE_EXISTING_MARKER.txt"])
+        self.assertEqual(marker.read_text(encoding="utf-8"), "do not touch me")
+
+    def test_publish_falls_back_correctly_across_a_simulated_cross_device_boundary(self):
+        output_dir = self.tmp_path / "cross_device_out"
+        original_rename = os.rename
+        calls = []
+
+        def _fake_rename(src, dst, *a, **kw):
+            calls.append((str(src), str(dst)))
+            if len(calls) == 1:
+                raise OSError(errno.EXDEV, "Invalid cross-device link (simulated)")
+            return original_rename(src, dst, *a, **kw)
+
+        os.rename = _fake_rename
+        try:
+            result = self._run(output_dir)
+        finally:
+            os.rename = original_rename
+
+        self.assertTrue((output_dir / "candidate" / "model_artifact.json").exists())
+        sar.verify_candidate_bundle(output_dir / "candidate")  # must not raise
+        self.assertGreaterEqual(len(calls), 2)  # the failed same-fs attempt, then the fallback's own final rename
+        leftover_hidden_dirs = [
+            p.name for p in output_dir.parent.iterdir()
+            if p.name.startswith(".pcbf-soccer-artifact-refresh-staging-")
+        ]
+        self.assertEqual(leftover_hidden_dirs, [])
+        self.assertEqual(result["bundle_manifest"]["bundle_hash"], json.loads(
+            (output_dir / "candidate" / "candidate_bundle_manifest.json").read_text()
+        )["bundle_hash"])
 
 
 class CurrentCommitShaTests(unittest.TestCase):

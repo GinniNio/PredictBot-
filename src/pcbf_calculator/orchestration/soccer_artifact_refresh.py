@@ -120,12 +120,15 @@ that exists does comparing the two prospectively become meaningful.
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -223,6 +226,19 @@ class CandidateOutputExistsError(ArtifactRefreshError):
     """``--output-dir`` already exists. Never silently overwritten -- an
     operator who wants a fresh candidate build must remove or rename the
     prior one explicitly."""
+
+
+class SameRunIntegrityError(ArtifactRefreshError):
+    """``live_snapshot.json``'s own ``code_hash`` (computed by
+    ``export_live_snapshot.build_live_snapshot``'s own independent call to
+    ``train.compute_code_hash()``) disagrees with ``evaluation_report.json``'s
+    own ``code_hash`` (already independently verified against
+    ``train_pipeline``'s own reported value by
+    ``run_training_and_evaluation``'s own ``CodeHashConsistencyError``
+    check). Both calls are pure functions of the training package's own
+    source files, so they can only disagree if the code changed between
+    the two calls within this same process -- exactly the "one execution
+    identifier" every candidate file must share. Nothing is published."""
 
 
 class CandidateBundleVerificationError(ArtifactRefreshError):
@@ -595,6 +611,78 @@ def build_promotion_review(
     }
 
 
+def _publish_staging_root(staging_root: Path, output_dir: Path) -> None:
+    """Moves ``staging_root`` to become ``output_dir``, safely and (on a
+    single filesystem) atomically -- the real enforcement behind "any
+    hash or provenance failure aborts before publishing the output
+    directory" and "the current active artifact remains unchanged" for
+    two failure modes ``shutil.move`` alone does not handle correctly:
+
+    1. **A directory already exists at ``output_dir`` by the time we
+       reach this line** (a concurrent ``refresh-soccer-artifact`` run
+       targeting the same path, or anything else that created it after
+       ``refresh_soccer_artifact``'s own early ``output_dir.exists()``
+       check ran, which is a courtesy fast-fail, not the real guard).
+       ``shutil.move(src, dst)`` does NOT raise in this case when ``dst``
+       is an existing directory -- it silently moves ``src`` INSIDE
+       ``dst`` (``dst/basename(src)``), so the published files would
+       silently end up at ``output_dir/staging/candidate/...`` instead of
+       ``output_dir/candidate/...``, while the caller sees no error and a
+       normal "OK" result. ``os.rename`` never does this: on POSIX it
+       either atomically replaces an EMPTY destination directory or
+       fails outright (``ENOTEMPTY``/``EEXIST``) against a non-empty one
+       -- exactly "refuse, never silently nest or overwrite."
+    2. **Cross-filesystem publish** (``--output-dir`` on a different
+       filesystem than the staging tempdir): ``os.rename`` alone would
+       raise ``EXDEV`` here. We handle it by copying the FULL staged tree
+       to a hidden sibling of ``output_dir`` on ``output_dir``'s OWN
+       filesystem first (so the one remaining ``os.rename`` is same-
+       filesystem and therefore atomic), and only removing the original
+       staging tree after that final rename has actually succeeded -- an
+       interruption (process killed, disk full) during the copy step
+       leaves only the still-hidden, never-linked-to sibling and the
+       original staging tree; ``output_dir`` itself is never touched
+       until the single atomic rename that either fully succeeds or
+       fully fails.
+
+    Either way, a failure here raises ``CandidateOutputExistsError`` (a
+    directory already occupies ``output_dir``) or propagates the
+    underlying ``OSError`` (anything else) -- ``output_dir`` is never
+    left partially written, and nothing at ``output_dir`` is ever
+    overwritten if it already existed and was non-empty."""
+
+    def _conflict_error(exc: OSError) -> CandidateOutputExistsError:
+        return CandidateOutputExistsError(
+            f"{output_dir} already exists (created after this run's own initial check -- likely "
+            "a concurrent refresh-soccer-artifact run targeting the same --output-dir). Refusing "
+            "to overwrite or nest inside it. This candidate's staged build was never published."
+        )
+
+    try:
+        os.rename(staging_root, output_dir)
+        return
+    except OSError as exc:
+        if exc.errno in (errno.EEXIST, errno.ENOTEMPTY):
+            raise _conflict_error(exc) from exc
+        if exc.errno != errno.EXDEV:
+            raise
+
+    # Cross-device (EXDEV): build the full tree on output_dir's OWN
+    # filesystem first (as a hidden, not-yet-linked-to sibling), then do
+    # one same-filesystem atomic rename. output_dir itself is untouched
+    # until that final rename either fully succeeds or fully fails.
+    same_fs_staging = output_dir.parent / f".pcbf-soccer-artifact-refresh-staging-{uuid.uuid4().hex}"
+    shutil.copytree(staging_root, same_fs_staging)
+    try:
+        os.rename(same_fs_staging, output_dir)
+    except OSError as exc:
+        shutil.rmtree(same_fs_staging, ignore_errors=True)
+        if exc.errno in (errno.EEXIST, errno.ENOTEMPTY):
+            raise _conflict_error(exc) from exc
+        raise
+    shutil.rmtree(staging_root, ignore_errors=True)
+
+
 def refresh_soccer_artifact(
     training_input: Path,
     incumbent_manifest_path: Path,
@@ -625,6 +713,22 @@ def refresh_soccer_artifact(
         result, evaluation_report = run_training_and_evaluation(training_input)
         live_snapshot = export_live_snapshot.build_live_snapshot(training_input)
 
+        # Same-run integrity: both calls above are pure functions of the
+        # SAME training package source tree, called against the SAME
+        # raw_dir, one right after the other in this one process -- their
+        # own independently-computed code_hash values must therefore
+        # agree. This is the concrete, enforced version of "every
+        # candidate file must originate from one execution identifier,"
+        # not merely an assumption from passing the same raw_dir twice.
+        if live_snapshot["code_hash"] != evaluation_report["code_hash"]:
+            raise SameRunIntegrityError(
+                f"live_snapshot.json's code_hash ({live_snapshot['code_hash']!r}) disagrees with "
+                f"evaluation_report.json's code_hash ({evaluation_report['code_hash']!r}) -- these "
+                "two files must come from the exact same training-package code, computed moments "
+                "apart in this same process. Refusing to build a candidate bundle from "
+                "inconsistent files."
+            )
+
         _write_json(candidate_dir / "model_artifact.json", result.model_artifact.to_dict())
         _write_json(candidate_dir / "live_snapshot.json", live_snapshot)
         _write_json(candidate_dir / "evaluation_report.json", evaluation_report)
@@ -642,10 +746,12 @@ def refresh_soccer_artifact(
             # human-reviewed -- requiring already-CONFIRMED hash
             # provenance (build_manifest's own default, correct for
             # installing the SHIPPED adapter's active artifact) would
-            # make building a candidate at all impossible. See
-            # build_manifest's own docstring for exactly what stays
-            # enforced even with this relaxed.
-            require_confirmed_provenance=False,
+            # make building a candidate at all impossible. This is the
+            # ONLY place in this codebase that passes
+            # EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED -- see build_manifest's
+            # own docstring for exactly what stays enforced even on this
+            # track.
+            evidence_track=build_manifest.EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED,
             source_manifest_entry_count=None,
             successful_source_downloads=None,
             source_manifest_note=(
@@ -671,12 +777,14 @@ def refresh_soccer_artifact(
         _write_json(staging_root / "promotion-review.json", review)
 
         # Atomic publish: output_dir is created only now, after every
-        # verification above has already succeeded. `shutil.move` renames
-        # when possible (same filesystem) and falls back to copy+delete
-        # otherwise -- either way, output_dir does not exist until this
-        # line, so a failure anywhere above never leaves a partial one.
+        # verification above has already succeeded. See
+        # `_publish_staging_root`'s own docstring for exactly what "atomic"
+        # means here (same-filesystem rename, or copy-to-a-hidden-sibling-
+        # then-rename cross-filesystem) and how it safely refuses rather
+        # than silently nesting or overwriting if output_dir already
+        # exists by the time we get here.
         output_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(staging_root), str(output_dir))
+        _publish_staging_root(staging_root, output_dir)
 
     return {
         "model_artifact": result.model_artifact.to_dict(),
