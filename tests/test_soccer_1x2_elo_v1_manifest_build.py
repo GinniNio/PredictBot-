@@ -9,7 +9,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pcbf_calculator.adapters.soccer_1x2_elo_v1.build_manifest import build_manifest
+from pcbf_calculator.adapters.soccer_1x2_elo_v1.build_manifest import (
+    EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED,
+    EVIDENCE_TRACK_CONFIRMED_ACTIVE,
+    build_manifest,
+)
 
 
 def _write(tmp: Path, name: str, payload: dict) -> Path:
@@ -100,6 +104,83 @@ class BuildManifestTests(unittest.TestCase):
             eval_path.write_text(json.dumps(evaluation_report))
             with self.assertRaises(ValueError):
                 build_manifest(artifact_path, eval_path, snap_path, "url", "1", "sha", "v", "cmd")
+
+    def test_default_evidence_track_is_confirmed_active_and_unchanged_in_behavior(self):
+        # The rename from a bare bool to a typed evidence_track enum must
+        # not change this function's default behavior at all -- omitting
+        # the keyword entirely (every pre-existing caller's own call
+        # shape) must still enforce the original CONFIRMED-only gate.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            artifact_path, eval_path, snap_path = make_real_shaped_inputs(tmp)
+            evaluation_report = json.loads(eval_path.read_text())
+            evaluation_report["evidence_class"] = "FIXTURE_ONLY_VALIDATED"
+            eval_path.write_text(json.dumps(evaluation_report))
+            with self.assertRaises(ValueError):
+                build_manifest(
+                    artifact_path, eval_path, snap_path, "url", "1", "sha", "v", "cmd",
+                    evidence_track=EVIDENCE_TRACK_CONFIRMED_ACTIVE,
+                )
+
+    def test_rejects_an_unrecognized_evidence_track_value(self):
+        # No third, looser state -- anything other than the two named
+        # constants is refused outright, never silently treated as one
+        # of them.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            artifact_path, eval_path, snap_path = make_real_shaped_inputs(tmp)
+            with self.assertRaises(ValueError):
+                build_manifest(
+                    artifact_path, eval_path, snap_path, "url", "1", "sha", "v", "cmd",
+                    evidence_track="SOMETHING_ELSE",
+                )
+            with self.assertRaises(ValueError):
+                build_manifest(
+                    artifact_path, eval_path, snap_path, "url", "1", "sha", "v", "cmd",
+                    evidence_track=False,  # the old bare-bool spelling must not still work
+                )
+
+    def test_candidate_unconfirmed_track_permits_an_unconfirmed_live_source_validated_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            artifact_path, eval_path, snap_path = make_real_shaped_inputs(tmp)
+            evaluation_report = json.loads(eval_path.read_text())
+            evaluation_report["hash_provenance"]["combined_check"]["status"] = "MISMATCH"
+            evaluation_report["evidence_class"] = "FIXTURE_ONLY_VALIDATED"
+            eval_path.write_text(json.dumps(evaluation_report))
+            manifest = build_manifest(
+                artifact_path, eval_path, snap_path, "url", "1", "sha", "v", "cmd",
+                evidence_track=EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED,
+            )
+            self.assertEqual(manifest["provenance"]["hash_provenance_status"], "NOT_YET_HUMAN_CONFIRMED")
+
+    def test_candidate_unconfirmed_track_still_refuses_zero_usable_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            artifact_path, eval_path, snap_path = make_real_shaped_inputs(tmp)
+            evaluation_report = json.loads(eval_path.read_text())
+            evaluation_report["evidence_class"] = "SOURCE_UNAVAILABLE"
+            eval_path.write_text(json.dumps(evaluation_report))
+            with self.assertRaises(ValueError):
+                build_manifest(
+                    artifact_path, eval_path, snap_path, "url", "1", "sha", "v", "cmd",
+                    evidence_track=EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED,
+                )
+
+    def test_candidate_unconfirmed_track_still_refuses_a_genuine_live_hash_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            artifact_path, eval_path, snap_path = make_real_shaped_inputs(tmp)
+            evaluation_report = json.loads(eval_path.read_text())
+            evaluation_report["hash_provenance"]["combined_check"]["status"] = "MISMATCH"
+            evaluation_report["hash_provenance"]["has_mismatch"] = True
+            # evidence_class stays LIVE_SOURCE_VALIDATED -- real data drift.
+            eval_path.write_text(json.dumps(evaluation_report))
+            with self.assertRaises(ValueError):
+                build_manifest(
+                    artifact_path, eval_path, snap_path, "url", "1", "sha", "v", "cmd",
+                    evidence_track=EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED,
+                )
 
 
 if __name__ == "__main__":

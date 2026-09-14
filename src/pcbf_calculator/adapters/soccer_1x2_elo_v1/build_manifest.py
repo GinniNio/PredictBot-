@@ -44,6 +44,27 @@ def _canonical_sha256(obj: Any) -> str:
     return hashlib.sha256((json.dumps(obj, sort_keys=True) + "\n").encode("utf-8")).hexdigest()
 
 
+# The only two `evidence_track` values this function accepts -- an
+# explicit, typed enum rather than a bare bool, precisely so this can
+# never be mistaken for a generic "skip validation" toggle. Only
+# `pcbf_calculator.orchestration.soccer_artifact_refresh` (CANDIDATE
+# creation -- see that module's own docstring) may ever pass
+# `EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED`; every other caller (the CLI's
+# own `main()` included) must use the default,
+# `EVIDENCE_TRACK_CONFIRMED_ACTIVE`, which preserves this function's
+# original, unrelaxed behavior byte-for-byte.
+EVIDENCE_TRACK_CONFIRMED_ACTIVE = "CONFIRMED_ACTIVE_ARTIFACT"
+EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED = "CANDIDATE_UNCONFIRMED"
+_VALID_EVIDENCE_TRACKS = (EVIDENCE_TRACK_CONFIRMED_ACTIVE, EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED)
+
+_DEFAULT_SOURCE_MANIFEST_NOTE = (
+    "165 entries in data_pipeline/sources/football_data_sources.yaml; "
+    "170 (league, season) files were successfully downloaded and classified "
+    "LIVE_SOURCE_VALIDATED in the run named above (observed directly from that "
+    "run's own job output, not re-derived here)."
+)
+
+
 def build_manifest(
     model_artifact_path: Path,
     evaluation_report_path: Path,
@@ -53,29 +74,97 @@ def build_manifest(
     commit_sha: str,
     model_version: str,
     generation_command: str,
+    *,
+    evidence_track: str = EVIDENCE_TRACK_CONFIRMED_ACTIVE,
+    source_manifest_entry_count: int | None = 165,
+    successful_source_downloads: int | None = 170,
+    source_manifest_note: str = _DEFAULT_SOURCE_MANIFEST_NOTE,
 ) -> dict[str, Any]:
+    """``evidence_track`` (default ``EVIDENCE_TRACK_CONFIRMED_ACTIVE``,
+    preserving this function's original behavior byte-for-byte for every
+    existing caller) is a typed, two-valued enum -- deliberately not a
+    bare bool -- naming exactly which of two structurally different
+    workflows this call belongs to. Any other value raises ``ValueError``
+    immediately: there is no third, looser state to slide into.
+
+    ``EVIDENCE_TRACK_CONFIRMED_ACTIVE`` gates the real, "install this as
+    the shipped adapter's active artifact" workflow: ``evidence_class``
+    must be ``LIVE_SOURCE_VALIDATED`` and every hash-provenance check
+    must already be human-``CONFIRMED`` in ``expected_hashes.json``.
+
+    ``EVIDENCE_TRACK_CANDIDATE_UNCONFIRMED`` is for
+    ``pcbf_calculator.orchestration.soccer_artifact_refresh`` (CANDIDATE
+    creation, never promotion -- see that module's own docstring)
+    ONLY: a freshly built candidate has, by definition, never been
+    human-reviewed yet, so requiring already-``CONFIRMED`` provenance
+    would make building a candidate at all impossible on the very first
+    refresh. That caller still refuses the two structurally uninformative
+    evidence classes (``SOURCE_UNAVAILABLE``/``SOURCE_NOT_USABLE`` -- a
+    candidate built from zero rows is never useful) and still refuses a
+    genuine ``LIVE_SOURCE_VALIDATED`` hash MISMATCH (real data drift is
+    refused either way, confirmed or not) -- it only relaxes the
+    requirement that a human has ALREADY pinned and confirmed this exact
+    hash before a candidate carrying it can even be built. No other
+    caller in this codebase passes this value; a new caller that wants to
+    should treat that as a deliberate, reviewable decision, not a default
+    to reach for.
+
+    ``source_manifest_entry_count``/``successful_source_downloads``/
+    ``source_manifest_note`` default to the literal values this function
+    has always hardcoded (a real, one-time fact about the specific live
+    GitHub Actions run this tool was first built for, recorded here
+    because this file's own docstring promises "nothing is guessed" --
+    these three were an early exception to that, now made parameters).
+    A caller building a candidate from a DIFFERENT run (e.g. a local
+    refresh, or a later live run with different download counts) must
+    pass its own real values, or ``None``/an honest "not tracked by this
+    path" note when the count genuinely is not available -- never the
+    stale defaults copied forward unexamined."""
+
+    if evidence_track not in _VALID_EVIDENCE_TRACKS:
+        raise ValueError(
+            f"evidence_track={evidence_track!r} is not a recognized evidence track -- must be one of "
+            f"{_VALID_EVIDENCE_TRACKS!r}. There is no looser or intermediate state; an unrecognized "
+            "value is refused rather than silently treated as either one."
+        )
+
     model_artifact = json.loads(model_artifact_path.read_text(encoding="utf-8"))
     evaluation_report = json.loads(evaluation_report_path.read_text(encoding="utf-8"))
     live_snapshot = json.loads(live_snapshot_path.read_text(encoding="utf-8"))
 
-    if evaluation_report.get("evidence_class") != "LIVE_SOURCE_VALIDATED":
-        raise ValueError(
-            f"Refusing to build a manifest from evidence_class "
-            f"{evaluation_report.get('evidence_class')!r} -- must be LIVE_SOURCE_VALIDATED."
-        )
     hash_provenance = evaluation_report.get("hash_provenance") or {}
-    combined_check = hash_provenance.get("combined_check") or {}
-    if combined_check.get("status") != "CONFIRMED":
-        raise ValueError(
-            f"Refusing to build a manifest: frozen_dataset_hash status is "
-            f"{combined_check.get('status')!r}, not CONFIRMED."
-        )
-    for split_check in hash_provenance.get("split_checks", []):
-        if split_check.get("status") != "CONFIRMED":
+    if evidence_track == EVIDENCE_TRACK_CONFIRMED_ACTIVE:
+        if evaluation_report.get("evidence_class") != "LIVE_SOURCE_VALIDATED":
             raise ValueError(
-                f"Refusing to build a manifest: split {split_check.get('split_id')!r} "
-                f"status is {split_check.get('status')!r}, not CONFIRMED."
+                f"Refusing to build a manifest from evidence_class "
+                f"{evaluation_report.get('evidence_class')!r} -- must be LIVE_SOURCE_VALIDATED."
             )
+        combined_check = hash_provenance.get("combined_check") or {}
+        if combined_check.get("status") != "CONFIRMED":
+            raise ValueError(
+                f"Refusing to build a manifest: frozen_dataset_hash status is "
+                f"{combined_check.get('status')!r}, not CONFIRMED."
+            )
+        for split_check in hash_provenance.get("split_checks", []):
+            if split_check.get("status") != "CONFIRMED":
+                raise ValueError(
+                    f"Refusing to build a manifest: split {split_check.get('split_id')!r} "
+                    f"status is {split_check.get('status')!r}, not CONFIRMED."
+                )
+        hash_provenance_status = "ALL_CONFIRMED"
+    else:
+        if evaluation_report.get("evidence_class") in ("SOURCE_UNAVAILABLE", "SOURCE_NOT_USABLE"):
+            raise ValueError(
+                f"Refusing to build a manifest from evidence_class "
+                f"{evaluation_report.get('evidence_class')!r} -- zero usable training rows."
+            )
+        if hash_provenance.get("has_mismatch") and evaluation_report.get("evidence_class") == "LIVE_SOURCE_VALIDATED":
+            raise ValueError(
+                "Refusing to build a manifest: a LIVE_SOURCE_VALIDATED run's frozen-hash "
+                "provenance reports a MISMATCH against a previously pinned expected_hashes.json "
+                "value -- the real, live frozen dataset has drifted since it was pinned."
+            )
+        hash_provenance_status = "NOT_YET_HUMAN_CONFIRMED"
 
     team_keys = list(live_snapshot["elo_ratings"].keys())
     ratings = list(live_snapshot["elo_ratings"].values())
@@ -97,15 +186,10 @@ def build_manifest(
             "evidence_class": evaluation_report["evidence_class"],
             "frozen_dataset_hash": evaluation_report["frozen_hashes"]["combined_hash"],
             "frozen_split_hashes": evaluation_report["frozen_hashes"]["split_hashes"],
-            "hash_provenance_status": "ALL_CONFIRMED",
-            "source_manifest_entry_count": 165,
-            "successful_source_downloads": 170,
-            "source_manifest_note": (
-                "165 entries in data_pipeline/sources/football_data_sources.yaml; "
-                "170 (league, season) files were successfully downloaded and classified "
-                "LIVE_SOURCE_VALIDATED in the run named above (observed directly from that "
-                "run's own job output, not re-derived here)."
-            ),
+            "hash_provenance_status": hash_provenance_status,
+            "source_manifest_entry_count": source_manifest_entry_count,
+            "successful_source_downloads": successful_source_downloads,
+            "source_manifest_note": source_manifest_note,
             "training_match_count": model_artifact["training_row_count"],
             "evaluation_sample_counts": {
                 split_id: split_report["model_metrics"]["row_count"]
