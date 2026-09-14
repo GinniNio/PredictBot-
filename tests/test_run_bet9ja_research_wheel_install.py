@@ -1,21 +1,29 @@
 """Confirms ``run-bet9ja-research`` works from a real, installed wheel --
 not just from the repo's own source tree. Builds the wheel and installs it
-into a fresh virtual environment once (``setUpClass``), then drives the
-new subcommand through a real subprocess against that installed package,
-exactly as an external host would invoke it (``docs/HOST_CONTRACT.md``'s
-own "install the wheel, then invoke the CLI" pattern, extended to this new
-subcommand).
+once (``setUpClass``) into an isolated directory via a real ``pip install``
+of the built artifact, then drives the new subcommand through a real
+subprocess against that installed package, exactly as an external host
+would invoke it (``docs/HOST_CONTRACT.md``'s own "install the wheel, then
+invoke the CLI" pattern, extended to this new subcommand).
+
+Installs via ``pip install --target <dir>`` + ``PYTHONPATH`` rather than
+into a freshly created virtualenv: a real ``pip install`` of the actual
+built wheel either way, but this avoids depending on ``ensurepip``/the
+``venv`` module being fully functional on every CI image this test runs
+on -- a dependency that isn't the thing this test is actually meant to
+prove (that the wheel's contents install and run correctly), and that
+failed on this platform's own runner image via ``venv.EnvBuilder``.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-import venv
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -50,17 +58,16 @@ CAPTURE_ENVELOPE = {
 }
 
 
-@unittest.skipIf(shutil.which("python3") is None, "python3 not on PATH")
 class WheelInstallationTests(unittest.TestCase):
     """Slower than the rest of this suite by design (a real wheel build +
-    venv + install) -- proves packaging, not just source-tree behavior."""
+    install) -- proves packaging, not just source-tree behavior."""
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.tmp_dir = tempfile.mkdtemp(prefix="pcbf-wheel-install-test-")
         tmp_path = Path(cls.tmp_dir)
         wheelhouse = tmp_path / "wheelhouse"
-        venv_dir = tmp_path / "venv"
+        install_dir = tmp_path / "installed"
 
         build = subprocess.run(
             [sys.executable, "-m", "pip", "wheel", str(REPO_ROOT), "--no-deps", "-w", str(wheelhouse)],
@@ -70,18 +77,22 @@ class WheelInstallationTests(unittest.TestCase):
         if build.returncode != 0:
             raise RuntimeError(f"wheel build failed:\n{build.stdout}\n{build.stderr}")
 
-        venv.EnvBuilder(with_pip=True).create(str(venv_dir))
-        venv_python = venv_dir / "bin" / "python"
-
+        install_dir.mkdir(parents=True, exist_ok=True)
         install = subprocess.run(
-            [str(venv_python), "-m", "pip", "install", "--quiet", "--no-index", "--find-links", str(wheelhouse), "pcbf-football"],
+            [
+                sys.executable, "-m", "pip", "install", "--quiet", "--no-index",
+                "--find-links", str(wheelhouse), "--target", str(install_dir), "pcbf-football",
+            ],
             capture_output=True,
             text=True,
         )
         if install.returncode != 0:
             raise RuntimeError(f"wheel install failed:\n{install.stdout}\n{install.stderr}")
+        if not (install_dir / "pcbf_calculator").is_dir():
+            raise RuntimeError(f"pip install reported success but pcbf_calculator is missing from {install_dir}")
 
-        cls.venv_python = venv_python
+        cls.install_env = os.environ.copy()
+        cls.install_env["PYTHONPATH"] = str(install_dir)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -95,10 +106,11 @@ class WheelInstallationTests(unittest.TestCase):
             output_dir = tmp_path / "out"
 
             result = subprocess.run(
-                [str(self.venv_python), "-m", "pcbf_calculator", "run-bet9ja-research", str(input_path), "--output-dir", str(output_dir)],
+                [sys.executable, "-m", "pcbf_calculator", "run-bet9ja-research", str(input_path), "--output-dir", str(output_dir)],
                 capture_output=True,
                 text=True,
                 cwd=str(tmp_path),  # no relation to the repo checkout
+                env=self.install_env,
             )
             self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r} stderr={result.stderr!r}")
 
@@ -128,10 +140,11 @@ class WheelInstallationTests(unittest.TestCase):
             output_path = tmp_path / "result.json"
 
             result = subprocess.run(
-                [str(self.venv_python), "-m", "pcbf_calculator", str(input_path), str(output_path)],
+                [sys.executable, "-m", "pcbf_calculator", str(input_path), str(output_path)],
                 capture_output=True,
                 text=True,
                 cwd=str(tmp_path),
+                env=self.install_env,
             )
             self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r} stderr={result.stderr!r}")
             self.assertTrue(output_path.exists())
