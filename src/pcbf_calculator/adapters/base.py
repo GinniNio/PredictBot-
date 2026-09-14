@@ -96,6 +96,21 @@ class ForecastResult:
     docstring ("three-tier classification" / "model-admission registry").
     Defaults to ``None`` (no model, or a model whose adapter does not
     report a hash — both resolve to "not approved" at lookup time)."""
+    settlement_identity: dict[str, Any] | None = None
+    """Optional, adapter-reported canonical identity this specific forecast
+    resolved a fixture to -- e.g. (for ``soccer_1x2_elo_v1``)
+    ``{"competition_code": "E0", "resolved_home_team": "Man United",
+    "resolved_away_team": "Chelsea", "scheduled_date": "2026-09-20"}``.
+    Never invented by anything outside the adapter that actually performed
+    the resolution (see that adapter's own ``identity.py``) -- an adapter
+    that never resolves team/competition identity (or that declined before
+    resolution succeeded) leaves this ``None``, never a guess. This exists
+    so a later, independent settlement step (matching a real-world result
+    back to the forecast that predicted it) can join on the SAME resolved
+    identity the forecast itself was scored against, instead of the raw,
+    unresolved capture text (team display names, free-text competition
+    names) that varies by capture source and is never a safe join key on
+    its own."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,4 +122,5 @@ class ForecastResult:
             "uncertainty_method": self.uncertainty_method,
             "no_forecast_reason": self.no_forecast_reason,
             "model_artifact_hash": self.model_artifact_hash,
+            "settlement_identity": self.settlement_identity,
         }

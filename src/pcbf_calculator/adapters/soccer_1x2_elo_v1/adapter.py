@@ -130,6 +130,39 @@ def _load_artifact(data_dir: Path | None = None) -> _LoadedArtifact:
     )
 
 
+def _load_alias_book(data_dir: Path) -> TeamAliasBook:
+    alias_path = data_dir / "team_aliases.json"
+    if alias_path.exists():
+        return TeamAliasBook(json.loads(alias_path.read_text(encoding="utf-8")))
+    return TeamAliasBook.empty()
+
+
+def load_known_teams_by_league(data_dir: Path | None = None) -> dict[str, set[str]]:
+    """Public accessor: the canonical football-data.co.uk team names this
+    artifact's live-ratings snapshot actually knows about, grouped by
+    ``league_code`` -- exactly the same ``known_teams`` set ``forecast()``
+    resolves incoming fixtures against (see ``identity.resolve_team``).
+    Exists so a later, independent step (e.g. settlement-side ingestion
+    matching a real-world result back to a forecast) can canonicalize
+    names through the IDENTICAL resolution path this adapter itself uses
+    at forecast time, rather than a second, separately-maintained notion
+    of "known teams" that could quietly drift from this one."""
+
+    artifact = _load_artifact(data_dir)
+    result: dict[str, set[str]] = {}
+    for league, team in artifact.elo_ratings:
+        result.setdefault(league, set()).add(team)
+    return result
+
+
+def load_team_alias_book(data_dir: Path | None = None) -> TeamAliasBook:
+    """Public accessor: this adapter's own checked-in team-alias book
+    (``data/team_aliases.json``), for the same reuse reason as
+    ``load_known_teams_by_league`` above."""
+
+    return _load_alias_book(data_dir or _DATA_DIR)
+
+
 class SoccerOneXTwoEloV1Adapter(SportAdapter):
     """Registered in ``adapters/registry.py::_ADAPTER_IMPLEMENTATIONS["soccer"]``."""
 
@@ -137,11 +170,7 @@ class SoccerOneXTwoEloV1Adapter(SportAdapter):
         data_dir = data_dir or _DATA_DIR
         self._artifact = _load_artifact(data_dir)
         self._config = load_config(config_path)
-        alias_path = data_dir / "team_aliases.json"
-        if alias_path.exists():
-            self._alias_book = TeamAliasBook(json.loads(alias_path.read_text(encoding="utf-8")))
-        else:
-            self._alias_book = TeamAliasBook.empty()
+        self._alias_book = _load_alias_book(data_dir)
 
     @property
     def declaration(self) -> AdapterInterfaceDeclaration:
@@ -161,7 +190,9 @@ class SoccerOneXTwoEloV1Adapter(SportAdapter):
             model_version=self._artifact.model_version,
         )
 
-    def _no_forecast(self, reason: str, detail: str | None = None) -> ForecastResult:
+    def _no_forecast(
+        self, reason: str, detail: str | None = None, settlement_identity: dict[str, Any] | None = None
+    ) -> ForecastResult:
         return ForecastResult(
             sport_id=SPORT_ID,
             adapter_id=ADAPTER_ID,
@@ -171,6 +202,7 @@ class SoccerOneXTwoEloV1Adapter(SportAdapter):
             uncertainty_method=None,
             no_forecast_reason=reason,
             model_artifact_hash=f"sha256:{self._artifact.model_artifact_hash}",
+            settlement_identity=settlement_identity,
         )
 
     def forecast(self, fixture: dict[str, Any]) -> ForecastResult:
@@ -204,12 +236,28 @@ class SoccerOneXTwoEloV1Adapter(SportAdapter):
             return self._no_forecast(FORECAST_TEAM_UNRESOLVED, away_result.detail)
         resolved_home, resolved_away = home_result.resolved, away_result.resolved
 
+        # Real, this-adapter-resolved identity, available from this point
+        # on regardless of whether a forecast ultimately follows -- see
+        # ``ForecastResult.settlement_identity``'s own docstring for why
+        # this is carried through every remaining abstention below, not
+        # just the eventual success path. ``scheduled_date`` is the
+        # fixture's own kickoff date (never the forecast/capture time) --
+        # the same calendar-date join key a settlement source keyed on
+        # match date (e.g. football-data.co.uk) would use.
+        settlement_identity = {
+            "competition_code": league_code,
+            "resolved_home_team": resolved_home,
+            "resolved_away_team": resolved_away,
+            "scheduled_date": fixture_kickoff.date().isoformat(),
+        }
+
         home_elo = self._artifact.elo_ratings.get((league_code, resolved_home))
         away_elo = self._artifact.elo_ratings.get((league_code, resolved_away))
         if home_elo is None or away_elo is None:
             return self._no_forecast(
                 FORECAST_TEAM_NOT_IN_ARTIFACT,
                 f"resolved team has no Elo rating in the live-ratings snapshot for {league_code!r}.",
+                settlement_identity=settlement_identity,
             )
 
         cutoff = self._artifact.last_processed_match_date_utc
@@ -219,6 +267,7 @@ class SoccerOneXTwoEloV1Adapter(SportAdapter):
                     FORECAST_ARTIFACT_AFTER_CUTOFF,
                     f"fixture kickoff_utc {fixture['kickoff_utc']} is at or before this artifact's own "
                     f"last-processed-match date {cutoff.isoformat()}.",
+                    settlement_identity=settlement_identity,
                 )
             age = forecast_cutoff - cutoff
             if age > timedelta(days=self._config.maximum_artifact_age_days):
@@ -226,6 +275,7 @@ class SoccerOneXTwoEloV1Adapter(SportAdapter):
                     FORECAST_ARTIFACT_STALE,
                     f"artifact age {age.days} days exceeds configured maximum "
                     f"{self._config.maximum_artifact_age_days} days.",
+                    settlement_identity=settlement_identity,
                 )
 
         season_code = self._artifact.latest_season_by_league.get(league_code)
@@ -239,7 +289,7 @@ class SoccerOneXTwoEloV1Adapter(SportAdapter):
                 feature_vector, temperature=self._artifact.temperature
             )
         except Exception as exc:  # noqa: BLE001 -- deliberately broad, converted to a typed abstention
-            return self._no_forecast(FORECAST_MODEL_EXECUTION_FAILED, str(exc))
+            return self._no_forecast(FORECAST_MODEL_EXECUTION_FAILED, str(exc), settlement_identity=settlement_identity)
 
         probabilities = {
             "home_win": probabilities_hda.get("H"),
@@ -249,7 +299,9 @@ class SoccerOneXTwoEloV1Adapter(SportAdapter):
         total = sum(probabilities.values())
         if not all(isinstance(v, (int, float)) and v >= 0 for v in probabilities.values()) or abs(total - 1.0) > 1e-6:
             return self._no_forecast(
-                FORECAST_PROBABILITIES_INVALID, f"probabilities {probabilities} invalid (sum={total})."
+                FORECAST_PROBABILITIES_INVALID,
+                f"probabilities {probabilities} invalid (sum={total}).",
+                settlement_identity=settlement_identity,
             )
 
         return ForecastResult(
@@ -261,4 +313,5 @@ class SoccerOneXTwoEloV1Adapter(SportAdapter):
             uncertainty_method="temperature_calibrated_softmax_no_confidence_interval",
             no_forecast_reason=None,
             model_artifact_hash=f"sha256:{self._artifact.model_artifact_hash}",
+            settlement_identity=settlement_identity,
         )

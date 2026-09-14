@@ -98,13 +98,9 @@ files written outside this module, database writes, automatic betting.
 
 from __future__ import annotations
 
-import contextlib
-import fcntl
-import os
 import sys
-import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 
 def _ensure_ledgers_importable() -> None:
@@ -135,6 +131,7 @@ def _ensure_ledgers_importable() -> None:
 _ensure_ledgers_importable()
 
 from ledgers import forecast_ledger  # noqa: E402
+from ledgers.locking import LedgerLockTimeoutError, exclusive_ledger_lock  # noqa: E402
 from ledgers.storage import (  # noqa: E402
     APPENDED,
     CONFLICT,
@@ -143,6 +140,14 @@ from ledgers.storage import (  # noqa: E402
     find_existing,
     read_all,
 )
+
+__all__ = [
+    "LedgerBatchConflictError",
+    "LedgerLockTimeoutError",
+    "DEFAULT_LOCK_TIMEOUT_SECONDS",
+    "build_ledger_events",
+    "write_batch",
+]
 
 MARKET_TYPE = "1X2"
 CLASSIFICATION = "RESEARCH-MODEL"
@@ -176,49 +181,12 @@ class LedgerBatchConflictError(Exception):
         )
 
 
-class LedgerLockTimeoutError(Exception):
-    """Raised when ``write_batch`` cannot acquire the exclusive ledger
-    lock within ``DEFAULT_LOCK_TIMEOUT_SECONDS`` -- another process is
-    currently writing to the same ledger. Nothing is written when this is
-    raised, same as ``LedgerBatchConflictError``."""
-
-
 DEFAULT_LOCK_TIMEOUT_SECONDS = 30.0
-_LOCK_POLL_INTERVAL_SECONDS = 0.1  # arbitrary short poll interval, unrelated to any backtest/promotion threshold
-
-
-@contextlib.contextmanager
-def _exclusive_ledger_lock(ledger_path: Path, timeout: float = DEFAULT_LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
-    """Held for ``write_batch``'s entire preflight-then-commit sequence
-    -- see this module's own "Concurrency" section for why. A real,
-    OS-level (POSIX advisory, ``fcntl.flock``) exclusive lock on a
-    dedicated ``<ledger_path>.lock`` file next to the ledger, never the
-    ledger file itself, so a plain reader (``read_all``/``current_state``)
-    is never blocked by a writer. Polls rather than blocking indefinitely
-    on the lock, so a writer that cannot acquire it within ``timeout``
-    raises ``LedgerLockTimeoutError`` (nothing written) instead of
-    hanging forever behind a stuck or crashed prior writer."""
-
-    ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = ledger_path.with_name(ledger_path.name + ".lock")
-    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-    try:
-        deadline = time.monotonic() + timeout
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except OSError:
-                if time.monotonic() >= deadline:
-                    raise LedgerLockTimeoutError(
-                        f"Could not acquire the write lock for {ledger_path} within {timeout}s -- "
-                        "another process appears to be writing to this ledger. Nothing was written."
-                    )
-                time.sleep(_LOCK_POLL_INTERVAL_SECONDS)
-        yield
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
+"""Re-exported from ``ledgers.locking`` for backward compatibility with
+existing importers of this module -- the actual lock implementation
+(``LedgerLockTimeoutError``, the poll loop) now lives there, shared with
+``pcbf_calculator.orchestration.football_data_settlement``'s own
+settlement batch. See ``ledgers/locking.py``'s own module docstring."""
 
 
 def _hda_probabilities(probabilities: dict[str, float]) -> dict[str, float]:
@@ -257,17 +225,37 @@ def _assert_event_stays_research_only(event: dict[str, Any]) -> None:
         )
 
 
+def _settlement_identity_kwargs(forecast: dict[str, Any]) -> dict[str, Any]:
+    """Extracts the adapter-reported ``settlement_identity`` (see
+    ``pcbf_calculator.adapters.base.ForecastResult.settlement_identity``)
+    into ``build_recorded_event``'s own kwarg names -- all four ``None``
+    together when the adapter never resolved (or never reported) an
+    identity, exactly like every other nullable-together provenance group
+    this ledger already carries (e.g. model provenance)."""
+
+    identity = forecast.get("settlement_identity") or {}
+    return {
+        "competition_code": identity.get("competition_code"),
+        "resolved_home_team": identity.get("resolved_home_team"),
+        "resolved_away_team": identity.get("resolved_away_team"),
+        "scheduled_date": identity.get("scheduled_date"),
+    }
+
+
 def _build_event_for_ranked_market(market: dict[str, Any]) -> dict[str, Any]:
     forecast = market["forecast"]
     event = forecast_ledger.build_recorded_event(
         fixture_id=market["source_fixture_id"],
         sport=market["sport"],
-        # The football-data.co.uk short league code (e.g. "E0") this
-        # forecast's adapter resolved internally is not exposed by
-        # cli.py::run_calculator's own output -- using the Bet9ja
-        # capture's own competition display name here (e.g. "Premier
-        # League") instead is real, always-available data, never a
-        # guessed or re-derived code.
+        # The Bet9ja capture's own competition display name (e.g.
+        # "Premier League") -- real, always-available data. The
+        # forecast's adapter-resolved canonical identity (short league
+        # code, canonical team names, scheduled date), when the adapter
+        # reports one, is carried separately below via
+        # ``_settlement_identity_kwargs`` -- see
+        # ``ForecastResult.settlement_identity``'s own docstring for why
+        # a settlement step must join on THAT identity, never on this
+        # free-text display name.
         league=market["competition"],
         kickoff_utc=market["kickoff_utc"],
         market_type=MARKET_TYPE,
@@ -291,6 +279,7 @@ def _build_event_for_ranked_market(market: dict[str, Any]) -> dict[str, Any]:
         selection=None,
         stop_reason=None,
         operator_decision=None,
+        **_settlement_identity_kwargs(forecast),
     )
     _assert_event_stays_research_only(event)
     return event
@@ -318,6 +307,7 @@ def _build_event_for_abstention(item: dict[str, Any]) -> dict[str, Any]:
         selection=None,
         stop_reason=item["reason"],
         operator_decision=None,
+        **_settlement_identity_kwargs(forecast),
     )
     _assert_event_stays_research_only(event)
     return event
@@ -360,15 +350,15 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
           "conflicted": int,   # always 0 on a successful return
           "total_ledger_records": int,  # RECORDED events now on disk
         }
-    Holds an exclusive, OS-level lock (see ``_exclusive_ledger_lock``) for
-    this entire preflight-then-commit sequence, so two concurrent calls
+    Holds an exclusive, OS-level lock (``ledgers.locking.exclusive_ledger_lock``)
+    for this entire preflight-then-commit sequence, so two concurrent calls
     against the same ``ledger_path`` (from separate processes) cannot
     both preflight against the same stale on-disk state and both append
     -- the second call blocks until the first's whole batch has
     committed. Raises ``LedgerLockTimeoutError`` (nothing written) if the
     lock cannot be acquired within ``DEFAULT_LOCK_TIMEOUT_SECONDS``.
     """
-    with _exclusive_ledger_lock(ledger_path):
+    with exclusive_ledger_lock(ledger_path, timeout=DEFAULT_LOCK_TIMEOUT_SECONDS):
         on_disk = read_all(ledger_path)
         staged: list[dict[str, Any]] = list(on_disk)
 

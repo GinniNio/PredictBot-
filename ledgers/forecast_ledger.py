@@ -137,6 +137,10 @@ def build_recorded_event(
     selection: str | None = None,
     stop_reason: str | None = None,
     operator_decision: str | None = None,
+    competition_code: str | None = None,
+    resolved_home_team: str | None = None,
+    resolved_away_team: str | None = None,
+    scheduled_date: str | None = None,
 ) -> dict[str, Any]:
     """Build (never appends) one RECORDED event. ``forecast_id`` is
     derived deterministically from ``(fixture_id, market_type,
@@ -163,7 +167,18 @@ def build_recorded_event(
     ``market_devig_probabilities`` is computed here (never taken from the
     caller) via the already-reviewed pricing engine, read-only, from
     ``offered_odds`` -- ``None`` (with an error code, never a crash) if
-    ``offered_odds`` is not a valid, complete market."""
+    ``offered_odds`` is not a valid, complete market.
+
+    ``competition_code``/``resolved_home_team``/``resolved_away_team``/
+    ``scheduled_date`` are the optional, adapter-reported canonical
+    identity a forecast's own adapter resolved the fixture to (see
+    ``pcbf_calculator.adapters.base.ForecastResult.settlement_identity``)
+    -- never re-derived or guessed here. All four are ``None`` together
+    when the caller's adapter never resolved (or never reported) this
+    identity. This is the join key a later, independent settlement step
+    (e.g. matching a football-data.co.uk result file back to the forecast
+    it settles) uses instead of the raw, unresolved capture text -- see
+    ``pcbf_calculator.orchestration.football_data_settlement``."""
 
     if selection_status not in SELECTION_STATUSES:
         raise ValueError(f"selection_status must be one of {SELECTION_STATUSES}, got {selection_status!r}")
@@ -193,6 +208,10 @@ def build_recorded_event(
         "selection": selection,
         "stop_reason": stop_reason,
         "operator_decision": operator_decision,
+        "competition_code": competition_code,
+        "resolved_home_team": resolved_home_team,
+        "resolved_away_team": resolved_away_team,
+        "scheduled_date": scheduled_date,
     }
     return {
         "schema_version": SCHEMA_VERSION,
@@ -290,6 +309,7 @@ def score_and_append(
     forecast_id: str,
     actual_result: str,
     closing_odds: dict[str, float] | None = None,
+    closing_odds_source: str | None = None,
 ) -> AppendResult:
     """Compute Brier score and log loss for ``forecast_id`` from its own
     RECORDED ``model_probabilities`` against ``actual_result``, build the
@@ -301,7 +321,12 @@ def score_and_append(
     refused (``CONFLICT``), never silently re-scored. Raises ``KeyError``
     if ``forecast_id`` has no RECORDED event at all, and ``ValueError``
     if it does but has no ``model_probabilities`` to score (e.g. a
-    STOP-rejected candidate) -- never fabricates a score."""
+    STOP-rejected candidate) -- never fabricates a score.
+
+    ``closing_odds_source`` names exactly which source column(s) supplied
+    ``closing_odds`` (e.g. ``"PSCH/PSCD/PSCA (Pinnacle closing)"``) --
+    ``None`` whenever ``closing_odds`` itself is ``None``. Recorded purely
+    for audit; never used in the Brier/log-loss computation itself."""
 
     if actual_result not in scoring.CLASS_ORDER:
         raise ValueError(f"actual_result must be one of {scoring.CLASS_ORDER}, got {actual_result!r}")
@@ -328,6 +353,7 @@ def score_and_append(
             "brier_score": brier,
             "log_loss": loss,
             "closing_odds": closing_odds,
+            "closing_odds_source": closing_odds_source,
             "market_comparison": comparison,
             "settled_at_utc": _now_utc(),
         },
