@@ -386,6 +386,16 @@ def main(argv: list[str] | None = None) -> int:
 
         return screen_research_batch_main(argv[1:])
 
+    # ``soccer-research-report`` is likewise additive -- see
+    # ``reporting/soccer_research_report.py``'s own module docstring. It
+    # consumes the raw exported Bet9ja capture envelope directly (the same
+    # file ``ingest-bet9ja`` consumes), running ingestion, pricing, and the
+    # registered soccer forecast adapter end to end in one command.
+    if argv and argv[0] == "soccer-research-report":
+        from .reporting.soccer_research_report import main as soccer_research_report_main
+
+        return soccer_research_report_main(argv[1:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
     parser.add_argument("output", type=Path, nargs="?", help="Optional output JSON file")
