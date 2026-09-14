@@ -44,6 +44,26 @@ docstring for why). A row or a forecast that never carries all four key
 fields is never guessed into a match -- it stays unresolved with a typed
 reason.
 
+**Known, documented gap: ``scheduled_date`` is a UTC calendar date;
+football-data.co.uk's own ``Date`` column is a LOCAL calendar date.**
+``scheduled_date`` on the forecast side is derived from
+``kickoff_utc.date()`` (UTC); on the settlement side it is
+football-data.co.uk's own ``Date`` column, which records the match's
+LOCAL calendar date, never adjusted for timezone. For every one of the 5
+covered leagues (UTC+0/+1 in England, UTC+1/+2 on the continent), this
+only disagrees for a fixture whose KICKOFF itself falls within the small
+window around local midnight that crosses into a different UTC calendar
+day -- real broadcast-slot kickoffs (typically 12:00-21:00 local)
+essentially never fall in that window, and it did not occur anywhere in
+this module's own real-data verification (792 real Bet9ja-captured
+fixtures, kickoffs spanning 13:30-18:45 UTC). Flagged here rather than
+silently risking a rare false ``SETTLE_NO_MATCHING_FORECAST`` for an
+unusually late-rescheduled fixture -- fixing it properly would need a
+per-league UTC-offset table this module does not have, so it is
+documented as a known, narrow limitation (the same treatment this
+codebase already gives its own "country-blind competition identity" gap
+-- see the main README) rather than guessed at.
+
 **Closing-odds rules.**
 
 - Only a column set ``data_pipeline.schema_inspection`` itself labels
