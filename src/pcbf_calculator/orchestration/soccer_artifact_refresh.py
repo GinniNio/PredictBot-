@@ -101,6 +101,25 @@ swapping in a file from a genuinely different candidate (different
 training data/model) changes its content and is caught; two files from
 two runs of the SAME identical input are, correctly, indistinguishable.
 
+**`build_identity` -- a true execution-level binding, not merely a code
+match.** `model_artifact.json`/`evaluation_report.json`/`live_snapshot.json`
+(and, downstream, `model_artifact_manifest.json`/
+`candidate_bundle_manifest.json`) all carry one `build_identity` value,
+computed once at the very start of `refresh_soccer_artifact` (see
+`compute_build_identity`'s own docstring) from pure content hashes of the
+training code, the dataset contract configuration, and every byte of the
+actual training input -- deliberately never from wall-clock time,
+process id, or randomness, so it stays identical across two separate
+processes (even on different machines) given identical inputs, exactly
+as the byte-identical-bundle guarantee above requires. This is
+DELIBERATELY stronger than comparing `code_hash` alone: two separate
+executions of IDENTICAL code can still disagree in their actual data,
+configuration, or generated output, so a bare `code_hash` match never
+proved "the same execution" -- `verify_build_identity_consistency`
+rejects a bundle where these five files' own `build_identity` values are
+missing or disagree, independent of (and in addition to) the raw
+content-hash check above.
+
 **Explicit boundaries (this PR).** No model-admission-registry row
 created or modified. No `classification_ceiling` change. No
 promotion-threshold change. No staking or ticket-construction change.
@@ -161,6 +180,8 @@ from research.soccer_1x2_elo_baseline import (  # noqa: E402
     hash_provenance,
     train,
 )
+
+from data_pipeline.dataset_builder import load_contract_rows  # noqa: E402
 
 from ..adapters.soccer_1x2_elo_v1 import build_manifest  # noqa: E402
 
@@ -228,17 +249,21 @@ class CandidateOutputExistsError(ArtifactRefreshError):
     prior one explicitly."""
 
 
-class SameRunIntegrityError(ArtifactRefreshError):
-    """``live_snapshot.json``'s own ``code_hash`` (computed by
-    ``export_live_snapshot.build_live_snapshot``'s own independent call to
-    ``train.compute_code_hash()``) disagrees with ``evaluation_report.json``'s
-    own ``code_hash`` (already independently verified against
-    ``train_pipeline``'s own reported value by
-    ``run_training_and_evaluation``'s own ``CodeHashConsistencyError``
-    check). Both calls are pure functions of the training package's own
-    source files, so they can only disagree if the code changed between
-    the two calls within this same process -- exactly the "one execution
-    identifier" every candidate file must share. Nothing is published."""
+class BuildIdentityMismatchError(ArtifactRefreshError):
+    """``model_artifact.json``/``evaluation_report.json``/``live_snapshot.json``
+    (and, downstream of them, ``model_artifact_manifest.json`` and
+    ``candidate_bundle_manifest.json``) do not all carry the identical
+    ``build_identity`` value, or one of them is missing it entirely.
+
+    This is a STRONGER check than comparing ``code_hash`` alone (an
+    earlier version of this check did exactly that, and was itself the
+    defect: two separate runs of IDENTICAL code can still disagree in
+    their actual data, configuration, or generated output, so a
+    ``code_hash`` match alone never proved "the same execution"). See
+    ``compute_build_identity``'s own docstring for what actually goes
+    into this value and why matching it is a genuine, execution-level
+    binding rather than merely a code-version check. Nothing is
+    published."""
 
 
 class CandidateBundleVerificationError(ArtifactRefreshError):
@@ -259,6 +284,86 @@ def _canonical_json_sha256(obj: Any) -> str:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _canonical_raw_dir_content_hash(raw_dir: Path) -> str:
+    """SHA-256 over every regular file under ``raw_dir``, keyed by its own
+    path relative to ``raw_dir`` and its own raw bytes, sorted by relative
+    path first for a listing-order-independent result. Computed directly
+    from what is actually on disk -- independent of
+    ``train.py``'s own internal split-parsing/hashing logic (``FrozenHashes``
+    only covers the four FROZEN splits and deliberately excludes the
+    rolling ``split_genuine_prospective_scoring`` stream that
+    ``build_live_snapshot`` also reads -- see that module's own docstring)
+    -- so this genuinely reflects "did ANY byte of the training input
+    change," the full input both training/evaluation AND live-snapshot
+    export are about to read, not merely the subset one of those two
+    consumers happens to hash for its own, narrower purpose."""
+
+    entries = []
+    for path in sorted(p for p in raw_dir.rglob("*") if p.is_file()):
+        rel = path.relative_to(raw_dir).as_posix()
+        entries.append(f"{rel}:{_sha256_bytes(path.read_bytes())}")
+    return _sha256_bytes("\n".join(entries).encode("utf-8"))
+
+
+def _configuration_hash() -> str:
+    """SHA-256 over the canonical JSON of the loaded dataset contract
+    (``docs/adapters/data/soccer_1x2_dataset_contract.yaml``) -- the one
+    real configuration input to training/evaluation/snapshot export that
+    is neither training data (covered by
+    ``_canonical_raw_dir_content_hash``) nor training CODE
+    (``train.compute_code_hash``, which only hashes this package's own
+    ``.py`` files and would not change if this YAML changed)."""
+
+    return _canonical_json_sha256(load_contract_rows())
+
+
+def compute_build_identity(raw_dir: Path) -> str:
+    """A single identifier binding ``model_artifact.json``,
+    ``evaluation_report.json``, and ``live_snapshot.json`` to one
+    reproducible BUILD -- not merely "the same code version" (a bare
+    ``code_hash`` match does not prove the same execution: two separate
+    runs of identical code can still differ in their actual data,
+    configuration, or generated output) and not a particular PROCESS
+    invocation either (deliberately not a random id or a timestamp).
+
+    Named ``build_identity`` rather than e.g. ``refresh_run_id``
+    precisely because it identifies canonical BUILD INPUTS, not a
+    specific invocation: two separate ``refresh-soccer-artifact``
+    processes -- on different machines, in different working
+    directories, at different wall-clock times -- given byte-identical
+    ``raw_dir`` content, the identical dataset contract, and the
+    identical training-package code, MUST produce the identical
+    ``build_identity`` (this is exactly what "two identical inputs
+    produce byte-identical candidate bundles" already requires of every
+    other file in the bundle). A real per-invocation identifier would
+    break that guarantee outright.
+
+    ``sha256(code_hash, configuration_hash, raw_input_hash)`` -- all
+    three components are themselves pure content hashes, none derived
+    from wall-clock time, process id, hostname, or randomness:
+    - ``code_hash``: ``train.compute_code_hash()`` -- this package's own
+      training-relevant source files.
+    - ``configuration_hash``: ``_configuration_hash()`` -- the loaded
+      dataset contract.
+    - ``raw_input_hash``: ``_canonical_raw_dir_content_hash(raw_dir)`` --
+      every byte of the actual training input.
+
+    Computed once, at the very start of ``refresh_soccer_artifact``,
+    before training/evaluation/snapshot export run at all, and then
+    stamped onto ``model_artifact.json``/``evaluation_report.json``/
+    ``live_snapshot.json`` (and, from there, ``model_artifact_manifest.json``
+    and ``candidate_bundle_manifest.json``) as each is produced -- see
+    ``refresh_soccer_artifact``'s own body for exactly where."""
+
+    return _canonical_json_sha256(
+        {
+            "code_hash": train.compute_code_hash(),
+            "configuration_hash": _configuration_hash(),
+            "raw_input_hash": _canonical_raw_dir_content_hash(raw_dir),
+        }
+    )
 
 
 def _argv_excluding_output_dir(argv: list[str]) -> list[str]:
@@ -396,6 +501,47 @@ def compute_bundle_file_hashes(candidate_dir: Path) -> dict[str, dict[str, str]]
     return hashes
 
 
+def _read_build_identities(candidate_dir: Path) -> dict[str, str | None]:
+    """``build_identity`` (see ``compute_build_identity``) as recorded
+    RIGHT NOW on disk in each of ``model_artifact.json``,
+    ``live_snapshot.json``, ``evaluation_report.json``, and
+    ``model_artifact_manifest.json`` -- ``None`` for a file missing the
+    field entirely (never treated as "matches by coincidence")."""
+
+    identities: dict[str, str | None] = {}
+    for filename in ("model_artifact.json", "live_snapshot.json", "evaluation_report.json", "model_artifact_manifest.json"):
+        payload = json.loads((candidate_dir / filename).read_text(encoding="utf-8"))
+        identities[filename] = payload.get("build_identity")
+    return identities
+
+
+def verify_build_identity_consistency(candidate_dir: Path) -> str:
+    """The concrete, enforced form of "every candidate file must
+    originate from one execution" -- reads ``build_identity`` back from
+    disk (never from in-memory values still held from the write step)
+    out of all four files that should carry it and requires every one to
+    be PRESENT and IDENTICAL. Raises ``BuildIdentityMismatchError``
+    (naming exactly which file is missing it or disagrees) otherwise.
+    Returns the one shared value on success."""
+
+    identities = _read_build_identities(candidate_dir)
+    missing = [filename for filename, value in identities.items() if not value]
+    if missing:
+        raise BuildIdentityMismatchError(
+            f"build_identity is missing from: {missing}. Every candidate file must carry the same "
+            "build_identity -- a missing value is never treated as compatible with anything."
+        )
+    distinct_values = set(identities.values())
+    if len(distinct_values) != 1:
+        raise BuildIdentityMismatchError(
+            f"build_identity disagrees across candidate files: {identities}. This candidate has been "
+            "mixed with file(s) from a different execution -- even one sharing the identical "
+            "training code (a bare code_hash match does not prove the same execution; see "
+            "compute_build_identity's own docstring). Never resolved automatically."
+        )
+    return next(iter(distinct_values))
+
+
 def compute_bundle_hash(file_hashes: dict[str, dict[str, str]]) -> str:
     """SHA-256 over the four files' own ``deterministic_content_hash``
     values, joined in ``CANDIDATE_BUNDLE_FILE_ORDER`` -- never over
@@ -408,6 +554,12 @@ def compute_bundle_hash(file_hashes: dict[str, dict[str, str]]) -> str:
 
 
 def build_candidate_bundle_manifest(candidate_dir: Path) -> dict[str, Any]:
+    # Fails fast (BuildIdentityMismatchError) BEFORE computing content
+    # hashes if the four files don't all already agree on one
+    # build_identity -- verify_build_identity_consistency reads fresh
+    # from disk, so this also protects against publishing a bundle from
+    # files this process itself wrote inconsistently due to a bug.
+    build_identity = verify_build_identity_consistency(candidate_dir)
     file_hashes = compute_bundle_file_hashes(candidate_dir)
     return {
         "schema_version": SCHEMA_VERSION_BUNDLE,
@@ -418,9 +570,14 @@ def build_candidate_bundle_manifest(candidate_dir: Path) -> dict[str, Any]:
             "against byte-identical --training-input content produce a byte-identical "
             "bundle_hash (and this entire file) even though the raw evaluation_report.json file "
             "on disk legitimately differs by that one timestamp. file_sha256 is the file's own "
-            "raw bytes, recorded for audit -- it is NOT used to compute bundle_hash."
+            "raw bytes, recorded for audit -- it is NOT used to compute bundle_hash. "
+            "build_identity is the execution-level binding across model_artifact.json/"
+            "live_snapshot.json/evaluation_report.json/model_artifact_manifest.json -- see "
+            "compute_build_identity's own docstring for what it is derived from and why a bare "
+            "code_hash match is not sufficient."
         ),
         "bundle_hash": compute_bundle_hash(file_hashes),
+        "build_identity": build_identity,
         "file_order": list(CANDIDATE_BUNDLE_FILE_ORDER),
         "files": file_hashes,
     }
@@ -435,10 +592,28 @@ def verify_candidate_bundle(candidate_dir: Path) -> None:
     disagrees) if anything has been swapped or corrupted since the
     bundle was built -- the concrete, enforced form of "files from
     different executions cannot be mixed," never merely a documented
-    expectation."""
+    expectation.
+
+    Also independently re-checks ``build_identity`` consistency
+    (``verify_build_identity_consistency``) and that
+    ``candidate_bundle_manifest.json``'s own recorded ``build_identity``
+    still agrees -- a targeted, semantic check for the exact failure mode
+    this exists to catch (files mixed from two runs that happen to share
+    a ``code_hash``, which the content-hash check above would also catch,
+    but only because the file bytes differ, not because it understands
+    WHY they must match)."""
 
     manifest_path = candidate_dir / "candidate_bundle_manifest.json"
     recorded = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    live_build_identity = verify_build_identity_consistency(candidate_dir)
+    if live_build_identity != recorded.get("build_identity"):
+        raise BuildIdentityMismatchError(
+            f"candidate_bundle_manifest.json's recorded build_identity "
+            f"({recorded.get('build_identity')!r}) disagrees with the value freshly re-derived "
+            f"from the files currently on disk ({live_build_identity!r})."
+        )
+
     recomputed_file_hashes = compute_bundle_file_hashes(candidate_dir)
 
     mismatched_files = [
@@ -705,6 +880,18 @@ def refresh_soccer_artifact(
     incumbent_manifest = json.loads(incumbent_manifest_path.read_text(encoding="utf-8"))
     incumbent_prospective_metrics = load_incumbent_prospective_metrics(incumbent_performance_dir)
 
+    # Generated ONCE, at the very start, before training/evaluation/
+    # snapshot export run at all -- see compute_build_identity's own
+    # docstring for exactly what it is derived from (pure content hashes
+    # of code + configuration + raw training input, never wall-clock time
+    # or randomness) and why that makes it a genuine execution-level
+    # binding rather than a per-invocation id or a mere code-version
+    # check. The same value is stamped onto every one of
+    # model_artifact.json/live_snapshot.json/evaluation_report.json
+    # below, and carried from there into model_artifact_manifest.json and
+    # candidate_bundle_manifest.json.
+    build_identity = compute_build_identity(training_input)
+
     with tempfile.TemporaryDirectory(prefix="pcbf-soccer-artifact-refresh-") as tmp:
         staging_root = Path(tmp) / "staging"
         candidate_dir = staging_root / "candidate"
@@ -713,23 +900,12 @@ def refresh_soccer_artifact(
         result, evaluation_report = run_training_and_evaluation(training_input)
         live_snapshot = export_live_snapshot.build_live_snapshot(training_input)
 
-        # Same-run integrity: both calls above are pure functions of the
-        # SAME training package source tree, called against the SAME
-        # raw_dir, one right after the other in this one process -- their
-        # own independently-computed code_hash values must therefore
-        # agree. This is the concrete, enforced version of "every
-        # candidate file must originate from one execution identifier,"
-        # not merely an assumption from passing the same raw_dir twice.
-        if live_snapshot["code_hash"] != evaluation_report["code_hash"]:
-            raise SameRunIntegrityError(
-                f"live_snapshot.json's code_hash ({live_snapshot['code_hash']!r}) disagrees with "
-                f"evaluation_report.json's code_hash ({evaluation_report['code_hash']!r}) -- these "
-                "two files must come from the exact same training-package code, computed moments "
-                "apart in this same process. Refusing to build a candidate bundle from "
-                "inconsistent files."
-            )
+        model_artifact_dict = result.model_artifact.to_dict()
+        model_artifact_dict["build_identity"] = build_identity
+        live_snapshot["build_identity"] = build_identity
+        evaluation_report["build_identity"] = build_identity
 
-        _write_json(candidate_dir / "model_artifact.json", result.model_artifact.to_dict())
+        _write_json(candidate_dir / "model_artifact.json", model_artifact_dict)
         _write_json(candidate_dir / "live_snapshot.json", live_snapshot)
         _write_json(candidate_dir / "evaluation_report.json", evaluation_report)
 
@@ -760,6 +936,12 @@ def refresh_soccer_artifact(
                 "for this candidate's own real data provenance instead)."
             ),
         )
+        # build_manifest.build_manifest() is shared with the real
+        # "install as the shipped adapter's active artifact" workflow
+        # and has no reason to know about this candidate-refresh-only
+        # concept -- stamped on here instead, at the orchestration layer
+        # that actually owns it.
+        candidate_manifest["build_identity"] = build_identity
         _write_json(candidate_dir / "model_artifact_manifest.json", candidate_manifest)
 
         bundle_manifest = build_candidate_bundle_manifest(candidate_dir)
@@ -787,7 +969,7 @@ def refresh_soccer_artifact(
         _publish_staging_root(staging_root, output_dir)
 
     return {
-        "model_artifact": result.model_artifact.to_dict(),
+        "model_artifact": model_artifact_dict,
         "live_snapshot": live_snapshot,
         "evaluation_report": evaluation_report,
         "candidate_manifest": candidate_manifest,

@@ -175,7 +175,24 @@ class RefreshSoccerArtifactTests(unittest.TestCase):
         bundle_a = json.loads((out_a / "candidate" / "candidate_bundle_manifest.json").read_text())
         bundle_b = json.loads((out_b / "candidate" / "candidate_bundle_manifest.json").read_text())
         self.assertEqual(bundle_a["bundle_hash"], bundle_b["bundle_hash"])
-        self.assertEqual(bundle_a, bundle_b)  # the whole bundle manifest file, not just the hash field
+        self.assertEqual(bundle_a["build_identity"], bundle_b["build_identity"])
+        # The whole bundle manifest file must match too, EXCEPT
+        # evaluation_report.json's own raw file_sha256 -- its
+        # deterministic_content_hash (what bundle_hash is actually built
+        # from) already matches above; file_sha256 is the raw file's own
+        # hash, recorded for audit only, and legitimately differs because
+        # of the file's one real wall-clock field (which can even happen
+        # to coincide across a fast test run at second precision -- never
+        # assert on it directly, timing-sensitive either way).
+        self.assertEqual(
+            bundle_a["files"]["evaluation_report.json"]["deterministic_content_hash"],
+            bundle_b["files"]["evaluation_report.json"]["deterministic_content_hash"],
+        )
+        normalized_a = json.loads(json.dumps(bundle_a))
+        normalized_b = json.loads(json.dumps(bundle_b))
+        del normalized_a["files"]["evaluation_report.json"]["file_sha256"]
+        del normalized_b["files"]["evaluation_report.json"]["file_sha256"]
+        self.assertEqual(normalized_a, normalized_b)
 
         for filename in ("model_artifact.json", "live_snapshot.json", "model_artifact_manifest.json"):
             self.assertEqual(
@@ -285,30 +302,117 @@ class RefreshSoccerArtifactTests(unittest.TestCase):
         self.assertNotEqual(full_snapshot, sparse_snapshot, "fixtures must actually differ for this test to mean anything")
 
         shutil.copy(out_sparse / "candidate" / "live_snapshot.json", out_full / "candidate" / "live_snapshot.json")
-        with self.assertRaises(sar.CandidateBundleVerificationError) as ctx:
+        # build_identity disagreement is caught first (a more specific
+        # diagnosis of the same underlying mix) -- see
+        # test_mixing_files_from_two_executions_sharing_the_same_code_hash_
+        # fails_before_publication for the case where the two runs share
+        # an identical code_hash and only build_identity tells them apart.
+        with self.assertRaises(sar.BuildIdentityMismatchError) as ctx:
             sar.verify_candidate_bundle(out_full / "candidate")
         self.assertIn("live_snapshot.json", str(ctx.exception))
 
-    def test_mismatched_code_hash_between_live_snapshot_and_evaluation_report_aborts(self):
-        # export_live_snapshot.build_live_snapshot and
-        # run_training_and_evaluation are two separate calls against the
-        # same raw_dir -- their own independently-computed code_hash
-        # values must agree, or the run is not internally consistent.
-        original = sar.export_live_snapshot.build_live_snapshot
+    def test_build_identity_is_stamped_identically_across_all_five_locations(self):
+        output_dir = self.tmp_path / "candidate_out_build_identity"
+        self._run(output_dir)
+        candidate_dir = output_dir / "candidate"
 
-        def _tampered(*args, **kwargs):
-            snapshot = original(*args, **kwargs)
-            snapshot["code_hash"] = "deliberately-wrong-code-hash"
-            return snapshot
+        model_artifact = json.loads((candidate_dir / "model_artifact.json").read_text())
+        live_snapshot = json.loads((candidate_dir / "live_snapshot.json").read_text())
+        evaluation_report = json.loads((candidate_dir / "evaluation_report.json").read_text())
+        manifest = json.loads((candidate_dir / "model_artifact_manifest.json").read_text())
+        bundle_manifest = json.loads((candidate_dir / "candidate_bundle_manifest.json").read_text())
 
-        sar.export_live_snapshot.build_live_snapshot = _tampered
+        identity = model_artifact["build_identity"]
+        self.assertTrue(identity)
+        for payload in (live_snapshot, evaluation_report, manifest, bundle_manifest):
+            self.assertEqual(payload["build_identity"], identity)
+
+    def test_two_executions_sharing_the_same_code_hash_but_different_data_have_different_build_identity(self):
+        # The exact scenario a bare code_hash comparison cannot catch:
+        # two runs of the IDENTICAL training code (necessarily the same
+        # code_hash, since both run in this same process/checkout)
+        # against genuinely different training data must still produce
+        # DIFFERENT build_identity values.
+        sparse_raw_dir = self.tmp_path / "sparse_raw_for_identity"
+        dest = raw_file_path(sparse_raw_dir, "E0", "1920")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(FIXTURES / "season_1920_with_kickoff.csv", dest)
+
+        out_full = self.tmp_path / "out_full_for_identity"
+        out_sparse = self.tmp_path / "out_sparse_for_identity"
+        self._run(out_full)
+        sar.refresh_soccer_artifact(
+            training_input=sparse_raw_dir,
+            incumbent_manifest_path=self.incumbent_manifest_path,
+            incumbent_performance_dir=self.incumbent_performance_dir,
+            output_dir=out_sparse,
+            generation_command="cmd",
+        )
+
+        report_full = json.loads((out_full / "candidate" / "evaluation_report.json").read_text())
+        report_sparse = json.loads((out_sparse / "candidate" / "evaluation_report.json").read_text())
+        self.assertEqual(
+            report_full["code_hash"], report_sparse["code_hash"],
+            "both runs use the identical training code in this same process/checkout",
+        )
+        self.assertNotEqual(
+            report_full["build_identity"], report_sparse["build_identity"],
+            "identical code_hash must NOT imply identical build_identity -- the data differs",
+        )
+
+    def test_mixing_files_from_two_executions_sharing_the_same_code_hash_fails_before_publication(self):
+        # Builds two full candidates (same training-package code in this
+        # process => identical code_hash for both), then mixes one run's
+        # live_snapshot.json into the other's candidate directory before
+        # the bundle/manifest/publish steps run -- reproducing the exact
+        # defect a bare code_hash comparison would miss. Must fail BEFORE
+        # anything is published, via a dedicated build_identity check
+        # rather than only incidentally via a content-hash mismatch.
+        sparse_raw_dir = self.tmp_path / "sparse_raw_for_mixing"
+        dest = raw_file_path(sparse_raw_dir, "E0", "1920")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(FIXTURES / "season_1920_with_kickoff.csv", dest)
+
+        # Build the "foreign" run's own live_snapshot.json bytes (with its
+        # own, different build_identity already stamped in) by running
+        # the sparse input through the real pipeline first.
+        out_sparse = self.tmp_path / "out_sparse_for_mixing"
+        sar.refresh_soccer_artifact(
+            training_input=sparse_raw_dir,
+            incumbent_manifest_path=self.incumbent_manifest_path,
+            incumbent_performance_dir=self.incumbent_performance_dir,
+            output_dir=out_sparse,
+            generation_command="cmd",
+        )
+        foreign_live_snapshot_bytes = (out_sparse / "candidate" / "live_snapshot.json").read_bytes()
+
+        foreign_code_hash = json.loads(foreign_live_snapshot_bytes)["code_hash"]
+
+        # Now run the full-fixture input, but splice in the foreign
+        # live_snapshot.json in place of this run's own -- right after
+        # write, before build_manifest/bundle/publish run.
+        original_write_json = sar._write_json
+        write_calls = {"n": 0}
+
+        def _tampered_write_json(path, payload):
+            write_calls["n"] += 1
+            if path.name == "live_snapshot.json":
+                self.assertEqual(
+                    payload["code_hash"], foreign_code_hash,
+                    "sanity check: both runs share the identical code_hash",
+                )
+                path.write_bytes(foreign_live_snapshot_bytes)
+                return
+            original_write_json(path, payload)
+
+        sar._write_json = _tampered_write_json
         try:
-            output_dir = self.tmp_path / "candidate_out_same_run_integrity"
-            with self.assertRaises(sar.SameRunIntegrityError):
+            output_dir = self.tmp_path / "candidate_out_mixed_identity"
+            with self.assertRaises(sar.BuildIdentityMismatchError):
                 self._run(output_dir)
             self.assertFalse(output_dir.exists())
         finally:
-            sar.export_live_snapshot.build_live_snapshot = original
+            sar._write_json = original_write_json
 
     def test_a_directory_appearing_at_output_dir_after_the_initial_check_is_refused_not_nested(self):
         # Simulates the real TOCTOU window between refresh_soccer_artifact's
