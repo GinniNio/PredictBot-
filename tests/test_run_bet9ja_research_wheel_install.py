@@ -236,6 +236,75 @@ class WheelInstallationTests(unittest.TestCase):
             self.assertEqual(summary["counts"]["with_closing_odds"], 1)
             self.assertTrue(summary["overall"]["small_sample"])
 
+    def test_refresh_soccer_artifact_works_from_the_installed_wheel(self):
+        """Proves the artifact refresh lifecycle -- CANDIDATE creation
+        only, never promotion -- runs end to end from a real installed
+        wheel: `research.soccer_1x2_elo_baseline` (training/evaluation)
+        and `research/soccer_1x2_elo_baseline/expected_hashes.json`
+        (packaged as package-data) are genuinely importable/readable
+        from the wheel, not just the repo checkout, and there is no
+        `.git` checkout in the installed target dir at all -- exercising
+        `current_commit_sha`'s own documented fallback for real."""
+
+        from data_pipeline.dataset_builder import raw_file_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            raw_dir = tmp_path / "raw"
+            fixtures_dir = REPO_ROOT / "tests" / "fixtures" / "football_data"
+            mapping = {
+                ("E0", "1920"): "season_1920_with_kickoff.csv",
+                ("E0", "2324"): "season_2324_for_elo_baseline.csv",
+                ("E0", "2425"): "season_2425_for_elo_baseline.csv",
+                ("E0", "2526"): "season_2526_prospective.csv",
+                ("E0", "2627"): "season_2627_prospective.csv",
+            }
+            for (league, season), filename in mapping.items():
+                dest = raw_file_path(raw_dir, league, season)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(fixtures_dir / filename, dest)
+
+            incumbent_manifest_path = tmp_path / "incumbent_manifest.json"
+            shutil.copy(
+                REPO_ROOT / "src" / "pcbf_calculator" / "adapters" / "soccer_1x2_elo_v1" / "data" / "model_artifact_manifest.json",
+                incumbent_manifest_path,
+            )
+            incumbent_performance_dir = tmp_path / "incumbent_perf"
+            incumbent_performance_dir.mkdir()
+
+            output_dir = tmp_path / "candidate_out"
+            result = subprocess.run(
+                [
+                    sys.executable, "-m", "pcbf_calculator", "refresh-soccer-artifact",
+                    "--training-input", str(raw_dir),
+                    "--incumbent-manifest", str(incumbent_manifest_path),
+                    "--incumbent-performance-dir", str(incumbent_performance_dir),
+                    "--output-dir", str(output_dir),
+                ],
+                capture_output=True,
+                text=True,
+                cwd=str(tmp_path),
+                env=self.install_env,
+            )
+            self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r} stderr={result.stderr!r}")
+
+            for relative_path in (
+                "candidate/model_artifact.json",
+                "candidate/live_snapshot.json",
+                "candidate/evaluation_report.json",
+                "candidate/model_artifact_manifest.json",
+                "candidate/candidate_bundle_manifest.json",
+                "artifact-comparison.json",
+                "promotion-review.json",
+            ):
+                self.assertTrue((output_dir / relative_path).exists(), relative_path)
+
+            review = json.loads((output_dir / "promotion-review.json").read_text(encoding="utf-8"))
+            self.assertEqual(review["recommendation"], "HOLD_FOR_PROSPECTIVE_EVIDENCE")
+
+            manifest = json.loads((output_dir / "candidate" / "model_artifact_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["provenance"]["training_code_commit_sha"], "UNKNOWN_NOT_A_GIT_CHECKOUT")
+
     def test_host_contract_invocation_also_works_from_the_installed_wheel(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

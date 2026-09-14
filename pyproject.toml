@@ -15,33 +15,53 @@ pcbf-calculator = "pcbf_calculator.cli:main"
 
 [tool.setuptools]
 # "" (the default/root prefix) resolves under src/, covering
-# pcbf_calculator/pcbf_football; "ledgers" and "data_pipeline" are both
-# siblings of src/ at the repo root (deliberately not moved -- see
-# ledgers/forecast_ledger.py's own module docstring for why "ledgers" is a
-# standalone, repo-relative package; "data_pipeline" predates this and is
-# now also imported by pcbf_calculator.orchestration.football_data_settlement
-# -- see data_pipeline/__init__.py's own docstring) and each gets its own
-# explicit override so it resolves to its real, unmoved location instead
-# of src/ledgers or src/data_pipeline.
-package-dir = {"" = "src", "ledgers" = "ledgers", "data_pipeline" = "data_pipeline"}
+# pcbf_calculator/pcbf_football; "ledgers", "data_pipeline", "research",
+# and "docs" are all siblings of src/ at the repo root (deliberately not
+# moved -- see ledgers/forecast_ledger.py's own module docstring for why
+# "ledgers" is a standalone, repo-relative package; "data_pipeline"
+# predates this and is now also imported by
+# pcbf_calculator.orchestration.football_data_settlement -- see
+# data_pipeline/__init__.py's own docstring; "research" is now imported by
+# pcbf_calculator.orchestration.soccer_artifact_refresh, the artifact
+# refresh lifecycle -- see research/__init__.py's own docstring; "docs" is
+# packaged ONLY for docs.adapters.data's own data files -- see
+# docs/__init__.py's own docstring) and each gets its own explicit
+# override so it resolves to its real, unmoved location instead of
+# src/ledgers, src/data_pipeline, src/research, or src/docs.
+package-dir = {"" = "src", "ledgers" = "ledgers", "data_pipeline" = "data_pipeline", "research" = "research", "docs" = "docs"}
 
 [tool.setuptools.packages.find]
 # Two independent search roots: src/ (auto-discovers every
 # pcbf_calculator/pcbf_football subpackage as before, unaffected) and the
-# repo root (only for "ledgers"/"data_pipeline" -- include= keeps this
-# from also sweeping up unrelated top-level directories like docs/,
-# tests/, research/, browser_extension/, registries/). exclude=
-# additionally blocks the repo's own gitignored local-build staging
-# directory (build/lib/pcbf_calculator/... from a prior `pip wheel .`/
-# `python -m build` run) -- without it, a stray build/ left over from an
-# earlier local build gets swept in as a second, stale copy of
+# repo root (only for "ledgers"/"data_pipeline"/"research"/"docs.adapters.data"
+# -- include= keeps this from also sweeping up unrelated top-level
+# directories like tests/, browser_extension/, registries/, or the rest of
+# docs/ itself, which has no __init__.py anywhere else and is therefore
+# never discoverable as a package regardless of this include pattern).
+# exclude= additionally blocks the repo's own gitignored local-build
+# staging directory (build/lib/pcbf_calculator/... from a prior `pip
+# wheel .`/`python -m build` run) -- without it, a stray build/ left over
+# from an earlier local build gets swept in as a second, stale copy of
 # pcbf_calculator* by the "." root above; excluding it keeps this robust
 # regardless of what a contributor's local build tooling has left lying
 # around.
 where = ["src", "."]
-include = ["pcbf_calculator*", "pcbf_football*", "ledgers", "data_pipeline"]
+include = ["pcbf_calculator*", "pcbf_football*", "ledgers", "data_pipeline", "research*", "docs.adapters.data"]
 exclude = ["build*", "build.*"]
 
 [tool.setuptools.package-data]
 "pcbf_calculator.registries.data" = ["*.yaml"]
 "pcbf_calculator.adapters.soccer_1x2_elo_v1.data" = ["*.json", "*.yaml"]
+# research.soccer_1x2_elo_baseline.hash_provenance.load_expected_hashes()
+# reads this non-Python data file at runtime -- must ship in the wheel
+# alongside the package's own code, or an installed-wheel run would
+# raise FileNotFoundError the moment it checks frozen-hash provenance.
+"research.soccer_1x2_elo_baseline" = ["expected_hashes.json"]
+# data_pipeline.dataset_builder.load_contract_rows reads
+# soccer_1x2_dataset_contract.yaml from this exact path at runtime --
+# needed by research.soccer_1x2_elo_baseline (train.py/
+# export_live_snapshot.py), and therefore by
+# pcbf_calculator.orchestration.soccer_artifact_refresh, from an installed
+# wheel. The other two YAML files here are shipped alongside it (same
+# directory, same glob) even though no runtime code currently loads them.
+"docs.adapters.data" = ["*.yaml"]

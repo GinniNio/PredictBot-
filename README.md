@@ -172,6 +172,34 @@ Always produces four files:
 
 Explicit boundaries: reports only. Never writes to any ledger, never touches the model-admission registry, `classification_ceiling`, promotion/threshold state, staking, ticket construction, or any `operator_decision`.
 
+## Artifact refresh lifecycle (`refresh-soccer-artifact`) — CANDIDATE creation, never promotion
+
+Builds a new, immutable **candidate** artifact bundle from a training run and compares it against the currently shipped (incumbent) artifact — but never registers, classifies, activates, or promotes anything. The currently shipped adapter artifact under `pcbf_calculator/adapters/soccer_1x2_elo_v1/data/` is a read-only input here, never touched.
+
+```bash
+python -m pcbf_calculator refresh-soccer-artifact \
+  --training-input <path to raw football-data.co.uk files> \
+  --incumbent-manifest <path to the incumbent's model_artifact_manifest.json> \
+  --incumbent-performance-dir <path to the incumbent's report-forecast-performance output> \
+  --output-dir <path>
+```
+
+Runs the existing training/evaluation code (`research/soccer_1x2_elo_baseline/`) **twice** against the same input and refuses to proceed if the two runs disagree on anything deterministic — internal consistency is checked, not assumed. Produces:
+
+| File | Contents |
+|---|---|
+| `candidate/model_artifact.json`, `candidate/live_snapshot.json`, `candidate/evaluation_report.json` | The three real outputs of that same training/evaluation execution |
+| `candidate/model_artifact_manifest.json` | Built from those exact bytes, verifying evidence class, hash provenance, and code hash — a candidate never human-reviewed yet is not blocked (unlike installing an artifact as the *shipped* adapter), but a genuine hash MISMATCH against previously pinned data, or a zero-usable-row source, still aborts |
+| `candidate/candidate_bundle_manifest.json` | An immutable bundle keyed by `bundle_hash` — two runs against byte-identical `--training-input` content produce a byte-identical `bundle_hash` (and this whole file); `verify_candidate_bundle` detects a file swapped in from a different execution |
+| `artifact-comparison.json` | Candidate backtest vs. incumbent backtest (apples-to-apples, both frozen held-out evaluations) in one block; the incumbent's real prospective forecast history in a **separate** block; the candidate's own prospective metrics are always `null` |
+| `promotion-review.json` | Human-readable; `recommendation` is always `HOLD_FOR_PROSPECTIVE_EVIDENCE` |
+
+**Never compares the incumbent's real prospective record against the candidate's backtest as if they were the same kind of evidence.** A freshly trained candidate has a real backtest the moment it's built, but zero prospective forecasts — it has never forecast a real fixture. The incumbent's own prospective metrics (from `report-forecast-performance`) are reported alongside the comparison purely for context, in their own clearly labeled block, never blended into the backtest-vs-backtest numbers.
+
+**Atomic, immutable, non-mutating**: every step runs in a private staging directory; `--output-dir` is created only after every verification has succeeded (a failure never leaves a partial candidate); `--output-dir` must not already exist (never silently overwritten); no model-admission-registry row, `classification_ceiling` change, promotion-threshold change, staking, ticket-construction, or active-artifact mutation of any kind.
+
+No scheduled/automatic retraining and no automatic promotion in this command — a human invokes it explicitly, and turning a candidate into anything more than "created and compared" is future, separate, human-controlled work. The next planned step is candidate **shadow forecasting**, so a candidate can accumulate its own real prospective history over the same fixtures the incumbent forecasts — only then does comparing the two prospectively become meaningful.
+
 ## Bet9ja capture ingestion (research batch preparation)
 
 Validates one assembled Bet9ja Soccer capture export (from

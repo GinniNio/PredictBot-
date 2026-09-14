@@ -422,6 +422,18 @@ def main(argv: list[str] | None = None) -> int:
 
         return report_forecast_performance_main(argv[1:])
 
+    # ``refresh-soccer-artifact`` is likewise additive -- see
+    # ``orchestration/soccer_artifact_refresh.py``'s own module docstring.
+    # CANDIDATE creation only, never promotion: builds a new, immutable
+    # candidate bundle from a training run and compares its backtest
+    # against the incumbent's, but never registers, classifies, or
+    # activates anything -- the currently shipped adapter artifact is
+    # never touched.
+    if argv and argv[0] == "refresh-soccer-artifact":
+        from .orchestration.soccer_artifact_refresh import main as refresh_soccer_artifact_main
+
+        return refresh_soccer_artifact_main(argv[1:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
     parser.add_argument("output", type=Path, nargs="?", help="Optional output JSON file")
