@@ -469,6 +469,21 @@ def main(argv: list[str] | None = None) -> int:
 
         return shadow_forecast_candidate_main(argv[1:])
 
+    # ``import-bet9ja-tickets`` is likewise additive -- see
+    # ``orchestration/bet9ja_ticket_import.py``'s own module docstring. It
+    # never reads a football-data.co.uk file: it records REAL PLACED
+    # tickets from a Bet9ja settled/open-bets capture into
+    # ``ledgers/betting_ledger.py`` (a required ``--currency`` argument on
+    # every ticket, structured per-fold-size stake buckets when the
+    # capture provides them, exact canonical-identity forecast linkage,
+    # never substring matching), never touching
+    # ``ledgers/forecast_ledger.py`` beyond reading it read-only to link
+    # legs, and never settles a ticket itself (a separate, later step).
+    if argv and argv[0] == "import-bet9ja-tickets":
+        from .orchestration.bet9ja_ticket_import import main as import_bet9ja_tickets_main
+
+        return import_bet9ja_tickets_main(argv[1:])
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Request JSON file")
     parser.add_argument("output", type=Path, nargs="?", help="Optional output JSON file")

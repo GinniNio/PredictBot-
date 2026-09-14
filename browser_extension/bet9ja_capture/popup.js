@@ -149,7 +149,7 @@ async function runTicketCapture() {
 
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    files: ['ids.js', 'ticket_parser.js', 'content.js'],
+    files: ['ids.js', 'stake_buckets.js', 'ticket_parser.js', 'content.js'],
   });
 
   const injectionResults = await chrome.scripting.executeScript({
@@ -627,7 +627,7 @@ async function pollSettledProgress(tabId) {
 async function runSettledBetsCapture(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ['ids.js', 'settled_bets_parser.js', 'content.js'],
+    files: ['ids.js', 'stake_buckets.js', 'settled_bets_parser.js', 'content.js'],
   });
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

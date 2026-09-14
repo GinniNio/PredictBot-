@@ -167,8 +167,10 @@
  */
 (function (root) {
   const Bet9jaIds = typeof module !== 'undefined' && module.exports ? require('./ids.js') : root.Bet9jaIds;
+  const Bet9jaStakeBuckets =
+    typeof module !== 'undefined' && module.exports ? require('./stake_buckets.js') : root.Bet9jaStakeBuckets;
 
-  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.4.0-round3-pagination-timing-fix';
+  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.5.0-structured-stake-buckets';
 
   // Confirmed via live authenticated inspection (Round 1). See the
   // REAL-DOM PROFILE header comment above for the full contract.
@@ -635,6 +637,13 @@
     const ticketTypeRaw = text(ticketEl.querySelector(SELECTORS.ticketType));
     const systemTableEl = ticketEl.querySelector(SELECTORS.systemTable);
     const systemTableRaw = systemTableEl ? text(systemTableEl) : null;
+    // Structured extraction from the table's own rows/cells -- see
+    // stake_buckets.js's own module docstring for exactly what this does
+    // and does not trust. `null` (never a partial result) whenever the
+    // table's real shape doesn't match what this parser assumes; the
+    // ledger importer falls back to its own from-totals derivation, and
+    // ultimately to quarantine, exactly as it already does today.
+    const stakeBuckets = Bet9jaStakeBuckets ? Bet9jaStakeBuckets.parseStakeBuckets(systemTableEl, legs.length) : null;
 
     // ROUND 1: no confirmed combination-breakdown selector exists yet.
     // Only ever populated when the page explicitly provides it -- never
@@ -677,6 +686,7 @@
         profit_loss: null,
         system_settlement: systemSettlement,
         system_table_raw: systemTableRaw,
+        stake_buckets: stakeBuckets,
         legs,
         captured_at_utc: capturedAtUtc,
         parser_version: PARSER_VERSION,
