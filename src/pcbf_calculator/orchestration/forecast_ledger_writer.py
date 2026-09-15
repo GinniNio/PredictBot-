@@ -188,6 +188,7 @@ from ledgers.storage import (  # noqa: E402
     _payload_equal_ignoring,
     decide_append,
     find_existing,
+    latest_state,
     read_all,
 )
 
@@ -196,6 +197,7 @@ __all__ = [
     "LedgerLockTimeoutError",
     "DEFAULT_LOCK_TIMEOUT_SECONDS",
     "REOBSERVATION_VOLATILE_KEYS",
+    "RESCHEDULE_TOLERATED_KEYS",
     "build_ledger_events",
     "write_batch",
 ]
@@ -248,6 +250,20 @@ REOBSERVATION_VOLATILE_KEYS = frozenset(
 # every single reobservation would still register a spurious difference
 # on created_at_utc and never actually classify as one.
 _REOBSERVATION_IGNORE_KEYS = REOBSERVATION_VOLATILE_KEYS | frozenset({"created_at_utc"})
+
+# The ADDITIONAL fields a genuine fixture reschedule (a postponement, a
+# kickoff-time correction) legitimately changes, on top of everything
+# REOBSERVATION_VOLATILE_KEYS already tolerates (a rescheduled fixture's
+# later capture also has fresh odds/provenance, exactly like any other
+# recapture). Deliberately just these two -- an ALLOWLIST, same fail-
+# closed discipline as REOBSERVATION_VOLATILE_KEYS above: canonical teams,
+# competition, model_version/artifact_hash, model_probabilities, and an
+# abstention's stop_reason are NEVER in this set, so a genuine change to
+# any of THOSE alongside a kickoff change is still a real CONFLICT, never
+# silently downgraded to a reschedule (see write_batch's own docstring).
+RESCHEDULE_TOLERATED_KEYS = frozenset({"kickoff_utc", "scheduled_date"})
+
+_RESCHEDULE_IGNORE_KEYS = _REOBSERVATION_IGNORE_KEYS | RESCHEDULE_TOLERATED_KEYS
 
 
 class LedgerBatchConflictError(Exception):
@@ -419,18 +435,49 @@ def build_ledger_events(result: dict[str, Any]) -> list[dict[str, Any]]:
     return events
 
 
+def _merged_recorded_payload(staged: list[dict[str, Any]], forecast_id: str) -> dict[str, Any]:
+    """The CURRENT merged view of ``forecast_id``'s own RECORDED payload,
+    with any already-applied ``FIXTURE_RESCHEDULED`` event's
+    ``kickoff_utc``/``scheduled_date`` folded in -- never the raw,
+    possibly-stale first-seen ``RECORDED`` payload alone. This is what a
+    later capture's own payload must be compared against: a fixture
+    already rescheduled once, recaptured again with that SAME (now
+    current) kickoff, must classify as a routine ``EXISTING_FIXTURE_
+    REOBSERVED`` (only odds/provenance differ), never trigger a second,
+    spurious reschedule attempt every single day forever. Strips
+    ``latest_state``'s own bookkeeping keys (``_event_types_seen``,
+    ``_event_count``, the id field itself) since the caller compares this
+    directly against a plain event payload dict, which never carries
+    them."""
+
+    state = latest_state(staged, "forecast_id", forecast_id)
+    state.pop("_event_types_seen", None)
+    state.pop("_event_count", None)
+    state.pop("forecast_id", None)
+    # FIXTURE_RESCHEDULED's own audit-only fields (old/new kickoff and
+    # scheduled_date -- see build_fixture_rescheduled_event) are never
+    # part of a RECORDED payload's own shape; strip them so this merged
+    # view compares cleanly against a plain event payload, which never
+    # carries them either.
+    state.pop("old_kickoff_utc", None)
+    state.pop("new_kickoff_utc", None)
+    state.pop("old_scheduled_date", None)
+    state.pop("new_scheduled_date", None)
+    return state
+
+
 def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, Any]:
     """Preflights the WHOLE batch -- against the ledger's current on-disk
     content, plus every earlier item in this same batch -- before writing
     a single byte (see this module's own docstring). Raises
     ``LedgerBatchConflictError`` and writes nothing if any item would
     genuinely conflict (an immutable field actually changed -- see
-    ``REOBSERVATION_VOLATILE_KEYS``); otherwise commits every NEW or
-    changed-only-in-volatile-fields item via the real
-    ``forecast_ledger.append_recorded`` (each real call is then
-    guaranteed to return only ``APPENDED`` or ``DUPLICATE_SKIPPED``,
-    never ``CONFLICT`` -- the preflight already ruled that out) and
-    returns a summary dict::
+    ``REOBSERVATION_VOLATILE_KEYS``); otherwise commits every NEW,
+    changed-only-in-volatile-fields, or changed-only-in-kickoff item via
+    the real ``forecast_ledger.append_recorded``/``append_fixture_
+    rescheduled`` (each real call is then guaranteed to return only
+    ``APPENDED`` or ``DUPLICATE_SKIPPED``, never ``CONFLICT`` -- the
+    preflight already ruled that out) and returns a summary dict::
 
         {
           "attempted": int,
@@ -438,6 +485,8 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
           "duplicate_skipped": int,
           "existing_fixture_reobserved": int,
           "existing_fixture_reobserved_forecast_ids": list[str],
+          "existing_fixture_rescheduled": int,
+          "existing_fixture_rescheduled_forecast_ids": list[str],
           "conflicted": int,   # always 0 on a successful return
           "total_ledger_records": int,  # RECORDED events now on disk
         }
@@ -451,6 +500,33 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
     nothing but moved bookmaker odds) still gets its new fixtures
     written -- see this module's own "First-seen forecasting" docstring
     section above.
+
+    **Fixture reschedules.** A later capture whose payload differs from
+    the fixture's CURRENT state (its original ``RECORDED`` row, plus any
+    ``FIXTURE_RESCHEDULED`` event already applied -- see
+    ``_merged_recorded_payload``) ONLY in ``kickoff_utc``/
+    ``scheduled_date`` (``RESCHEDULE_TOLERATED_KEYS``) -- on top of
+    whatever ``REOBSERVATION_VOLATILE_KEYS`` already tolerates -- is a
+    genuine reschedule, never a content conflict: this function appends a
+    ``FIXTURE_RESCHEDULED`` event (``forecast_ledger.
+    build_fixture_rescheduled_event``) carrying the old and new kickoff
+    (and scheduled_date), counted separately as
+    ``existing_fixture_rescheduled``. The original ``RECORDED`` row is
+    NEVER touched, replaced, or duplicated -- no new forecast is ever
+    generated for a rescheduled fixture, exactly like a reobservation.
+    Every OTHER field -- canonical teams/competition, ``model_version``/
+    ``artifact_hash``, ``model_probabilities``, an abstention's
+    ``stop_reason`` -- is still compared strictly: a genuine change to
+    ANY of those, even alongside a kickoff change, is still a real
+    ``CONFLICT`` (see ``RESCHEDULE_TOLERATED_KEYS``'s own comment). A
+    fixture already rescheduled once and recaptured again with that SAME
+    (now current) kickoff correctly classifies as a routine
+    ``existing_fixture_reobserved`` on the next run, never a second
+    reschedule attempt (comparison is always against the CURRENT merged
+    state, never the stale original). A SECOND, DIFFERENT reschedule for
+    the same fixture within one run is refused as a real conflict --
+    chaining more than one reschedule per fixture is out of scope for
+    this narrow fix.
 
     Holds an exclusive, OS-level lock (``ledgers.locking.exclusive_ledger_lock``)
     for this entire preflight-then-commit sequence, so two concurrent calls
@@ -466,22 +542,65 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
 
         conflicts: list[dict[str, Any]] = []
         reobserved_ids: list[str] = []
+        rescheduled_ids: list[str] = []
         skip_ids: set[str] = set()
+        reschedule_events_to_append: list[dict[str, Any]] = []
         for event in events:
             existing = find_existing(staged, "forecast_id", event["forecast_id"], event["event_type"])
             plan = decide_append(existing, event, ignore_keys_in_payload_comparison=frozenset({"created_at_utc"}))
             if plan.status == CONFLICT:
-                # A strict payload diff found a real difference -- but is
-                # every one of those differing keys one this fixture's
-                # own live market is EXPECTED to move on its own? If so
-                # this is a reobservation of the SAME first-seen fixture,
-                # never a real conflict: skip it (never appended, never
-                # compared against again -- the on-disk original is
-                # already staged and stays exactly as it is).
-                if _payload_equal_ignoring(
-                    existing.get("payload", {}), event.get("payload", {}), _REOBSERVATION_IGNORE_KEYS
-                ):
+                # A strict payload diff found a real difference against
+                # the ORIGINAL record -- but compare against the fixture's
+                # CURRENT merged state (folding in any reschedule already
+                # applied), not the stale original, before deciding what
+                # kind of difference this actually is.
+                merged_payload = _merged_recorded_payload(staged, event["forecast_id"])
+                if _payload_equal_ignoring(merged_payload, event.get("payload", {}), _REOBSERVATION_IGNORE_KEYS):
+                    # Every differing key is one this fixture's own live
+                    # market is EXPECTED to move on its own: a routine
+                    # reobservation, never a real conflict -- skip it
+                    # (never appended, never compared against again -- the
+                    # currently-staged state already reflects it).
                     reobserved_ids.append(event["forecast_id"])
+                    skip_ids.add(event["forecast_id"])
+                    continue
+                if _payload_equal_ignoring(merged_payload, event.get("payload", {}), _RESCHEDULE_IGNORE_KEYS):
+                    # The only OTHER differing keys are kickoff_utc/
+                    # scheduled_date: a genuine reschedule, not a content
+                    # conflict. Never rebuilds/replaces the original
+                    # RECORDED row -- only a new FIXTURE_RESCHEDULED event
+                    # is queued, itself preflighted below exactly like any
+                    # other event (idempotent re-import, hard conflict on
+                    # a second, different reschedule).
+                    reschedule_event = forecast_ledger.build_fixture_rescheduled_event(
+                        forecast_id=event["forecast_id"],
+                        old_kickoff_utc=merged_payload.get("kickoff_utc"),
+                        new_kickoff_utc=event["payload"].get("kickoff_utc"),
+                        old_scheduled_date=merged_payload.get("scheduled_date"),
+                        new_scheduled_date=event["payload"].get("scheduled_date"),
+                    )
+                    r_existing = find_existing(
+                        staged, "forecast_id", reschedule_event["forecast_id"], reschedule_event["event_type"]
+                    )
+                    r_plan = decide_append(
+                        r_existing, reschedule_event, ignore_keys_in_payload_comparison=frozenset({"created_at_utc"})
+                    )
+                    if r_plan.status == CONFLICT:
+                        conflicts.append(
+                            {
+                                "forecast_id": event["forecast_id"],
+                                "source_fixture_id": event["payload"].get("fixture_id"),
+                                "new": reschedule_event,
+                                "existing": r_plan.conflicting_record,
+                            }
+                        )
+                    elif r_plan.status == APPENDED:
+                        staged.append(reschedule_event)
+                        reschedule_events_to_append.append(reschedule_event)
+                        rescheduled_ids.append(event["forecast_id"])
+                    # DUPLICATE_SKIPPED: an identical reschedule is already
+                    # staged/on-disk -- nothing new to append, and this
+                    # forecast_id is still correctly skipped below either way.
                     skip_ids.add(event["forecast_id"])
                     continue
                 conflicts.append(
@@ -505,7 +624,7 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
         duplicate_skipped = 0
         for event in events:
             if event["forecast_id"] in skip_ids:
-                continue  # existing_fixture_reobserved -- never appended, original stays authoritative
+                continue  # existing_fixture_reobserved/rescheduled -- never appended, original stays authoritative
             result = forecast_ledger.append_recorded(ledger_path, event)
             if result.status == APPENDED:
                 appended += 1
@@ -517,12 +636,23 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
                     f"but the real append returned CONFLICT. This is a bug in this module's preflight logic."
                 )
 
+        for reschedule_event in reschedule_events_to_append:
+            r_result = forecast_ledger.append_fixture_rescheduled(ledger_path, reschedule_event)
+            if r_result.status not in (APPENDED, DUPLICATE_SKIPPED):  # pragma: no cover -- ruled out by the preflight above
+                raise AssertionError(
+                    f"Policy violation: preflight found no conflict for reschedule of "
+                    f"forecast_id={reschedule_event['forecast_id']!r}, but the real append returned CONFLICT. "
+                    "This is a bug in this module's preflight logic."
+                )
+
         return {
             "attempted": len(events),
             "appended": appended,
             "duplicate_skipped": duplicate_skipped,
             "existing_fixture_reobserved": len(reobserved_ids),
             "existing_fixture_reobserved_forecast_ids": sorted(set(reobserved_ids)),
+            "existing_fixture_rescheduled": len(rescheduled_ids),
+            "existing_fixture_rescheduled_forecast_ids": sorted(set(rescheduled_ids)),
             "conflicted": 0,
             "total_ledger_records": len(read_all(ledger_path)),
         }

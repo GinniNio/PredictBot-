@@ -418,6 +418,157 @@ class ReobservationTests(unittest.TestCase):
             self.assertEqual(len(read_all(ledger_path)), 1)
 
 
+class RescheduleTests(unittest.TestCase):
+    """Acceptance: a later capture of an already-recorded fixture whose
+    ONLY genuine difference (beyond what a routine reobservation already
+    tolerates) is its kickoff time is a real FIXTURE_RESCHEDULED event,
+    never a content conflict and never a second forecast -- the original
+    RECORDED row's own model_probabilities/forecast_cutoff stay exactly
+    as first recorded."""
+
+    def test_kickoff_only_recapture_is_rescheduled_not_conflicted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+            result = run_bet9ja_research_session(copy.deepcopy(envelope))
+            write_batch(ledger_path, build_ledger_events(result))
+            original_record = read_all(ledger_path)[0]
+            original_forecast_id = original_record["forecast_id"]
+            original_kickoff = original_record["payload"]["kickoff_utc"]
+
+            rescheduled_envelope = copy.deepcopy(envelope)
+            rescheduled_envelope["fixtures"][0]["kickoff_raw"] = "20:00"
+            rescheduled_result = run_bet9ja_research_session(rescheduled_envelope)
+            rescheduled_events = _force_created_at(
+                build_ledger_events(rescheduled_result), "2026-09-16T00:00:00+00:00"
+            )
+            new_kickoff = rescheduled_events[0]["payload"]["kickoff_utc"]
+            self.assertNotEqual(new_kickoff, original_kickoff)
+
+            summary = write_batch(ledger_path, rescheduled_events)  # never raises
+            self.assertEqual(summary["appended"], 0)
+            self.assertEqual(summary["existing_fixture_reobserved"], 0)
+            self.assertEqual(summary["existing_fixture_rescheduled"], 1)
+            self.assertEqual(summary["existing_fixture_rescheduled_forecast_ids"], [original_forecast_id])
+            self.assertEqual(summary["conflicted"], 0)
+
+            records = read_all(ledger_path)
+            self.assertEqual(len(records), 2)  # the original RECORDED row, plus one FIXTURE_RESCHEDULED event
+            recorded_rows = [r for r in records if r["event_type"] == "RECORDED"]
+            reschedule_rows = [r for r in records if r["event_type"] == "FIXTURE_RESCHEDULED"]
+            self.assertEqual(len(recorded_rows), 1)
+            self.assertEqual(len(reschedule_rows), 1)
+
+            # The original RECORDED row is byte-for-byte untouched -- its
+            # own kickoff/model_probabilities/forecast_cutoff never change.
+            self.assertEqual(recorded_rows[0], original_record)
+
+            reschedule_payload = reschedule_rows[0]["payload"]
+            self.assertEqual(reschedule_payload["old_kickoff_utc"], original_kickoff)
+            self.assertEqual(reschedule_payload["new_kickoff_utc"], new_kickoff)
+            self.assertEqual(reschedule_payload["kickoff_utc"], new_kickoff)
+
+    def test_rescheduled_fixture_never_gets_a_second_forecast(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+            write_batch(ledger_path, build_ledger_events(run_bet9ja_research_session(copy.deepcopy(envelope))))
+            original_probabilities = read_all(ledger_path)[0]["payload"]["model_probabilities"]
+
+            rescheduled_envelope = copy.deepcopy(envelope)
+            rescheduled_envelope["fixtures"][0]["kickoff_raw"] = "20:00"
+            rescheduled_events = _force_created_at(
+                build_ledger_events(run_bet9ja_research_session(rescheduled_envelope)), "2026-09-16T00:00:00+00:00"
+            )
+            write_batch(ledger_path, rescheduled_events)
+
+            recorded_rows = [r for r in read_all(ledger_path) if r["event_type"] == "RECORDED"]
+            self.assertEqual(len(recorded_rows), 1)
+            self.assertEqual(recorded_rows[0]["payload"]["model_probabilities"], original_probabilities)
+
+    def test_rerunning_the_same_reschedule_a_second_time_is_a_safe_no_op(self):
+        # The exact real-world shape this exists for: a rescheduled
+        # fixture's own odds keep moving on later days, at its NEW kickoff
+        # -- classified as a routine reobservation against the CURRENT
+        # (already-rescheduled) state, never a second reschedule attempt.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+            write_batch(ledger_path, build_ledger_events(run_bet9ja_research_session(copy.deepcopy(envelope))))
+
+            rescheduled_envelope = copy.deepcopy(envelope)
+            rescheduled_envelope["fixtures"][0]["kickoff_raw"] = "20:00"
+            rescheduled_events = _force_created_at(
+                build_ledger_events(run_bet9ja_research_session(copy.deepcopy(rescheduled_envelope))),
+                "2026-09-16T00:00:00+00:00",
+            )
+            first_summary = write_batch(ledger_path, rescheduled_events)
+            self.assertEqual(first_summary["existing_fixture_rescheduled"], 1)
+            self.assertEqual(len(read_all(ledger_path)), 2)
+
+            # Same (already-current) new kickoff, odds moved again -- a
+            # later day's recapture of the now-rescheduled fixture.
+            again_envelope = copy.deepcopy(rescheduled_envelope)
+            again_envelope["fixtures"][0]["offered_odds"]["H"] = 1.95
+            again_events = _force_created_at(
+                build_ledger_events(run_bet9ja_research_session(again_envelope)), "2026-09-17T00:00:00+00:00"
+            )
+            second_summary = write_batch(ledger_path, again_events)
+            self.assertEqual(second_summary["existing_fixture_rescheduled"], 0)
+            self.assertEqual(second_summary["existing_fixture_reobserved"], 1)
+            self.assertEqual(second_summary["conflicted"], 0)
+            self.assertEqual(len(read_all(ledger_path)), 2)  # never a second reschedule or RECORDED row
+
+    def test_a_team_change_alongside_a_kickoff_change_still_conflicts(self):
+        # A conflicting batch is never silently downgraded to a reschedule
+        # just because kickoff ALSO happened to move -- every differing
+        # key outside RESCHEDULE_TOLERATED_KEYS must still be tolerated on
+        # its own terms (here: none of them are).
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+            write_batch(ledger_path, build_ledger_events(run_bet9ja_research_session(copy.deepcopy(envelope))))
+
+            changed_envelope = copy.deepcopy(envelope)
+            changed_envelope["fixtures"][0]["kickoff_raw"] = "20:00"
+            changed_envelope["fixtures"][0]["participants"] = {"home": "Chelsea", "away": "Arsenal"}
+            changed_events = build_ledger_events(run_bet9ja_research_session(changed_envelope))
+
+            with self.assertRaises(LedgerBatchConflictError):
+                write_batch(ledger_path, changed_events)
+            self.assertEqual(len(read_all(ledger_path)), 1)
+
+    def test_mixed_batch_of_rescheduled_and_new_appends_only_the_new_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            write_batch(
+                ledger_path,
+                build_ledger_events(
+                    run_bet9ja_research_session(make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")]))
+                ),
+            )
+
+            mixed_envelope = make_envelope(
+                [ENGLAND_LEDGER_ENTRY],
+                [
+                    make_fixture(fixture_id="bxf_1", kickoff_raw="20:00"),
+                    make_fixture(fixture_id="bxf_2"),
+                ],
+            )
+            mixed_events = _force_created_at(
+                build_ledger_events(run_bet9ja_research_session(mixed_envelope)), "2026-09-16T00:00:00+00:00"
+            )
+            summary = write_batch(ledger_path, mixed_events)
+            self.assertEqual(summary["appended"], 1)
+            self.assertEqual(summary["existing_fixture_rescheduled"], 1)
+            self.assertEqual(summary["conflicted"], 0)
+
+            records = read_all(ledger_path)
+            self.assertEqual(len(records), 3)  # bxf_1 RECORDED + its FIXTURE_RESCHEDULED + bxf_2 RECORDED
+            fixture_ids = {r["payload"].get("fixture_id") for r in records if r["event_type"] == "RECORDED"}
+            self.assertEqual(fixture_ids, {"bxf_1", "bxf_2"})
+
+
 class ReconciliationTests(unittest.TestCase):
     """Acceptance: ranked and abstention counts reconcile with attempted
     ledger records."""
