@@ -838,6 +838,101 @@ class RunImportBatchSafetyTests(TmpLedgersMixin, unittest.TestCase):
         self.assertEqual(report["settled_against_pre_existing_placement"], 1)
         self.assertEqual(len(read_all(self.betting_ledger_path)), 2)  # never duplicated
 
+    def test_open_recapture_with_only_volatile_display_text_changed_is_a_safe_no_op(self):
+        importer.run_import(
+            [_open_single_ticket()],
+            currency="NGN",
+            betting_ledger_path=self.betting_ledger_path,
+            forecast_ledger_path=self.forecast_ledger_path,
+        )
+        # A recapture of the SAME still-open ticket, with only the kind of
+        # volatile display text Bet9ja's own capture embeds for an
+        # in-play match changed (a live score prefix, a different
+        # fixture_id derived from that same volatile text) -- everything
+        # that actually defines the placement (stake, odds, selection,
+        # ticket type, currency) is unchanged.
+        recaptured = _open_single_ticket(
+            captured_at_utc="2026-09-14T18:40:00.000Z",
+            legs=[
+                {
+                    "competition_raw": "Premier League",
+                    "fixture_and_time_raw": "1:0 LIVE Manchester Utd - Manchester City15 Sep 19:45",
+                    "fixture_id": "bxf_zzz_changed_live_score",
+                    "market_raw": "1X2",
+                    "odds": 1.9,
+                    "selection": "Manchester City",
+                    "selection_raw": "Manchester City",
+                }
+            ],
+        )
+        report = importer.run_import(
+            [recaptured],
+            currency="NGN",
+            betting_ledger_path=self.betting_ledger_path,
+            forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["quarantined"], 0)
+        self.assertEqual(report["accepted"], 1)
+        self.assertEqual(report["placed"]["attempted"], 0)
+        self.assertEqual(report["placed"]["appended"], 0)
+        self.assertEqual(report["open_recapture_confirmed_against_existing_placement"], 1)
+        records = read_all(self.betting_ledger_path)
+        self.assertEqual(len(records), 1)  # never duplicated or rebuilt
+        self.assertEqual(records[0]["payload"]["legs"][0]["fixture_id"], "bxf_aaa")  # original stays authoritative
+
+    def test_open_recapture_with_a_genuinely_different_stake_is_quarantined(self):
+        importer.run_import(
+            [_open_single_ticket()],
+            currency="NGN",
+            betting_ledger_path=self.betting_ledger_path,
+            forecast_ledger_path=self.forecast_ledger_path,
+        )
+        recaptured = _open_single_ticket(total_stake=99, unit_stake=99, potential_return=99 * 1.9)
+        report = importer.run_import(
+            [recaptured],
+            currency="NGN",
+            betting_ledger_path=self.betting_ledger_path,
+            forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["quarantined"], 1)
+        self.assertIn(
+            importer.REASON_PLACEMENT_MISMATCH_WITH_EXISTING_RECORD,
+            report["quarantine_reason_matrix"]["000111222"],
+        )
+        self.assertEqual(len(read_all(self.betting_ledger_path)), 1)  # nothing rebuilt or appended
+
+    def test_open_recapture_with_a_genuinely_different_selection_is_quarantined(self):
+        importer.run_import(
+            [_open_single_ticket()],
+            currency="NGN",
+            betting_ledger_path=self.betting_ledger_path,
+            forecast_ledger_path=self.forecast_ledger_path,
+        )
+        recaptured = _open_single_ticket(
+            legs=[
+                {
+                    "competition_raw": "Premier League",
+                    "fixture_and_time_raw": "Manchester Utd - Manchester City15 Sep 19:45",
+                    "fixture_id": "bxf_aaa",
+                    "market_raw": "1X2",
+                    "odds": 1.9,
+                    "selection": "Manchester Utd",
+                    "selection_raw": "Manchester Utd",
+                }
+            ],
+        )
+        report = importer.run_import(
+            [recaptured],
+            currency="NGN",
+            betting_ledger_path=self.betting_ledger_path,
+            forecast_ledger_path=self.forecast_ledger_path,
+        )
+        self.assertEqual(report["quarantined"], 1)
+        self.assertIn(
+            importer.REASON_PLACEMENT_MISMATCH_WITH_EXISTING_RECORD,
+            report["quarantine_reason_matrix"]["000111222"],
+        )
+
     def test_quarantined_tickets_never_block_accepted_siblings_in_the_same_batch(self):
         report = importer.run_import(
             [_open_single_ticket(), _open_single_ticket(bet9ja_ticket_id="qq", potential_return=None)],
@@ -850,10 +945,15 @@ class RunImportBatchSafetyTests(TmpLedgersMixin, unittest.TestCase):
         self.assertEqual(report["placed"]["appended"], 1)
         self.assertEqual(len(read_all(self.betting_ledger_path)), 1)
 
-    def test_a_genuine_placed_conflict_writes_nothing_at_all(self):
+    def test_a_genuine_mismatch_against_an_existing_placement_is_quarantined_not_written(self):
         # Pre-seed the ledger with a DIFFERENT ticket under the same
-        # external_ticket_ref -- the real conflict shape write_batch_placed
-        # itself already guarantees "all or nothing" for.
+        # external_ticket_ref. This ticket_id is now "already placed", so
+        # a later OPEN recapture of it is never rebuilt into a fresh
+        # PLACED event at all (see open_recapture_of_existing_placement) --
+        # a genuine disagreement (here: a different selection) is instead
+        # caught pre-emptively, as a typed quarantine reason, the same way
+        # REASON_SETTLEMENT_TICKET_MISMATCH already short-circuits before
+        # ever reaching write_batch_placed.
         conflicting = betting_ledger.build_placed_event(
             ticket_type="SINGLE",
             max_return="999.00",
@@ -878,7 +978,12 @@ class RunImportBatchSafetyTests(TmpLedgersMixin, unittest.TestCase):
             betting_ledger_path=self.betting_ledger_path,
             forecast_ledger_path=self.forecast_ledger_path,
         )
-        self.assertEqual(report["placed"]["conflicted"], 1)
+        self.assertEqual(report["quarantined"], 1)
+        self.assertIn(
+            importer.REASON_PLACEMENT_MISMATCH_WITH_EXISTING_RECORD,
+            report["quarantine_reason_matrix"]["000111222"],
+        )
+        self.assertEqual(report["placed"]["attempted"], 0)
         self.assertEqual(report["placed"]["appended"], 0)
         self.assertEqual(len(read_all(self.betting_ledger_path)), 1)  # only the pre-seeded record
 

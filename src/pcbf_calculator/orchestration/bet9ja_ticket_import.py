@@ -251,6 +251,13 @@ REASON_BUILD_FAILED = "TICKET_BUILD_FAILED"
 # placed"/"already terminal" handling below.
 REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN = "TICKET_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN"
 REASON_SETTLEMENT_TICKET_MISMATCH = "TICKET_SETTLEMENT_MISMATCH_WITH_EXISTING_PLACEMENT"
+# An OPEN-shaped recapture of an already-PLACED (not yet terminal) ticket
+# whose hard facts (ticket_type/total_stake/leg_count/currency/per-leg
+# selection+odds/system structure) disagree with what was actually placed
+# -- kept distinct from REASON_SETTLEMENT_TICKET_MISMATCH (that one is
+# specific to a settled capture) so a reader can always tell which capture
+# shape produced the disagreement.
+REASON_PLACEMENT_MISMATCH_WITH_EXISTING_RECORD = "TICKET_PLACEMENT_MISMATCH_WITH_EXISTING_RECORD"
 REASON_STAKE_BUCKETS_TOTAL_MISMATCH = "TICKET_STAKE_BUCKETS_TOTAL_MISMATCH"
 
 QUARANTINE_REASON_CODES = frozenset(
@@ -268,6 +275,7 @@ QUARANTINE_REASON_CODES = frozenset(
         REASON_BUILD_FAILED,
         REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN,
         REASON_SETTLEMENT_TICKET_MISMATCH,
+        REASON_PLACEMENT_MISMATCH_WITH_EXISTING_RECORD,
         REASON_STAKE_BUCKETS_TOTAL_MISMATCH,
     }
 )
@@ -559,6 +567,47 @@ def link_leg(raw_leg: dict[str, Any], forecast_index: ForecastIndex, anchor_utc:
     return LegLinkResult(forecast_id, fixture_id, MARKET_TYPE_1X2, selection, placed_odds, None if forecast_id else reason)
 
 
+def _open_recapture_mismatch(
+    existing_state: dict[str, Any],
+    *,
+    ticket_type_ok: bool,
+    ticket_type: str | None,
+    total_stake_ok: bool,
+    total_stake_d: Decimal | None,
+    raw_legs: list[dict[str, Any]],
+    currency: str,
+) -> bool:
+    """True when an OPEN-shaped recapture of an already-PLACED (not yet
+    terminal) ticket disagrees with what was actually placed, on any field
+    that is never expected to legitimately change between two captures of
+    the SAME placement -- ticket_type/total_stake/leg_count/currency
+    (mirrors the settled-capture mismatch check above) PLUS each leg's own
+    selection and placed odds (the settled check has no need for this --
+    a settled capture carries no per-leg odds/selection guarantee to
+    compare -- but an OPEN recapture does, and the whole point of this
+    check is to still catch a genuinely different bet hiding behind the
+    same bet9ja_ticket_id). Deliberately never compares volatile display
+    text (e.g. ``fixture_and_time_raw``'s live score/status prefix) --
+    that is exactly the kind of field this check exists to ignore."""
+
+    existing_legs = existing_state.get("legs") or []
+    if len(existing_legs) != len(raw_legs):
+        return True
+    for existing_leg, raw_leg in zip(existing_legs, raw_legs):
+        selection = raw_leg.get("selection") or raw_leg.get("selection_raw") or ""
+        if existing_leg.get("selection") != selection:
+            return True
+        raw_odds = raw_leg.get("odds")
+        placed_odds = str(raw_odds) if raw_odds is not None else None
+        if placed_odds is not None and existing_leg.get("placed_odds") != placed_odds:
+            return True
+    return (
+        (ticket_type_ok and existing_state.get("ticket_type") != ticket_type)
+        or (total_stake_ok and _to_decimal_or_none(existing_state.get("total_stake")) != total_stake_d)
+        or (existing_state.get("currency") != currency)
+    )
+
+
 def _to_decimal_or_none(value: Any) -> Decimal | None:
     if value is None:
         return None
@@ -604,23 +653,42 @@ def evaluate_ticket(
     LEDGER (``betting_ledger.latest_state``'s own merged shape, keyed by
     that same ticket_id) to its current state, as of BEFORE this run --
     ``run_import`` builds this once per call from the real ledger file.
-    It exists for exactly one reason: a ticket already PLACED, captured
-    again once it has settled, must never be treated as a brand-new
-    placement whose (structurally different -- see
-    ``settle_bookmaker_observed``'s own docstring) settled-shape payload
-    would spuriously CONFLICT with its own earlier, real PLACED record.
-    When this ticket's own ticket_id is already present here, this
-    function skips rebuilding a PLACED event entirely and settles
-    directly against the EXISTING one -- after cross-checking that the
-    settled capture's own ticket_type/total_stake/leg-count/currency
-    still agree with what was actually placed (``REASON_
-    SETTLEMENT_TICKET_MISMATCH`` if not -- a settled capture that
-    disagrees with its own recorded placement is never silently
-    trusted). A settled ticket's own ticket_id showing up again in an
-    OPEN-shaped capture (no ``ticket_status``) is refused outright
-    (``REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN``) -- the ledger has
-    no "un-settle" operation, and this module never pretends one is
-    needed by silently treating that capture as harmless."""
+    It exists for two related reasons, both about never letting a later
+    RECAPTURE of an already-PLACED ticket be treated as a brand-new
+    placement:
+
+    1. A ticket already PLACED, captured again once it has settled, has a
+       (structurally different -- see ``settle_bookmaker_observed``'s own
+       docstring) settled-shape payload that would spuriously CONFLICT
+       with its own earlier, real PLACED record. When this ticket's own
+       ticket_id is already present here, this function skips rebuilding
+       a PLACED event entirely and settles directly against the EXISTING
+       one -- after cross-checking that the settled capture's own
+       ticket_type/total_stake/leg-count/currency still agree with what
+       was actually placed (``REASON_SETTLEMENT_TICKET_MISMATCH`` if not
+       -- a settled capture that disagrees with its own recorded
+       placement is never silently trusted).
+
+    2. A ticket already PLACED, captured again while STILL open, carries
+       Bet9ja's own live score/status text embedded in each leg's display
+       fields -- text that changes on every recapture even though nothing
+       about the actual bet has. Rebuilding a fresh PLACED event from
+       that text would spuriously CONFLICT with the original, real one on
+       nothing but volatile display noise. This function instead treats
+       the original PLACED payload as authoritative and skips rebuilding
+       entirely (``open_recapture_of_existing_placement``), after
+       cross-checking the recapture's own hard facts -- ticket_type,
+       total_stake, leg count, currency, and each leg's own selection and
+       placed odds -- against what was actually placed
+       (``REASON_PLACEMENT_MISMATCH_WITH_EXISTING_RECORD`` if not; see
+       ``_open_recapture_mismatch``). A genuinely confirmed no-op
+       recapture writes neither a new PLACED nor SETTLED event.
+
+    A settled ticket's own ticket_id showing up again in an OPEN-shaped
+    capture (no ``ticket_status``) is refused outright (``REASON_
+    ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN``) -- the ledger has no
+    "un-settle" operation, and this module never pretends one is needed
+    by silently treating that capture as harmless."""
 
     bet9ja_id = raw_ticket.get("bet9ja_ticket_id")
     source_raw_hash = _sha256_of(raw_ticket)
@@ -671,6 +739,29 @@ def evaluate_ticket(
         # only because the two captures' payloads happen to still agree.
         reasons.append(REASON_ALREADY_SETTLED_CANNOT_REVERT_TO_OPEN)
 
+    open_recapture_of_existing_placement = not is_settled and already_placed and not already_terminal
+    if open_recapture_of_existing_placement:
+        # A still-OPEN ticket, captured again: Bet9ja's own display text
+        # for each leg (``fixture_and_time_raw``) embeds the live score
+        # and status label of an in-play match, so it changes on every
+        # recapture even though nothing about the actual bet has. The
+        # original PLACED payload is the authoritative record of what was
+        # placed; this recapture is only ever used to confirm it still
+        # agrees on every field that is NOT expected to move (see
+        # _open_recapture_mismatch's own docstring) -- never to rebuild
+        # or replace it. Ticket-type/stake validity are still checked
+        # above/below on their own terms either way.
+        if _open_recapture_mismatch(
+            existing_state,
+            ticket_type_ok=ticket_type_ok,
+            ticket_type=ticket_type,
+            total_stake_ok=total_stake_ok,
+            total_stake_d=total_stake_d,
+            raw_legs=raw_legs,
+            currency=currency,
+        ):
+            reasons.append(REASON_PLACEMENT_MISMATCH_WITH_EXISTING_RECORD)
+
     max_return: str | None = None
     actual_return_value: str | None = None
     leg_results: list[dict[str, Any]] | None = None
@@ -705,7 +796,12 @@ def evaluate_ticket(
             reasons.append(REASON_LEG_OUTCOME_MISSING)
         elif raw_legs:
             leg_results = built_leg_results
-    else:
+    elif not open_recapture_of_existing_placement:
+        # Skipped entirely for an OPEN recapture of an already-PLACED
+        # ticket (see open_recapture_of_existing_placement's own comment
+        # above) -- there is no new PLACED payload to build, so a
+        # recapture's own missing/unresolvable potential_return must
+        # never quarantine a confirmation that doesn't need it.
         max_return_raw = raw_ticket.get("potential_return")
         if max_return_raw is None:
             reasons.append(REASON_MISSING_MAX_RETURN)
@@ -750,7 +846,7 @@ def evaluate_ticket(
     stake_structure_known = True
     total_stake_arg: Any = None
 
-    if is_settled and already_placed:
+    if (is_settled and already_placed) or open_recapture_of_existing_placement:
         pass
     elif ticket_type_ok and ticket_type == "SYSTEM" and is_settled:
         stake_structure_known = False
@@ -856,6 +952,17 @@ def evaluate_ticket(
         )
         return TicketOutcome(
             bet9ja_ticket_id=bet9ja_id, status="ACCEPTED", event=None, settled_event=settled_event, unlinked_leg_count=0
+        )
+
+    if open_recapture_of_existing_placement:
+        # Confirmed-no-op path: this OPEN capture agrees with the ticket's
+        # existing PLACED record on every field that matters (see
+        # _open_recapture_mismatch) -- nothing new to write. The original
+        # PLACED payload remains the sole authoritative record; this
+        # recapture contributes neither a new PLACED nor SETTLED event.
+        return TicketOutcome(
+            bet9ja_ticket_id=bet9ja_id, status="ACCEPTED", event=None, settled_event=None,
+            unlinked_leg_count=unlinked_count,
         )
 
     try:
@@ -1003,6 +1110,14 @@ def run_import(
         # evaluate_ticket's own docstring.
         "settled_against_pre_existing_placement": sum(
             1 for o in accepted if o.event is None and o.settled_event is not None
+        ),
+        # An accepted ticket whose event AND settled_event are both None is
+        # a confirmed-no-op: an OPEN recapture of an already-PLACED ticket
+        # that still agrees with what was actually placed (see
+        # evaluate_ticket's open_recapture_of_existing_placement handling)
+        # -- nothing new was written to either ledger for it.
+        "open_recapture_confirmed_against_existing_placement": sum(
+            1 for o in accepted if o.event is None and o.settled_event is None
         ),
         "placed": {"attempted": 0, "appended": 0, "duplicate_skipped": 0, "conflicted": 0},
         "settled": {"attempted": 0, "appended": 0, "duplicate_skipped": 0, "conflicted": 0},
