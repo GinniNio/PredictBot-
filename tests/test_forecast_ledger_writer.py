@@ -89,6 +89,21 @@ def make_envelope(ledger, fixtures, summary=None, captured_at_utc=CAPTURED_AT_UT
     }
 
 
+def _force_created_at(events, value):
+    """created_at_utc is regenerated fresh on every build_recorded_event
+    call, so two builds a moment apart in a fast test can coincidentally
+    land in the same second and mask a real bug in the reobservation
+    classifier (which must ignore this field, but only this field, when
+    deciding whether a difference is "just a later day's capture").
+    Forces every event's own value to something deterministic and
+    different, so a reobservation test actually exercises that path
+    instead of accidentally passing on timing alone."""
+
+    for event in events:
+        event["payload"]["created_at_utc"] = value
+    return events
+
+
 ENGLAND_LEDGER_ENTRY = {"competition_id": "2000001", "country": "England", "competition": "Premier League", "status": "COMPLETED"}
 NIGERIA_LEDGER_ENTRY = {"competition_id": "1209691", "country": "Nigeria", "competition": "Professional Football League", "status": "COMPLETED"}
 
@@ -195,10 +210,13 @@ class IdempotentReplayTests(unittest.TestCase):
 
 
 class ConflictDetectionTests(unittest.TestCase):
-    """Acceptance: changed content under an existing natural key fails as
-    a conflict, and preflight leaves a mixed batch entirely unwritten."""
+    """Acceptance: a genuine change to an IMMUTABLE identity field under
+    an existing natural key still fails as a real conflict, and preflight
+    still leaves a mixed batch entirely unwritten. A pure odds change is
+    no longer a conflict at all -- see ReobservationTests below for that
+    policy (first-seen forecasting)."""
 
-    def test_changed_rerun_fails_before_any_append(self):
+    def test_changed_immutable_identity_fails_before_any_append(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
@@ -206,8 +224,12 @@ class ConflictDetectionTests(unittest.TestCase):
             write_batch(ledger_path, build_ledger_events(result))
             self.assertEqual(len(read_all(ledger_path)), 1)
 
+            # The SAME fixture_id now resolves to different opponents --
+            # an actual identity problem (real captures never legitimately
+            # do this), never something a live market's own odds movement
+            # could ever explain away.
             changed_envelope = copy.deepcopy(envelope)
-            changed_envelope["fixtures"][0]["offered_odds"]["H"] = 2.05  # real, modest change
+            changed_envelope["fixtures"][0]["participants"] = {"home": "Chelsea", "away": "Arsenal"}
             changed_result = run_bet9ja_research_session(changed_envelope)
             changed_events = build_ledger_events(changed_result)
 
@@ -216,6 +238,26 @@ class ConflictDetectionTests(unittest.TestCase):
             self.assertEqual(len(ctx.exception.conflicts), 1)
             self.assertIn("bxf_1", str(ctx.exception))
             # Ledger completely unchanged -- still exactly the one original record.
+            self.assertEqual(len(read_all(ledger_path)), 1)
+
+    def test_odds_change_alongside_an_immutable_change_still_conflicts(self):
+        # A conflicting batch is never silently downgraded to a
+        # reobservation just because odds ALSO happened to move --
+        # every differing key must be volatile for that classification.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+            result = run_bet9ja_research_session(copy.deepcopy(envelope))
+            write_batch(ledger_path, build_ledger_events(result))
+
+            changed_envelope = copy.deepcopy(envelope)
+            changed_envelope["fixtures"][0]["offered_odds"]["H"] = 2.05
+            changed_envelope["fixtures"][0]["participants"] = {"home": "Chelsea", "away": "Arsenal"}
+            changed_result = run_bet9ja_research_session(changed_envelope)
+            changed_events = build_ledger_events(changed_result)
+
+            with self.assertRaises(LedgerBatchConflictError):
+                write_batch(ledger_path, changed_events)
             self.assertEqual(len(read_all(ledger_path)), 1)
 
     def test_mixed_valid_and_conflicting_batch_remains_fully_atomic(self):
@@ -228,12 +270,13 @@ class ConflictDetectionTests(unittest.TestCase):
             self.assertEqual(len(read_all(ledger_path)), 1)
 
             # A batch with one genuinely NEW fixture (bxf_2, would append
-            # cleanly) plus one CHANGED bxf_1 (would conflict) -- the
-            # whole batch must be rejected, including the clean item.
+            # cleanly) plus one bxf_1 whose IMMUTABLE identity changed
+            # (would conflict) -- the whole batch must be rejected,
+            # including the clean item.
             mixed_envelope = make_envelope(
                 [ENGLAND_LEDGER_ENTRY],
                 [
-                    make_fixture(fixture_id="bxf_1", odds={"H": 2.05, "D": 3.4, "A": 4.3}),
+                    make_fixture(fixture_id="bxf_1", home="Chelsea", away="Arsenal"),
                     make_fixture(fixture_id="bxf_2", home="Nonexistent FC"),  # abstention, still a real batch item
                 ],
             )
@@ -249,6 +292,130 @@ class ConflictDetectionTests(unittest.TestCase):
             records = read_all(ledger_path)
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["payload"]["fixture_id"], "bxf_1")
+
+
+class ReobservationTests(unittest.TestCase):
+    """Acceptance: first-seen forecasting -- a later capture of an
+    already-recorded fixture, differing only in fields a live market is
+    EXPECTED to move on its own, is EXISTING_FIXTURE_REOBSERVED (skipped,
+    original stays authoritative), never a conflict, and never blocks
+    genuinely new fixtures in the same batch."""
+
+    def test_odds_only_recapture_is_reobserved_not_conflicted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+            result = run_bet9ja_research_session(copy.deepcopy(envelope))
+            write_batch(ledger_path, build_ledger_events(result))
+            original_record = read_all(ledger_path)[0]
+
+            recaptured_envelope = copy.deepcopy(envelope)
+            recaptured_envelope["fixtures"][0]["offered_odds"] = {"H": 2.05, "D": 3.6, "A": 3.9}
+            recaptured_result = run_bet9ja_research_session(recaptured_envelope)
+            recaptured_events = _force_created_at(build_ledger_events(recaptured_result), "2026-09-16T00:00:00+00:00")
+
+            summary = write_batch(ledger_path, recaptured_events)  # never raises
+            self.assertEqual(summary["appended"], 0)
+            self.assertEqual(summary["duplicate_skipped"], 0)
+            self.assertEqual(summary["existing_fixture_reobserved"], 1)
+            self.assertEqual(summary["existing_fixture_reobserved_forecast_ids"], [original_record["forecast_id"]])
+            self.assertEqual(summary["conflicted"], 0)
+
+            # The original record is untouched -- its own (older) odds
+            # are still exactly what's on disk, never overwritten with
+            # today's.
+            records = read_all(ledger_path)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0], original_record)
+            self.assertEqual(records[0]["payload"]["offered_odds"]["H"], 1.9)
+
+    def test_mixed_batch_of_reobserved_and_new_appends_only_the_new_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            seed_envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+            write_batch(ledger_path, build_ledger_events(run_bet9ja_research_session(seed_envelope)))
+
+            # bxf_1 recaptured with moved odds (reobserved) alongside a
+            # genuinely new bxf_2 (appended) -- exactly today's real
+            # scenario: yesterday's fixtures reobserved, a handful new.
+            mixed_envelope = make_envelope(
+                [ENGLAND_LEDGER_ENTRY],
+                [
+                    make_fixture(fixture_id="bxf_1", odds={"H": 2.05, "D": 3.4, "A": 4.3}),
+                    make_fixture(fixture_id="bxf_2"),
+                ],
+            )
+            mixed_events = _force_created_at(
+                build_ledger_events(run_bet9ja_research_session(mixed_envelope)), "2026-09-16T00:00:00+00:00"
+            )
+            summary = write_batch(ledger_path, mixed_events)
+            self.assertEqual(summary["appended"], 1)
+            self.assertEqual(summary["existing_fixture_reobserved"], 1)
+            self.assertEqual(summary["conflicted"], 0)
+
+            records = read_all(ledger_path)
+            self.assertEqual(len(records), 2)
+            fixture_ids = {r["payload"]["fixture_id"] for r in records}
+            self.assertEqual(fixture_ids, {"bxf_1", "bxf_2"})
+
+    def test_reobservation_never_blocks_repeated_daily_reruns(self):
+        # The exact real-world shape this policy exists for: the SAME
+        # still-open fixture recaptured on three separate days, odds
+        # moving each time, never once raising or losing data.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+            write_batch(ledger_path, build_ledger_events(run_bet9ja_research_session(copy.deepcopy(envelope))))
+
+            for day_number, h_odds in enumerate((1.95, 2.0, 2.1), start=1):
+                day_envelope = copy.deepcopy(envelope)
+                day_envelope["fixtures"][0]["offered_odds"]["H"] = h_odds
+                day_events = _force_created_at(
+                    build_ledger_events(run_bet9ja_research_session(day_envelope)),
+                    f"2026-09-{15 + day_number:02d}T00:00:00+00:00",
+                )
+                summary = write_batch(ledger_path, day_events)
+                self.assertEqual(summary["existing_fixture_reobserved"], 1)
+                self.assertEqual(summary["conflicted"], 0)
+
+            records = read_all(ledger_path)
+            self.assertEqual(len(records), 1)  # still exactly one immutable snapshot, ever
+            self.assertEqual(records[0]["payload"]["offered_odds"]["H"], 1.9)  # the FIRST-seen odds, forever
+
+    def test_a_manually_changed_model_probability_is_still_a_real_conflict(self):
+        # model_probabilities is immutable per this module's own policy --
+        # exercised directly (rather than through two real adapter runs,
+        # since the real adapter is deterministic and would never itself
+        # produce a different probability for the identical team pair) to
+        # confirm the classifier itself, not just the common case.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+            events = build_ledger_events(run_bet9ja_research_session(copy.deepcopy(envelope)))
+            write_batch(ledger_path, events)
+
+            tampered = copy.deepcopy(events)
+            probs = tampered[0]["payload"]["model_probabilities"]
+            tampered[0]["payload"]["model_probabilities"] = {"H": probs["A"], "D": probs["D"], "A": probs["H"]}
+
+            with self.assertRaises(LedgerBatchConflictError):
+                write_batch(ledger_path, tampered)
+            self.assertEqual(len(read_all(ledger_path)), 1)
+
+    def test_a_manually_changed_stop_reason_is_still_a_real_conflict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1", home="Nonexistent FC")])
+            events = build_ledger_events(run_bet9ja_research_session(copy.deepcopy(envelope)))
+            self.assertIsNotNone(events[0]["payload"]["stop_reason"])
+            write_batch(ledger_path, events)
+
+            tampered = copy.deepcopy(events)
+            tampered[0]["payload"]["stop_reason"] = "FORECAST_SOME_OTHER_REASON"
+
+            with self.assertRaises(LedgerBatchConflictError):
+                write_batch(ledger_path, tampered)
+            self.assertEqual(len(read_all(ledger_path)), 1)
 
 
 class ReconciliationTests(unittest.TestCase):
@@ -393,8 +560,10 @@ class LedgerDirCliOptionTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0)
 
+            # A genuine identity change (never a pure odds move -- that's
+            # now a reobservation, exercised by the next test below).
             changed_envelope = copy.deepcopy(envelope)
-            changed_envelope["fixtures"][0]["offered_odds"]["H"] = 2.05
+            changed_envelope["fixtures"][0]["participants"] = {"home": "Chelsea", "away": "Arsenal"}
             changed_input_path = tmp_path / "changed-capture.json"
             changed_input_path.write_text(json.dumps(changed_envelope), encoding="utf-8")
 
@@ -405,6 +574,39 @@ class LedgerDirCliOptionTests(unittest.TestCase):
             self.assertEqual(exit_code, 2)
             self.assertFalse(output_dir_2.exists())
             self.assertEqual(len(read_all(ledger_dir / "forecast-ledger.jsonl")), 1)
+
+    def test_odds_only_recapture_ledger_dir_run_exits_zero_and_still_writes_research_outputs(self):
+        # The exact real-world case this policy fixes: a later day's
+        # capture of the SAME fixture, odds moved, must succeed (exit 0)
+        # and still produce that day's own research output files --
+        # never treated as a conflict, and the ledger keeps exactly one
+        # immutable record for the fixture, not two.
+        envelope = make_envelope([ENGLAND_LEDGER_ENTRY], [make_fixture(fixture_id="bxf_1")])
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            input_path = tmp_path / "capture.json"
+            input_path.write_text(json.dumps(envelope), encoding="utf-8")
+            ledger_dir = tmp_path / "ledger_data"
+
+            exit_code = session_main(
+                [str(input_path), "--output-dir", str(tmp_path / "out1"), "--ledger-dir", str(ledger_dir)]
+            )
+            self.assertEqual(exit_code, 0)
+
+            recaptured_envelope = copy.deepcopy(envelope)
+            recaptured_envelope["fixtures"][0]["offered_odds"]["H"] = 2.05
+            recaptured_input_path = tmp_path / "recaptured-capture.json"
+            recaptured_input_path.write_text(json.dumps(recaptured_envelope), encoding="utf-8")
+
+            output_dir_2 = tmp_path / "out2"
+            exit_code = session_main(
+                [str(recaptured_input_path), "--output-dir", str(output_dir_2), "--ledger-dir", str(ledger_dir)]
+            )
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((output_dir_2 / "research-session-report.json").exists())
+            records = read_all(ledger_dir / "forecast-ledger.jsonl")
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["payload"]["offered_odds"]["H"], 1.9)  # first-seen odds, never overwritten
 
 
 if __name__ == "__main__":

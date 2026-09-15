@@ -16,6 +16,55 @@ decision primitives ``append_if_new`` itself is built on -- see
 batch preflight, so "would this be a duplicate or a conflict" is decided
 by exactly one piece of logic everywhere in this codebase, never two.
 
+**First-seen forecasting -- a recapture is never a second forecast.**
+Re-running this pipeline against a LATER capture of a fixture that is
+still pre-match re-derives the SAME ``forecast_id`` (natural key:
+``fixture_id``/``market_type``/``model_version`` -- never a function of
+when it was captured), but with the bookmaker's own odds having moved in
+the meantime -- a real, expected fact about a live market, not a
+different forecast. Recording a SECOND, later snapshot under the SAME
+``forecast_id`` would let one eventual result get scored against two
+different market-comparison baselines, distorting this ledger's own
+performance evidence (``ledgers/summary.py``, ``forecast_performance_report.py``).
+So the FIRST recorded snapshot for a given ``(fixture, market, model)``
+stays immutable, permanently -- ``write_batch`` classifies a later
+capture of it as ``EXISTING_FIXTURE_REOBSERVED`` (skipped, exactly like
+a true duplicate, but tallied separately so a caller can tell "already
+recorded, nothing new" apart from "byte-identical resubmission") whenever
+the only fields that differ are the ones a live market is EXPECTED to
+move on its own -- ``offered_odds``, the odds-derived
+``market_devig_probabilities``, ``input_hash``/``output_hash`` (both
+derived from those same odds), and this capture's own provenance
+(``capture_id``/``source``/``captured_at_utc``) -- see
+``REOBSERVATION_VOLATILE_KEYS`` below for the exhaustive list. Every
+OTHER payload field is compared strictly: a genuine change to a
+fixture's canonical teams/competition/kickoff, its ``model_version``/
+``artifact_hash``, its ``model_probabilities`` (the model's own
+computed forecast, which must not silently change once recorded), or
+(for an abstention) its typed ``stop_reason``, is still a real
+``CONFLICT`` -- exactly as before this policy existed -- since none of
+those SHOULD ever legitimately differ for the identical fixture/model
+pairing; a difference there means something is actually wrong (a bad
+capture, an identity collision, a non-deterministic model), not routine
+market movement, and must still block the whole batch rather than being
+silently accepted. A fixture never before seen (no existing record under
+its ``forecast_id`` at all) is, as always, a plain ``APPENDED`` -- this
+is how today's genuinely new fixtures still get recorded even in the
+same batch as yesterday's reobserved ones.
+
+Deliberately NOT built here: a separate ledger recording every day's
+LATER odds observation for closing-line-movement analysis. Nothing in
+this module discards that information -- a reobserved event's own
+``offered_odds``/``market_devig_probabilities``/``captured_at_utc`` are
+still visible in the ``forecast-research-ranked.json``/
+``forecast-abstentions.json`` output files ``run_bet9ja_research_session``
+already writes for THAT capture's own run, and in
+``write_batch``'s own returned ``existing_fixture_reobserved_forecast_ids``
+-- only the forecast LEDGER itself, whose whole purpose is one immutable
+scored snapshot per fixture, declines to also become a running log of
+every day's price. A dedicated market-observation ledger remains a
+clean, additive option if that analysis is ever actually needed.
+
 **Atomic batch write.** ``write_batch`` preflights the WHOLE batch --
 against the ledger's current on-disk content, plus every earlier item in
 this same batch (an intra-batch duplicate resolves against the batch's
@@ -136,6 +185,7 @@ from ledgers.storage import (  # noqa: E402
     APPENDED,
     CONFLICT,
     DUPLICATE_SKIPPED,
+    _payload_equal_ignoring,
     decide_append,
     find_existing,
     read_all,
@@ -145,6 +195,7 @@ __all__ = [
     "LedgerBatchConflictError",
     "LedgerLockTimeoutError",
     "DEFAULT_LOCK_TIMEOUT_SECONDS",
+    "REOBSERVATION_VOLATILE_KEYS",
     "build_ledger_events",
     "write_batch",
 ]
@@ -161,6 +212,42 @@ SELECTION_STATUS = "considered"
 # narrowly-scoped correspondence, never guessed from string similarity.
 _PROBABILITY_OUTCOME_MAP = {"home_win": "H", "draw": "D", "away_win": "A"}
 _MARKET_PRICE_OUTCOME_MAP = {"home": "H", "draw": "D", "away": "A"}
+
+# Payload fields a live bookmaker market is EXPECTED to move on its own,
+# for the exact same underlying fixture -- see this module's own
+# "First-seen forecasting" docstring section above for the full policy.
+# An ALLOWLIST, not a denylist: every field NOT named here is compared
+# strictly, so a newly-added payload field defaults to blocking a real
+# conflict (fail closed) rather than silently being ignored.
+#   - offered_odds / market_devig_probabilities: the bookmaker's own
+#     current price and its de-vigged fair probability, both expected to
+#     differ from one day's capture to the next for an unresolved fixture.
+#   - input_hash / output_hash: both derived FROM offered_odds by the
+#     pricing engine, so they change whenever the odds do, even though
+#     nothing about the fixture or the model itself changed.
+#   - capture_id / source / captured_at_utc: this capture RUN's own
+#     provenance (which session captured it, when) -- expected to be
+#     different every time this pipeline runs, by definition.
+REOBSERVATION_VOLATILE_KEYS = frozenset(
+    {
+        "offered_odds",
+        "market_devig_probabilities",
+        "input_hash",
+        "output_hash",
+        "capture_id",
+        "source",
+        "captured_at_utc",
+    }
+)
+
+# The reobservation check must ignore everything decide_append's own
+# plain-conflict check already ignores (created_at_utc -- regenerated
+# fresh on every build_recorded_event call, so it always differs between
+# two separate builds regardless of whether anything real changed) PLUS
+# every genuinely volatile field above -- never just the latter alone, or
+# every single reobservation would still register a spurious difference
+# on created_at_utc and never actually classify as one.
+_REOBSERVATION_IGNORE_KEYS = REOBSERVATION_VOLATILE_KEYS | frozenset({"created_at_utc"})
 
 
 class LedgerBatchConflictError(Exception):
@@ -337,7 +424,9 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
     content, plus every earlier item in this same batch -- before writing
     a single byte (see this module's own docstring). Raises
     ``LedgerBatchConflictError`` and writes nothing if any item would
-    conflict; otherwise commits every item via the real
+    genuinely conflict (an immutable field actually changed -- see
+    ``REOBSERVATION_VOLATILE_KEYS``); otherwise commits every NEW or
+    changed-only-in-volatile-fields item via the real
     ``forecast_ledger.append_recorded`` (each real call is then
     guaranteed to return only ``APPENDED`` or ``DUPLICATE_SKIPPED``,
     never ``CONFLICT`` -- the preflight already ruled that out) and
@@ -347,9 +436,22 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
           "attempted": int,
           "appended": int,
           "duplicate_skipped": int,
+          "existing_fixture_reobserved": int,
+          "existing_fixture_reobserved_forecast_ids": list[str],
           "conflicted": int,   # always 0 on a successful return
           "total_ledger_records": int,  # RECORDED events now on disk
         }
+
+    An item classified ``existing_fixture_reobserved`` is a fixture whose
+    FIRST recorded snapshot already exists under its own ``forecast_id``
+    -- this call never appends a second one, never touches the original,
+    and never raises for it; the original stays the sole, immutable,
+    authoritative record. This is exactly how a batch that mixes
+    genuinely new fixtures with already-recorded ones (recaptured with
+    nothing but moved bookmaker odds) still gets its new fixtures
+    written -- see this module's own "First-seen forecasting" docstring
+    section above.
+
     Holds an exclusive, OS-level lock (``ledgers.locking.exclusive_ledger_lock``)
     for this entire preflight-then-commit sequence, so two concurrent calls
     against the same ``ledger_path`` (from separate processes) cannot
@@ -363,10 +465,25 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
         staged: list[dict[str, Any]] = list(on_disk)
 
         conflicts: list[dict[str, Any]] = []
+        reobserved_ids: list[str] = []
+        skip_ids: set[str] = set()
         for event in events:
             existing = find_existing(staged, "forecast_id", event["forecast_id"], event["event_type"])
             plan = decide_append(existing, event, ignore_keys_in_payload_comparison=frozenset({"created_at_utc"}))
             if plan.status == CONFLICT:
+                # A strict payload diff found a real difference -- but is
+                # every one of those differing keys one this fixture's
+                # own live market is EXPECTED to move on its own? If so
+                # this is a reobservation of the SAME first-seen fixture,
+                # never a real conflict: skip it (never appended, never
+                # compared against again -- the on-disk original is
+                # already staged and stays exactly as it is).
+                if _payload_equal_ignoring(
+                    existing.get("payload", {}), event.get("payload", {}), _REOBSERVATION_IGNORE_KEYS
+                ):
+                    reobserved_ids.append(event["forecast_id"])
+                    skip_ids.add(event["forecast_id"])
+                    continue
                 conflicts.append(
                     {
                         "forecast_id": event["forecast_id"],
@@ -387,6 +504,8 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
         appended = 0
         duplicate_skipped = 0
         for event in events:
+            if event["forecast_id"] in skip_ids:
+                continue  # existing_fixture_reobserved -- never appended, original stays authoritative
             result = forecast_ledger.append_recorded(ledger_path, event)
             if result.status == APPENDED:
                 appended += 1
@@ -402,6 +521,8 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
             "attempted": len(events),
             "appended": appended,
             "duplicate_skipped": duplicate_skipped,
+            "existing_fixture_reobserved": len(reobserved_ids),
+            "existing_fixture_reobserved_forecast_ids": sorted(set(reobserved_ids)),
             "conflicted": 0,
             "total_ledger_records": len(read_all(ledger_path)),
         }

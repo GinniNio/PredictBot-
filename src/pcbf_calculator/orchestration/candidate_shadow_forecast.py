@@ -927,7 +927,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(
         f"LEDGER: {summary['attempted']} attempted, {summary['appended']} appended, "
-        f"{summary['duplicate_skipped']} duplicate-skipped, {summary['conflicted']} conflicted "
+        f"{summary['duplicate_skipped']} duplicate-skipped, "
+        f"{summary['existing_fixture_reobserved']} existing-fixture-reobserved, "
+        f"{summary['conflicted']} conflicted "
         f"({summary['total_ledger_records']} total records) -> {result['ledger_path']}"
     )
     return 0
