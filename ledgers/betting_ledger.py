@@ -428,7 +428,10 @@ def append_placed(ledger_path: Path, event: dict[str, Any]) -> AppendResult:
     """Idempotently append a PLACED event built by
     ``build_placed_event``."""
 
-    return append_if_new(ledger_path, event, id_field="ticket_id", ignore_keys_in_payload_comparison=frozenset({"placed_at_utc"}))
+    return append_if_new(
+        ledger_path, event, id_field="ticket_id",
+        ignore_keys_in_payload_comparison=frozenset({"placed_at_utc", "source_raw", "source_raw_hash"}),
+    )
 
 
 def place_ticket_checked(betting_ledger_path: Path, forecast_ledger_path: Path, event: dict[str, Any]) -> AppendResult:
@@ -761,7 +764,10 @@ def write_batch_placed(ledger_path: Path, events: list[dict[str, Any]]) -> dict[
         conflicts: list[dict[str, Any]] = []
         for event in events:
             existing = find_existing(staged, "ticket_id", event["ticket_id"], event["event_type"])
-            plan = decide_append(existing, event, ignore_keys_in_payload_comparison=frozenset({"placed_at_utc"}))
+            plan = decide_append(
+                existing, event,
+                ignore_keys_in_payload_comparison=frozenset({"placed_at_utc", "source_raw", "source_raw_hash"}),
+            )
             if plan.status == CONFLICT:
                 conflicts.append({"ticket_id": event["ticket_id"], "new": event, "existing": plan.conflicting_record})
             elif plan.status == APPENDED:
