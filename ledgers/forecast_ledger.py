@@ -40,6 +40,30 @@ list):
   result/closing-odds input is a safe no-op (never a duplicated score);
   re-scoring with a DIFFERENT result or closing odds is refused as a
   conflict, never silently overwriting the original score.
+- ``FIXTURE_RESCHEDULED`` -- appended when a LATER capture of an
+  already-recorded fixture reports a genuinely different ``kickoff_utc``
+  (and/or the ``scheduled_date`` derived from it) with every other
+  identity/model field unchanged -- a real postponement/rescheduling, not
+  a content conflict. The original ``RECORDED`` row is NEVER touched or
+  replaced (its own ``model_probabilities``/``forecast_cutoff_utc``/
+  ``captured_at_utc`` remain the immutable first-seen snapshot); this
+  event only carries ``old_kickoff_utc``/``new_kickoff_utc`` (and the
+  matching ``old_scheduled_date``/``new_scheduled_date``) plus a
+  top-level ``kickoff_utc``/``scheduled_date`` mirroring the NEW values,
+  so ``latest_state`` (which merges every event's payload in file order)
+  reflects the fixture's CURRENT scheduled time to any reader -- e.g.
+  ``pcbf_calculator.orchestration.football_data_settlement``'s own
+  settlement-matching index, which already keys off ``latest_state``'s
+  merged ``scheduled_date`` and therefore needs no code change at all to
+  pick this up. Idempotent the same way ``RECORDED`` is
+  (``storage.append_if_new``): re-importing the identical reschedule is a
+  safe no-op; a SECOND, DIFFERENT reschedule for the same forecast_id
+  (this ledger has only ever recorded one so far) is refused as a
+  conflict rather than silently chained -- see
+  ``pcbf_calculator.orchestration.forecast_ledger_writer``'s own
+  docstring for the caller-side classification logic that decides when a
+  later capture counts as a reschedule versus a genuine conflict versus a
+  routine odds-only reobservation.
 
 This module never trains, modifies, registers, or reclassifies a model --
 it only records and scores forecasts a model already produced.
@@ -76,6 +100,7 @@ SCHEMA_NAME = "forecast_ledger.v1"
 EVENT_RECORDED = "RECORDED"
 EVENT_SELECTION_UPDATED = "SELECTION_UPDATED"
 EVENT_SCORED = "SCORED"
+EVENT_FIXTURE_RESCHEDULED = "FIXTURE_RESCHEDULED"
 
 TERMINAL_EVENTS = {EVENT_SCORED}
 
@@ -310,6 +335,56 @@ def append_recorded(ledger_path: Path, event: dict[str, Any]) -> AppendResult:
     then defaults to "now"), must still compare as the same forecast."""
 
     return append_if_new(ledger_path, event, id_field="forecast_id", ignore_keys_in_payload_comparison=frozenset({"created_at_utc"}))
+
+
+def build_fixture_rescheduled_event(
+    *,
+    forecast_id: str,
+    old_kickoff_utc: str | None,
+    new_kickoff_utc: str | None,
+    old_scheduled_date: str | None = None,
+    new_scheduled_date: str | None = None,
+    created_at_utc: str | None = None,
+) -> dict[str, Any]:
+    """Build (never appends) one ``FIXTURE_RESCHEDULED`` event for an
+    ALREADY-recorded ``forecast_id``. ``kickoff_utc``/``scheduled_date``
+    at the payload's top level mirror the NEW values verbatim -- see this
+    module's own docstring for why that is exactly what lets
+    ``latest_state`` reflect the fixture's current schedule to every
+    reader with no other code change. ``old_kickoff_utc``/
+    ``new_kickoff_utc`` (and the matching ``*_scheduled_date`` pair) are
+    kept as their own separate fields so the reschedule itself -- what it
+    actually was -- is never lost once a later event's merge overwrites
+    the top-level ``kickoff_utc``/``scheduled_date`` again."""
+
+    payload: dict[str, Any] = {
+        "created_at_utc": created_at_utc or _now_utc(),
+        "kickoff_utc": new_kickoff_utc,
+        "scheduled_date": new_scheduled_date,
+        "old_kickoff_utc": old_kickoff_utc,
+        "new_kickoff_utc": new_kickoff_utc,
+        "old_scheduled_date": old_scheduled_date,
+        "new_scheduled_date": new_scheduled_date,
+    }
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "event_type": EVENT_FIXTURE_RESCHEDULED,
+        "forecast_id": forecast_id,
+        "recorded_at_utc": _now_utc(),
+        "payload": payload,
+    }
+
+
+def append_fixture_rescheduled(ledger_path: Path, event: dict[str, Any]) -> AppendResult:
+    """Idempotently append a ``FIXTURE_RESCHEDULED`` event built by
+    ``build_fixture_rescheduled_event`` -- same idempotency shape as
+    ``append_recorded`` (a byte-identical reschedule re-imports as a safe
+    no-op; a genuinely different one for the same forecast_id is refused
+    as a conflict, never silently chained)."""
+
+    return append_if_new(
+        ledger_path, event, id_field="forecast_id", ignore_keys_in_payload_comparison=frozenset({"created_at_utc"})
+    )
 
 
 def append_selection_updated(

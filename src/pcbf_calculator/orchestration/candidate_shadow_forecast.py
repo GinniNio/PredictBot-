@@ -929,6 +929,7 @@ def main(argv: list[str] | None = None) -> int:
         f"LEDGER: {summary['attempted']} attempted, {summary['appended']} appended, "
         f"{summary['duplicate_skipped']} duplicate-skipped, "
         f"{summary['existing_fixture_reobserved']} existing-fixture-reobserved, "
+        f"{summary['existing_fixture_rescheduled']} existing-fixture-rescheduled, "
         f"{summary['conflicted']} conflicted "
         f"({summary['total_ledger_records']} total records) -> {result['ledger_path']}"
     )
