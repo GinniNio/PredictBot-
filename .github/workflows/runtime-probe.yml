@@ -120,11 +120,22 @@ jobs:
           New-Item -ItemType Directory -Force -Path $check_dir | Out-Null
           Push-Location $check_dir
           Remove-Item Env:\FOOTBALL_DATA_ORG_TOKEN -ErrorAction SilentlyContinue
-          & $venv_python -m pcbf_calculator ingest-football-data-org-results --ledger-dir ledger_data --output-dir out | Tee-Object -Variable output
+          # Captured via direct assignment, never piped into a cmdlet
+          # (e.g. Tee-Object) -- a downstream cmdlet in the same pipeline
+          # can leave $LASTEXITCODE stale/wrong, since it only reliably
+          # reflects the exit code of the last NATIVE command run.
+          $output = & $venv_python -m pcbf_calculator ingest-football-data-org-results --ledger-dir ledger_data --output-dir out 2>&1
           $exit_code = $LASTEXITCODE
+          Write-Host $output
           Pop-Location
+          # $output from `2>&1` capture can be an ARRAY of lines --
+          # -match/-notmatch against an array filters per-element (truthy
+          # if ANY single line fails to match), never a whole-output
+          # substring test. Flattened to one string first so this is a
+          # genuine boolean "does the combined output contain this text".
+          $output_text = ($output | Out-String)
           if ($exit_code -ne 2) { throw "expected exit code 2 (MISSING_TOKEN), got $exit_code" }
-          if ($output -notmatch "MISSING_TOKEN") { throw "expected MISSING_TOKEN in output, got: $output" }
+          if ($output_text -notmatch "MISSING_TOKEN") { throw "expected MISSING_TOKEN in output, got: $output_text" }
           if (Test-Path "$check_dir\ledger_data") { throw "ledger_data must never be created when the token is missing" }
       - name: ingest-football-data-results genuinely acquires and releases the real Windows lock end-to-end
         # A CSV with only a header (zero data rows) still runs the WHOLE
