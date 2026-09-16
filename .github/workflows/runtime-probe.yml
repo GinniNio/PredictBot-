@@ -136,7 +136,9 @@ jobs:
           $output_text = ($output | Out-String)
           if ($exit_code -ne 2) { throw "expected exit code 2 (MISSING_TOKEN), got $exit_code" }
           if ($output_text -notmatch "MISSING_TOKEN") { throw "expected MISSING_TOKEN in output, got: $output_text" }
+          if ($output_text -match "ImportError") { throw "output unexpectedly contained ImportError -- this is exactly the original Windows fcntl regression this job exists to catch: $output_text" }
           if (Test-Path "$check_dir\ledger_data") { throw "ledger_data must never be created when the token is missing" }
+          if (Test-Path "$check_dir\out") { throw "the output directory must never be created when the token is missing -- MissingApiTokenError raises before run_settlement_session ever reaches output_dir.mkdir()" }
           # $LASTEXITCODE is STILL 2 here (the expected, checked-above exit
           # code of the python invocation four lines up) -- nothing after
           # it resets it, and GitHub Actions' own pwsh step wrapper fails
