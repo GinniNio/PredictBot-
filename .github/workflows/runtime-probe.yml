@@ -76,6 +76,93 @@ jobs:
           name: pcbf-runtime-host-test-pack
           path: host-test-pack/*
 
+  windows-wheel-smoke:
+    # Confirms ledgers/locking.py's Windows (msvcrt) backend actually
+    # works, on a real Windows runner -- not merely importable, but
+    # exercised end-to-end via a real installed-wheel ledger command
+    # outside the checkout, exactly the failure mode a Windows user hit:
+    # a module-level `import fcntl` crashed EVERY settlement/writer
+    # command before it ever ran, because fcntl does not exist on
+    # Windows. This job must never be merged into test-and-build above --
+    # a Windows-specific failure here must never block or be blocked by
+    # the Linux job's own results.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install tzdata (Windows ships no system IANA tz database at all -- zoneinfo.ZoneInfo("Africa/Lagos") in ingestion/kickoff.py and orchestration/bet9ja_ticket_import.py needs it just to import; see pyproject.toml's own conditional dependency)
+        run: python -m pip install tzdata
+      - name: Run the full standard-library test suite (exercises the real msvcrt locking backend via tests/test_ledgers_locking.py)
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Install wheel into a fresh venv
+        shell: pwsh
+        run: |
+          python -m venv runtime-test
+          $wheel = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
+          runtime-test\Scripts\python.exe -m pip install --no-index --no-deps $wheel
+          runtime-test\Scripts\python.exe -m pip install tzdata
+      - name: ingest-football-data-org-results fails closed on a missing token -- never an ImportError on ledgers.locking
+        # Run from OUTSIDE the checkout (same reasoning as the Linux job's
+        # own "Fresh-wheel test" step above): this repo's own root also
+        # contains a real ledgers/ directory, so running from
+        # $env:GITHUB_WORKSPACE could silently resolve "import ledgers"
+        # back to the checkout's source instead of the installed wheel.
+        shell: pwsh
+        run: |
+          $venv_python = "$env:GITHUB_WORKSPACE\runtime-test\Scripts\python.exe"
+          $check_dir = "$env:RUNNER_TEMP\fdo-wheel-check"
+          New-Item -ItemType Directory -Force -Path $check_dir | Out-Null
+          Push-Location $check_dir
+          Remove-Item Env:\FOOTBALL_DATA_ORG_TOKEN -ErrorAction SilentlyContinue
+          # Captured via direct assignment, never piped into a cmdlet
+          # (e.g. Tee-Object) -- a downstream cmdlet in the same pipeline
+          # can leave $LASTEXITCODE stale/wrong, since it only reliably
+          # reflects the exit code of the last NATIVE command run.
+          $output = & $venv_python -m pcbf_calculator ingest-football-data-org-results --ledger-dir ledger_data --output-dir out 2>&1
+          $exit_code = $LASTEXITCODE
+          Write-Host $output
+          Pop-Location
+          # $output from `2>&1` capture can be an ARRAY of lines --
+          # -match/-notmatch against an array filters per-element (truthy
+          # if ANY single line fails to match), never a whole-output
+          # substring test. Flattened to one string first so this is a
+          # genuine boolean "does the combined output contain this text".
+          $output_text = ($output | Out-String)
+          if ($exit_code -ne 2) { throw "expected exit code 2 (MISSING_TOKEN), got $exit_code" }
+          if ($output_text -notmatch "MISSING_TOKEN") { throw "expected MISSING_TOKEN in output, got: $output_text" }
+          if (Test-Path "$check_dir\ledger_data") { throw "ledger_data must never be created when the token is missing" }
+          # $LASTEXITCODE is STILL 2 here (the expected, checked-above exit
+          # code of the python invocation four lines up) -- nothing after
+          # it resets it, and GitHub Actions' own pwsh step wrapper fails
+          # the step if $LASTEXITCODE is non-zero at the very end,
+          # regardless of whether this script's own `if` checks (which
+          # ran and passed) ever threw. Exiting 0 explicitly is this
+          # step's own real success signal once every check above passed.
+          exit 0
+      - name: ingest-football-data-results genuinely acquires and releases the real Windows lock end-to-end
+        # A CSV with only a header (zero data rows) still runs the WHOLE
+        # exclusive_ledger_lock-guarded preflight-then-commit sequence --
+        # this is a real, complete msvcrt.locking acquire/release cycle
+        # on Windows, not merely a successful import.
+        shell: pwsh
+        run: |
+          $venv_python = "$env:GITHUB_WORKSPACE\runtime-test\Scripts\python.exe"
+          $check_dir = "$env:RUNNER_TEMP\football-data-wheel-check"
+          New-Item -ItemType Directory -Force -Path $check_dir | Out-Null
+          Push-Location $check_dir
+          "Div,Date,HomeTeam,AwayTeam,FTR" | Out-File -FilePath empty-results.csv -Encoding utf8
+          & $venv_python -m pcbf_calculator ingest-football-data-results empty-results.csv --ledger-dir ledger_data --output-dir out
+          $exit_code = $LASTEXITCODE
+          Pop-Location
+          if ($exit_code -ne 0) { throw "expected exit code 0, got $exit_code" }
+          if (-not (Test-Path "$check_dir\out\settlement-report.json")) { throw "settlement-report.json was never written" }
+
   bet9ja-capture-tests:
     # Independent job: the browser_extension/bet9ja_capture/ extension is a
     # separate JS ecosystem (its own package.json) and must never gate or

@@ -7,7 +7,20 @@ name = "pcbf-football"
 version = "0.0.1"
 description = "Dependency-free PCBF runtime compatibility probe"
 requires-python = ">=3.10"
-dependencies = []
+# Empty on POSIX (Linux/macOS ship the IANA tz database with the OS, so
+# zoneinfo.ZoneInfo() resolves a real zone name with no extra package) --
+# on Windows, which ships NO system tz database at all, zoneinfo.ZoneInfo()
+# raises ZoneInfoNotFoundError for every real zone name (e.g. "Africa/Lagos",
+# used by both ingestion/kickoff.py and orchestration/bet9ja_ticket_import.py
+# as a module-level constant, evaluated at IMPORT time) unless the tzdata
+# PyPI package supplies it -- exactly CPython's own zoneinfo docs' documented
+# recommendation, not a project-specific choice. A `pip install` of this
+# wheel on Windows therefore needs this to make the Bet9ja pipeline
+# importable at all; an offline `--no-deps` install (e.g. this repo's own
+# CI wheel-smoke steps) must still install tzdata itself first.
+dependencies = [
+    "tzdata; sys_platform == 'win32'",
+]
 
 [project.scripts]
 pcbf-runtime-probe = "pcbf_football.runtime_probe:main"
