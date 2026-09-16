@@ -447,6 +447,19 @@ def main(argv: list[str] | None = None) -> int:
 
         return ingest_bet9ja_results_main(argv[1:])
 
+    # ``ingest-football-data-org-results`` is likewise additive -- see
+    # ``orchestration/football_data_org_settlement.py``'s own module
+    # docstring. Queries the football-data.org API directly (reads
+    # FOOTBALL_DATA_ORG_TOKEN from the environment, never a CLI argument)
+    # for ONLY the covered leagues that have a currently-unsettled
+    # forecast, and reuses ``football_data_settlement.plan_settlement``
+    # verbatim. Never records closing odds (this source has none) and
+    # never touches ``ledgers/betting_ledger.py``.
+    if argv and argv[0] == "ingest-football-data-org-results":
+        from .orchestration.football_data_org_settlement import main as ingest_football_data_org_results_main
+
+        return ingest_football_data_org_results_main(argv[1:])
+
     # ``report-forecast-performance`` is likewise additive -- see
     # ``orchestration/forecast_performance_report.py``'s own module
     # docstring. Read-only over the forecast ledger's SCORED events; never
