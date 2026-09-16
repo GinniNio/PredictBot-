@@ -284,6 +284,86 @@ class PlanSettlementTests(unittest.TestCase):
             self.assertEqual(plan["to_score"], [])
             self.assertEqual(len(plan["unmatched"]), 1)
 
+    def test_already_scored_same_result_recapture_with_no_closing_odds_is_a_duplicate_not_a_conflict(self):
+        # The exact real-world shape a Bet9ja Results-page recapture of an
+        # already football-data.co.uk-scored fixture produces: same
+        # actual_result, but this row's own closing_odds is None (the
+        # Results page never has any) -- must never conflict against the
+        # existing REAL closing odds already on record.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            forecast_id = _record_forecast(ledger_path, model_probabilities={"H": 0.6, "D": 0.25, "A": 0.15})
+            forecast_ledger.score_and_append(
+                ledger_path, forecast_id, "H", closing_odds={"H": 1.9, "D": 3.4, "A": 4.3}, closing_odds_source="test"
+            )
+
+            plan = fds.plan_settlement(ledger_path, [self._row(actual_result="H", closing_odds=None, closing_odds_source=None)])
+            self.assertEqual(plan["conflicts"], [])
+            self.assertEqual(len(plan["duplicate_skipped"]), 1)
+            self.assertEqual(plan["duplicate_skipped"][0]["forecast_id"], forecast_id)
+
+    def test_already_scored_different_result_recapture_with_no_closing_odds_still_conflicts(self):
+        # Missing odds never excuses a genuinely DIFFERENT reported result
+        # -- two sources disagreeing about who won is still a real
+        # conflict regardless of what either side says about odds.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            forecast_id = _record_forecast(ledger_path, model_probabilities={"H": 0.6, "D": 0.25, "A": 0.15})
+            forecast_ledger.score_and_append(
+                ledger_path, forecast_id, "H", closing_odds={"H": 1.9, "D": 3.4, "A": 4.3}, closing_odds_source="test"
+            )
+
+            plan = fds.plan_settlement(ledger_path, [self._row(actual_result="A", closing_odds=None, closing_odds_source=None)])
+            self.assertEqual(plan["duplicate_skipped"], [])
+            self.assertEqual(len(plan["conflicts"]), 1)
+
+    def test_a_row_carrying_its_own_different_closing_odds_still_conflicts_even_against_a_null_existing_value(self):
+        # A row that DOES supply its own closing odds is never a silent
+        # backdoor to backfill an existing null closing_odds -- that stays
+        # a real conflict until a dedicated enrichment event exists.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            forecast_id = _record_forecast(ledger_path, model_probabilities={"H": 0.6, "D": 0.25, "A": 0.15})
+            forecast_ledger.score_and_append(ledger_path, forecast_id, "H")  # no closing odds recorded at all
+
+            plan = fds.plan_settlement(ledger_path, [self._row(actual_result="H")])  # this row DOES carry closing odds
+            self.assertEqual(plan["duplicate_skipped"], [])
+            self.assertEqual(len(plan["conflicts"]), 1)
+
+    def test_a_mixed_batch_of_a_duplicate_recapture_and_a_genuinely_new_fixture_scores_only_the_new_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            forecast_id = _record_forecast(ledger_path, model_probabilities={"H": 0.6, "D": 0.25, "A": 0.15})
+            forecast_ledger.score_and_append(
+                ledger_path, forecast_id, "H", closing_odds={"H": 1.9, "D": 3.4, "A": 4.3}, closing_odds_source="test"
+            )
+            new_forecast_id = _record_forecast(
+                ledger_path,
+                fixture_id="bxf_settle_new",
+                resolved_home_team="Tottenham",
+                resolved_away_team="Liverpool",
+                model_probabilities={"H": 0.4, "D": 0.3, "A": 0.3},
+            )
+
+            plan = fds.plan_settlement(
+                ledger_path,
+                [
+                    self._row(row_index=0, actual_result="H", closing_odds=None, closing_odds_source=None),
+                    self._row(
+                        row_index=1,
+                        resolved_home_team="Tottenham",
+                        resolved_away_team="Liverpool",
+                        actual_result="A",
+                        closing_odds=None,
+                        closing_odds_source=None,
+                    ),
+                ],
+            )
+            self.assertEqual(plan["conflicts"], [])
+            self.assertEqual(len(plan["duplicate_skipped"]), 1)
+            self.assertEqual(len(plan["to_score"]), 1)
+            self.assertEqual(plan["to_score"][0]["forecast_id"], new_forecast_id)
+
 
 class IngestFootballDataResultsTests(unittest.TestCase):
     def test_first_import_scores_then_identical_rerun_is_duplicate_skipped(self):

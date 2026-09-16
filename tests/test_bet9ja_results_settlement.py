@@ -305,6 +305,89 @@ class IngestBet9jaResultsTests(unittest.TestCase):
             records = read_all(ledger_path)
             self.assertEqual(len([r for r in records if r["event_type"] == "SCORED"]), 1)  # unchanged
 
+    def test_a_same_result_recapture_of_an_already_football_data_scored_fixture_is_a_duplicate_not_a_conflict(self):
+        # The exact real-world defect this fix closes: a Bet9ja Results
+        # recapture of a fixture football-data.co.uk already scored (with
+        # real closing odds) must never conflict just because this source
+        # has no closing odds of its own to offer -- confirmed against
+        # today's real 2026-09-14 Serie A fixtures during PR #56 review.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            ledger_dir.mkdir()
+            ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
+            forecast_id = _record_forecast(ledger_path, model_probabilities={"H": 0.5, "D": 0.28, "A": 0.22})
+            forecast_ledger.score_and_append(
+                ledger_path, forecast_id, "H", closing_odds={"H": 1.2, "D": 6.0, "A": 15.0}, closing_odds_source="test"
+            )
+
+            input_path = _write_envelope(tmp, "results.json", [_result_row(full_time_score_raw="2 - 1")])  # "H"
+            result = brs.ingest_bet9ja_results([input_path], ledger_dir)
+
+            report = result["settlement_report"]
+            self.assertEqual(report["status"], "OK")
+            self.assertEqual(report["counts"]["forecast_matches_conflicted"], 0)
+            self.assertEqual(report["counts"]["forecast_matches_duplicate_skipped"], 1)
+
+            records = read_all(ledger_path)
+            scored_events = [r for r in records if r["event_type"] == "SCORED"]
+            self.assertEqual(len(scored_events), 1)
+            # The existing real closing odds are untouched -- never erased
+            # or downgraded to null by this source's own lack of odds.
+            self.assertEqual(scored_events[0]["payload"]["closing_odds"], {"H": 1.2, "D": 6.0, "A": 15.0})
+
+    def test_a_duplicate_recapture_alongside_a_genuinely_new_fixture_scores_only_the_new_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            ledger_dir.mkdir()
+            ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
+            already_scored_id = _record_forecast(ledger_path, model_probabilities={"H": 0.5, "D": 0.28, "A": 0.22})
+            forecast_ledger.score_and_append(
+                ledger_path, already_scored_id, "H", closing_odds={"H": 1.2, "D": 6.0, "A": 15.0}, closing_odds_source="test"
+            )
+            new_forecast_id = _record_forecast(
+                ledger_path,
+                fixture_id="bxf_results_settle_new",
+                resolved_home_team="Torino",
+                resolved_away_team="Roma",
+                model_probabilities={"H": 0.4, "D": 0.3, "A": 0.3},
+            )
+
+            input_path = _write_envelope(
+                tmp,
+                "results.json",
+                [
+                    _result_row(bet9ja_result_id="1925", fixture_raw="Como - Parma", full_time_score_raw="2 - 1"),
+                    _result_row(row_index=1, bet9ja_result_id="2592", fixture_raw="Torino - Roma", full_time_score_raw="0 - 2"),
+                ],
+            )
+            result = brs.ingest_bet9ja_results([input_path], ledger_dir)
+
+            report = result["settlement_report"]
+            self.assertEqual(report["status"], "OK")
+            self.assertEqual(report["counts"]["forecast_matches_conflicted"], 0)
+            self.assertEqual(report["counts"]["forecast_matches_duplicate_skipped"], 1)
+            self.assertEqual(report["counts"]["forecast_matches_scored"], 1)
+            self.assertEqual(result["settled_forecasts"]["settled"][0]["forecast_id"], new_forecast_id)
+
+    def test_rerunning_a_duplicate_recapture_batch_stays_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            ledger_dir.mkdir()
+            ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
+            forecast_id = _record_forecast(ledger_path, model_probabilities={"H": 0.5, "D": 0.28, "A": 0.22})
+            forecast_ledger.score_and_append(
+                ledger_path, forecast_id, "H", closing_odds={"H": 1.2, "D": 6.0, "A": 15.0}, closing_odds_source="test"
+            )
+
+            input_path = _write_envelope(tmp, "results.json", [_result_row(full_time_score_raw="2 - 1")])
+            first = brs.ingest_bet9ja_results([input_path], ledger_dir)
+            second = brs.ingest_bet9ja_results([input_path], ledger_dir)
+
+            self.assertEqual(first["settlement_report"]["status"], "OK")
+            self.assertEqual(second["settlement_report"]["status"], "OK")
+            self.assertEqual(second["settlement_report"]["counts"]["forecast_matches_duplicate_skipped"], 1)
+            self.assertEqual(len([r for r in read_all(ledger_path) if r["event_type"] == "SCORED"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -91,16 +91,35 @@ codebase already gives its own "country-blind competition identity" gap
 **Atomicity, idempotency, concurrency.** The whole batch (every parsed,
 matched row) is preflighted against the ledger's current on-disk content
 before a single ``SCORED`` event is written: if any matched forecast
-already carries a ``SCORED`` event with a DIFFERENT
-``actual_result``/``closing_odds``, the ENTIRE batch is aborted -- nothing
-is written to the ledger -- exactly the same "any conflict blocks the
-whole atomic batch, never a partial write" contract
-``orchestration/forecast_ledger_writer.py``'s own ``write_batch`` already
-established for ``RECORDED`` events, reusing the identical OS-level
-exclusive lock (``ledgers.locking.exclusive_ledger_lock``) for this
-module's entire preflight-then-commit sequence. Re-running this module
-against the same files is a safe, idempotent no-op (every already-scored
-forecast comes back ``DUPLICATE_SKIPPED``).
+already carries a ``SCORED`` event with a DIFFERENT ``actual_result``,
+the ENTIRE batch is aborted -- nothing is written to the ledger --
+exactly the same "any conflict blocks the whole atomic batch, never a
+partial write" contract ``orchestration/forecast_ledger_writer.py``'s own
+``write_batch`` already established for ``RECORDED`` events, reusing the
+identical OS-level exclusive lock (``ledgers.locking.exclusive_ledger_lock``)
+for this module's entire preflight-then-commit sequence. Re-running this
+module against the same files is a safe, idempotent no-op (every
+already-scored forecast comes back ``DUPLICATE_SKIPPED``).
+
+A row carrying NO closing odds of its own (``closing_odds`` is ``None`` --
+e.g. a Bet9ja Results-page recapture of a fixture football-data.co.uk
+already scored with real closing prices) is a ``DUPLICATE_SKIPPED``
+whenever the ``actual_result`` agrees, REGARDLESS of what closing odds
+the existing record carries -- a source that has nothing to say about
+closing odds is never treated as disagreeing with one that does. This
+never erases, downgrades, or overwrites an existing real closing price
+(``DUPLICATE_SKIPPED`` means nothing is written at all -- the existing
+record is untouched either way), and a whole-batch atomic settlement
+still scores every genuinely NEW fixture in the same run without being
+blocked by fixtures a different source already settled. A row that DOES
+carry its own closing odds must still match the recorded value exactly,
+even when the existing record's own closing odds are ``None`` -- this is
+never a backdoor for one source to silently backfill another's missing
+closing-odds evidence; that stays a real ``CONFLICT`` until (if ever) a
+dedicated, explicit closing-odds-enrichment lifecycle event exists for
+it. A DIFFERENT ``actual_result`` is always a real conflict, regardless
+of odds on either side -- two sources disagreeing about who actually won
+is never something this module resolves on its own.
 
 **Explicit boundaries (this PR).** Forecast ledger only -- no write of any
 kind to ``ledgers/betting_ledger.py``. No Bet9ja capture/scraping changes.
@@ -485,9 +504,21 @@ def plan_settlement(ledger_path: Path, normalized_rows: list[dict[str, Any]]) ->
                 continue
             if "SCORED" in state.get("_event_types_seen", []):
                 same_result = state.get("actual_result") == row["actual_result"]
-                same_odds = state.get("closing_odds") == row["closing_odds"]
+                # A row with NO closing odds of its own (row["closing_odds"]
+                # is None -- e.g. a Bet9ja Results-page recapture of a
+                # fixture football-data.co.uk already scored with real
+                # closing odds) brings nothing to compare and nothing to
+                # lose: it is compatible with ANY already-recorded odds
+                # (including a different real value), never a disagreement.
+                # A row that DOES carry its own closing odds must still
+                # match the recorded value exactly -- this is never a
+                # backdoor to silently upgrade a null closing_odds to a
+                # real one (see this module's own docstring "Closing-odds
+                # rules": that stays a real CONFLICT, deliberately, until a
+                # dedicated enrichment lifecycle event exists for it).
+                odds_compatible = row["closing_odds"] is None or state.get("closing_odds") == row["closing_odds"]
                 entry = {**row, "forecast_id": forecast_id}
-                if same_result and same_odds:
+                if same_result and odds_compatible:
                     duplicate_skipped.append(entry)
                 else:
                     conflicts.append(
