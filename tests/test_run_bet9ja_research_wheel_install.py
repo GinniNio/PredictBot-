@@ -78,9 +78,16 @@ class WheelInstallationTests(unittest.TestCase):
             raise RuntimeError(f"wheel build failed:\n{build.stdout}\n{build.stderr}")
 
         install_dir.mkdir(parents=True, exist_ok=True)
+        # --no-deps: this is an offline install against only the local
+        # wheelhouse (--no-index) -- pcbf-football's own conditional
+        # Windows dependency (tzdata; sys_platform == "win32") would
+        # otherwise make pip try to resolve a real package from an empty
+        # index and fail on Windows. This test only ever checks that the
+        # package's own directories land in install_dir, never that a
+        # declared dependency is actually installable.
         install = subprocess.run(
             [
-                sys.executable, "-m", "pip", "install", "--quiet", "--no-index",
+                sys.executable, "-m", "pip", "install", "--quiet", "--no-index", "--no-deps",
                 "--find-links", str(wheelhouse), "--target", str(install_dir), "pcbf-football",
             ],
             capture_output=True,

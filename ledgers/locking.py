@@ -128,11 +128,25 @@ def exclusive_ledger_lock(ledger_path: Path, timeout: float = DEFAULT_LOCK_TIMEO
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = ledger_path.with_name(ledger_path.name + ".lock")
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    # Tracks whether THIS fd actually holds the lock -- fcntl.flock(LOCK_UN)
+    # on an fd that never held a lock is a harmless no-op on POSIX, but
+    # msvcrt.locking(LK_UNLCK, ...) on a region this handle never locked
+    # raises PermissionError on Windows (confirmed via real Windows CI: a
+    # timed-out acquire attempt -- never having held the lock at all --
+    # unconditionally calling _unlock in the old code raised there, which
+    # then skipped the os.close(fd) right after it in the same finally
+    # block, leaking the handle -- and a still-open handle is exactly what
+    # made Windows refuse to delete the lock file afterward, "used by
+    # another process," even though that "other process" was this same
+    # one). Only ever call _unlock when _try_lock actually returned True
+    # for this fd, on every platform.
+    locked = False
     try:
         _ensure_lock_file_nonempty(fd)
         deadline = time.monotonic() + timeout
         while True:
             if _try_lock(fd):
+                locked = True
                 break
             if time.monotonic() >= deadline:
                 raise LedgerLockTimeoutError(
@@ -142,5 +156,11 @@ def exclusive_ledger_lock(ledger_path: Path, timeout: float = DEFAULT_LOCK_TIMEO
             time.sleep(_LOCK_POLL_INTERVAL_SECONDS)
         yield
     finally:
-        _unlock(fd)
-        os.close(fd)
+        try:
+            if locked:
+                _unlock(fd)
+        finally:
+            # Always closed, even if _unlock itself unexpectedly raises --
+            # a leaked, still-open handle is precisely what breaks a
+            # caller's own later cleanup (e.g. shutil.rmtree) on Windows.
+            os.close(fd)

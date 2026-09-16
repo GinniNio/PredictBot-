@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import ledgers.locking as locking_module  # noqa: E402
 from ledgers.locking import DEFAULT_LOCK_TIMEOUT_SECONDS, LedgerLockTimeoutError, exclusive_ledger_lock  # noqa: E402
 
 
@@ -134,6 +135,44 @@ class TimeoutTests(unittest.TestCase):
         # Not exercised end-to-end (that would need a real 30s wait) --
         # just confirms the public default hasn't silently changed.
         self.assertEqual(DEFAULT_LOCK_TIMEOUT_SECONDS, 30.0)
+
+    def test_a_timed_out_acquire_never_calls_unlock_and_still_closes_the_handle(self):
+        # Regression test for a real Windows defect confirmed via live CI:
+        # msvcrt.locking(LK_UNLCK, ...) raises PermissionError when called
+        # on a region THIS handle never actually locked (unlike
+        # fcntl.flock(LOCK_UN), which is a harmless no-op either way) --
+        # an unconditional `_unlock(fd)` in the old code raised there,
+        # which then skipped the `os.close(fd)` right after it in the
+        # same finally block, leaking the handle. This test forces
+        # _try_lock to always fail (a guaranteed, immediate timeout) and
+        # asserts _unlock is never even attempted, on any platform, while
+        # os.close still always runs.
+        close_calls = []
+        real_close = locking_module.os.close
+
+        def spy_close(fd):
+            close_calls.append(fd)
+            real_close(fd)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            original_try_lock = locking_module._try_lock
+            original_unlock = locking_module._unlock
+            locking_module._try_lock = lambda fd: False
+            locking_module._unlock = lambda fd: (_ for _ in ()).throw(
+                AssertionError("_unlock must never be called for an fd that never acquired the lock")
+            )
+            locking_module.os.close = spy_close
+            try:
+                with self.assertRaises(LedgerLockTimeoutError):
+                    with exclusive_ledger_lock(ledger_path, timeout=0.1):
+                        pass  # pragma: no cover -- must never actually enter
+            finally:
+                locking_module._try_lock = original_try_lock
+                locking_module._unlock = original_unlock
+                locking_module.os.close = real_close
+
+            self.assertEqual(len(close_calls), 1, "the lock file handle must always be closed, even after a timeout")
 
 
 class TwoThreadsCompetingTests(unittest.TestCase):
