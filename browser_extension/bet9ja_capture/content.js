@@ -132,4 +132,18 @@
     window.__bet9jaSettledBetsCancelRequested = true;
     return true;
   };
+
+  // Fifth, independent entry point for the "Download completed results"
+  // button -- injected alongside results_parser.js only. Unlike the
+  // settled-bets/soccer-all flows above, this is a single synchronous
+  // parse of the already-rendered Results page (no pagination, no
+  // polling surface needed) -- see results_parser.js's own header
+  // comment for scope and the confirmed real-DOM profile.
+  window.__bet9jaResultsCaptureRun = function (sourceUrl, pageTitle, capturedAtUtc) {
+    return window.Bet9jaResultsCapture.captureFromDocument(document, {
+      sourceUrl,
+      pageTitle,
+      capturedAtUtc,
+    });
+  };
 })();

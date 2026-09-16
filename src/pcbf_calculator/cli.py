@@ -433,6 +433,20 @@ def main(argv: list[str] | None = None) -> int:
 
         return ingest_football_data_results_main(argv[1:])
 
+    # ``ingest-bet9ja-results`` is likewise additive -- see
+    # ``orchestration/bet9ja_results_settlement.py``'s own module
+    # docstring. An operational FALLBACK settlement source for when
+    # football-data.co.uk's own result/closing-odds file is unavailable:
+    # reuses ``football_data_settlement.plan_settlement`` verbatim (the
+    # same matching/scoring/idempotency engine), sourced from
+    # ``browser_extension/bet9ja_capture/results_parser.js``'s own
+    # envelope instead of a CSV. Never records closing odds (the Results
+    # page has none) and never touches ``ledgers/betting_ledger.py``.
+    if argv and argv[0] == "ingest-bet9ja-results":
+        from .orchestration.bet9ja_results_settlement import main as ingest_bet9ja_results_main
+
+        return ingest_bet9ja_results_main(argv[1:])
+
     # ``report-forecast-performance`` is likewise additive -- see
     # ``orchestration/forecast_performance_report.py``'s own module
     # docstring. Read-only over the forecast ledger's SCORED events; never

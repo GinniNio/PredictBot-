@@ -719,3 +719,81 @@ settledCancelButton.addEventListener('click', async () => {
     // Best-effort -- if this fails, the capture simply runs to completion.
   }
 });
+
+// --- Results-page completed-results capture ----------------------------
+// Same click-gated, no-storage, single-parse discipline as the fixture
+// capture at the top of this file -- see results_parser.js's own header
+// comment for scope (read-only, one page, no pagination or filter
+// control interaction).
+const resultsButton = document.getElementById('results-capture-button');
+const resultsStatusEl = document.getElementById('results-status');
+let resultsCaptureInFlight = false;
+
+function setResultsStatus(cssClass, text) {
+  resultsStatusEl.className = cssClass;
+  resultsStatusEl.textContent = text;
+}
+
+async function runResultsCapture() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) {
+    throw new Error('No active tab found.');
+  }
+
+  const capturedAtUtc = new Date().toISOString();
+
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ['ids.js', 'results_parser.js', 'content.js'],
+  });
+
+  const injectionResults = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: (sourceUrl, pageTitle, capturedAtUtcArg) =>
+      window.__bet9jaResultsCaptureRun(sourceUrl, pageTitle, capturedAtUtcArg),
+    args: [tab.url || '', tab.title || '', capturedAtUtc],
+  });
+
+  const result = injectionResults && injectionResults[0] && injectionResults[0].result;
+  if (!result || !result.envelope) {
+    throw new Error('Results capture produced no result (page may block script injection).');
+  }
+  return result;
+}
+
+resultsButton.addEventListener('click', async () => {
+  if (resultsCaptureInFlight) {
+    return;
+  }
+  resultsCaptureInFlight = true;
+  resultsButton.disabled = true;
+  setResultsStatus('ok', 'Capturing completed results...');
+  try {
+    const { envelope } = await runResultsCapture();
+
+    const filename = `bet9ja-soccer-results-${timestampForFilename(envelope.captured_at_utc)}.json`;
+    await triggerDownload(filename, JSON.stringify(envelope, null, 2));
+
+    const summary =
+      `${envelope.capture_status}\n` +
+      `Competitions seen: ${envelope.competitions_seen.join(', ') || '(none)'}\n` +
+      `Results seen: ${envelope.coverage.results_seen}\n` +
+      `Results parsed: ${envelope.coverage.results_parsed}\n` +
+      `Results unresolved: ${envelope.coverage.results_unresolved}\n` +
+      (envelope.capture_status_reasons.length ? `Reasons: ${envelope.capture_status_reasons.join(', ')}\n` : '') +
+      `Saved: ${filename}`;
+
+    const cssClass =
+      envelope.capture_status === 'CAPTURE_OK'
+        ? 'ok'
+        : envelope.capture_status === 'CAPTURE_PARTIAL'
+          ? 'partial'
+          : 'failed';
+    setResultsStatus(cssClass, summary);
+  } catch (err) {
+    setResultsStatus('error', `Results capture failed to run: ${err && err.message ? err.message : String(err)}`);
+  } finally {
+    resultsButton.disabled = false;
+    resultsCaptureInFlight = false;
+  }
+});

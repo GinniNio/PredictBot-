@@ -144,6 +144,18 @@
       outcome, never a ledger update. Only explicit "Won"/"Lost" outcomes are recognized so far; see
       SETTLED_BETS_REAL_PAGE_VALIDATION.md.
     </p>
+    <hr />
+    <button id="results-capture-button" type="button">Download completed results</button>
+    <div id="results-status"></div>
+    <p class="note">
+      Open Bet9ja's Results page (web.bet9ja.com/sport/results.aspx) with the Event Date/End
+      Date/Sport/Competition filters already applied, then click. Reads the already-rendered
+      results table for whichever competition group(s) the page shows -- never selects a filter,
+      never navigates. One page, one parse; no pagination. Only a numeric "Fin. Ris" full-time
+      score is accepted as a completed result -- postponed/abandoned/void/missing-score rows are
+      never guessed at and are reported separately. This page shows final and half-time scores
+      only, never closing 1X2 odds.
+    </p>
   </body>
   <script src="ids.js"></script>
   <script src="soccer_session.js"></script>
