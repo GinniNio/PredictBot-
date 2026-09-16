@@ -77,7 +77,7 @@ test('manifest permissions are exactly activeTab, scripting, downloads, storage 
 });
 
 test('no source file in this extension calls fetch or XMLHttpRequest', () => {
-  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js', 'soccer_walker.js', 'soccer_session.js', 'settled_bets_parser.js'];
+  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js', 'soccer_walker.js', 'soccer_session.js', 'settled_bets_parser.js', 'results_parser.js'];
   for (const filename of sourceFiles) {
     const source = fs.readFileSync(path.join(ROOT, filename), 'utf-8');
     // Actual call/construction patterns only -- not a bare substring match,
@@ -89,7 +89,7 @@ test('no source file in this extension calls fetch or XMLHttpRequest', () => {
 });
 
 test('no source file in this extension reads document.cookie', () => {
-  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js', 'soccer_walker.js', 'soccer_session.js', 'settled_bets_parser.js'];
+  const sourceFiles = ['content.js', 'popup.js', 'parser.js', 'ids.js', 'ticket_parser.js', 'soccer_walker.js', 'soccer_session.js', 'settled_bets_parser.js', 'results_parser.js'];
   for (const filename of sourceFiles) {
     const source = fs.readFileSync(path.join(ROOT, filename), 'utf-8');
     assert.ok(!source.includes('document.cookie'), `${filename} must never read document.cookie`);
@@ -173,4 +173,25 @@ test('popup.js has a synchronous re-entrancy guard before the first await in the
   const disableIndex = handlerBody.indexOf('settledButton.disabled = true');
   assert.ok(guardIndex !== -1 && guardIndex < firstAwaitIndex, 'settledCaptureInFlight guard must appear before the first await');
   assert.ok(disableIndex !== -1 && disableIndex < firstAwaitIndex, 'settledButton.disabled = true must appear before the first await');
+});
+
+test('content.js only ever (re)assigns one results-capture entry point, never appends to a list', () => {
+  const assignments = contentJs.match(/window\.__bet9jaResultsCaptureRun\s*=/g) || [];
+  assert.equal(assignments.length, 1, 'exactly one assignment to window.__bet9jaResultsCaptureRun expected');
+});
+
+test('popup.js registers the results-capture button click listener exactly once, at module load', () => {
+  const listenerMatches = popupJs.match(/resultsButton\.addEventListener\(/g) || [];
+  assert.equal(listenerMatches.length, 1, 'expected exactly one resultsButton.addEventListener call in popup.js');
+});
+
+test('popup.js has a synchronous re-entrancy guard before the first await in the results-capture click handler', () => {
+  const handlerStart = popupJs.indexOf("resultsButton.addEventListener('click'");
+  assert.notEqual(handlerStart, -1, 'results-capture click handler not found');
+  const handlerBody = popupJs.slice(handlerStart);
+  const firstAwaitIndex = handlerBody.indexOf('await ');
+  const guardIndex = handlerBody.indexOf('resultsCaptureInFlight');
+  const disableIndex = handlerBody.indexOf('resultsButton.disabled = true');
+  assert.ok(guardIndex !== -1 && guardIndex < firstAwaitIndex, 'resultsCaptureInFlight guard must appear before the first await');
+  assert.ok(disableIndex !== -1 && disableIndex < firstAwaitIndex, 'resultsButton.disabled = true must appear before the first await');
 });
