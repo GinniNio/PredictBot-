@@ -137,6 +137,14 @@ jobs:
           if ($exit_code -ne 2) { throw "expected exit code 2 (MISSING_TOKEN), got $exit_code" }
           if ($output_text -notmatch "MISSING_TOKEN") { throw "expected MISSING_TOKEN in output, got: $output_text" }
           if (Test-Path "$check_dir\ledger_data") { throw "ledger_data must never be created when the token is missing" }
+          # $LASTEXITCODE is STILL 2 here (the expected, checked-above exit
+          # code of the python invocation four lines up) -- nothing after
+          # it resets it, and GitHub Actions' own pwsh step wrapper fails
+          # the step if $LASTEXITCODE is non-zero at the very end,
+          # regardless of whether this script's own `if` checks (which
+          # ran and passed) ever threw. Exiting 0 explicitly is this
+          # step's own real success signal once every check above passed.
+          exit 0
       - name: ingest-football-data-results genuinely acquires and releases the real Windows lock end-to-end
         # A CSV with only a header (zero data rows) still runs the WHOLE
         # exclusive_ledger_lock-guarded preflight-then-commit sequence --
