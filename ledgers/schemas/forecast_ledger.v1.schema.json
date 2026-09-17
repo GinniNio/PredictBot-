@@ -8,7 +8,7 @@
   "required": ["schema_version", "event_type", "forecast_id", "recorded_at_utc", "payload"],
   "properties": {
     "schema_version": {"type": "string", "const": "1.0.0"},
-    "event_type": {"type": "string", "enum": ["RECORDED", "SELECTION_UPDATED", "SCORED"]},
+    "event_type": {"type": "string", "enum": ["RECORDED", "SELECTION_UPDATED", "SCORED", "FIXTURE_RESCHEDULED"]},
     "forecast_id": {"type": "string", "pattern": "^fc_[0-9a-f]{16}$"},
     "recorded_at_utc": {"type": "string", "format": "date-time"},
     "payload": {"type": "object"}
@@ -86,6 +86,19 @@
         "closing_odds_source": {"type": ["string", "null"]},
         "market_comparison": {"type": ["object", "null"]},
         "settled_at_utc": {"type": "string", "format": "date-time"}
+      }
+    },
+    "FIXTURE_RESCHEDULED": {
+      "description": "Appended when a LATER capture of an already-recorded fixture reports a genuinely different kickoff_utc (and/or scheduled_date) with every other identity/model field unchanged -- see forecast_ledger.py's own module docstring and build_fixture_rescheduled_event. A fixture may legitimately carry more than one of these events over time (each one a distinct, append-only chain link -- see forecast_ledger.py::decide_fixture_reschedule_append); kickoff_utc/scheduled_date at the payload's top level mirror the NEW values verbatim, so latest_state's merge reflects the fixture's current schedule.",
+      "required": ["created_at_utc", "old_kickoff_utc", "new_kickoff_utc"],
+      "properties": {
+        "created_at_utc": {"type": "string", "format": "date-time"},
+        "kickoff_utc": {"type": ["string", "null"], "format": "date-time"},
+        "scheduled_date": {"type": ["string", "null"]},
+        "old_kickoff_utc": {"type": ["string", "null"], "format": "date-time"},
+        "new_kickoff_utc": {"type": ["string", "null"], "format": "date-time"},
+        "old_scheduled_date": {"type": ["string", "null"]},
+        "new_scheduled_date": {"type": ["string", "null"]}
       }
     }
   }
