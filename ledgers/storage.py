@@ -92,6 +92,24 @@ def find_existing(records: list[dict[str, Any]], id_field: str, entity_id: Any, 
     return None
 
 
+def find_latest_existing(records: list[dict[str, Any]], id_field: str, entity_id: Any, event_type: str) -> dict[str, Any] | None:
+    """The LAST record in ``records`` (in the given order) matching
+    ``(record[id_field] == entity_id, record["event_type"] == event_type)``,
+    or ``None`` -- the sibling of ``find_existing`` (which returns the
+    FIRST match) for an event type that may legitimately recur more than
+    once per entity, each occurrence still compared against the most
+    recent one rather than the original (e.g. ``forecast_ledger``'s
+    ``FIXTURE_RESCHEDULED``, which chains: a fixture rescheduled once may
+    legitimately be rescheduled again later). Purely additive -- every
+    existing caller of ``find_existing`` is unaffected."""
+
+    latest = None
+    for existing in records:
+        if existing.get(id_field) == entity_id and existing.get("event_type") == event_type:
+            latest = existing
+    return latest
+
+
 def decide_append(
     existing: dict[str, Any] | None,
     record: dict[str, Any],

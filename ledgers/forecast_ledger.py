@@ -55,11 +55,20 @@ list):
   ``pcbf_calculator.orchestration.football_data_settlement``'s own
   settlement-matching index, which already keys off ``latest_state``'s
   merged ``scheduled_date`` and therefore needs no code change at all to
-  pick this up. Idempotent the same way ``RECORDED`` is
-  (``storage.append_if_new``): re-importing the identical reschedule is a
-  safe no-op; a SECOND, DIFFERENT reschedule for the same forecast_id
-  (this ledger has only ever recorded one so far) is refused as a
-  conflict rather than silently chained -- see
+  pick this up. Idempotent the same way ``RECORDED`` is, but MAY
+  legitimately recur more than once per forecast_id (a still-unresolved
+  fixture's displayed kickoff can move again on a later capture, even
+  after an earlier reschedule was already recorded) -- see
+  ``decide_fixture_reschedule_append``: re-importing the identical
+  (latest) reschedule is a safe no-op; a new reschedule whose own
+  ``old_kickoff_utc``/``old_scheduled_date`` exactly match the most
+  recently recorded reschedule's ``new_kickoff_utc``/``new_scheduled_date``
+  is a genuine chain continuation, appended as its own new row (never
+  replacing or rewriting any prior reschedule row -- full history stays
+  append-only); anything else (a stale base, or a second capture
+  proposing a different reschedule from the same base within one batch)
+  is refused as a real conflict, never silently chained past a state it
+  doesn't actually follow from. See
   ``pcbf_calculator.orchestration.forecast_ledger_writer``'s own
   docstring for the caller-side classification logic that decides when a
   later capture counts as a reschedule versus a genuine conflict versus a
@@ -71,6 +80,7 @@ it only records and scores forecasts a model already produced.
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,11 +95,16 @@ if str(_SRC_DIR) not in sys.path:
 
 from ledgers import ids, scoring
 from ledgers.storage import (
+    APPENDED,
+    CONFLICT,
+    DUPLICATE_SKIPPED,
     AppendResult,
+    _payload_equal_ignoring,
     all_entity_ids,
     append_event,
     append_if_new,
     append_terminal_if_new,
+    find_latest_existing,
     latest_state,
     read_all,
 )
@@ -375,16 +390,83 @@ def build_fixture_rescheduled_event(
     }
 
 
-def append_fixture_rescheduled(ledger_path: Path, event: dict[str, Any]) -> AppendResult:
-    """Idempotently append a ``FIXTURE_RESCHEDULED`` event built by
-    ``build_fixture_rescheduled_event`` -- same idempotency shape as
-    ``append_recorded`` (a byte-identical reschedule re-imports as a safe
-    no-op; a genuinely different one for the same forecast_id is refused
-    as a conflict, never silently chained)."""
+_RESCHEDULE_IGNORE_KEYS = frozenset({"created_at_utc"})
 
-    return append_if_new(
-        ledger_path, event, id_field="forecast_id", ignore_keys_in_payload_comparison=frozenset({"created_at_utc"})
-    )
+
+def decide_fixture_reschedule_append(existing_records: list[dict[str, Any]], event: dict[str, Any]) -> AppendResult:
+    """Pure decision (no I/O): given every existing record for this
+    event's ``forecast_id`` -- from disk, or a caller's own in-memory
+    staged view -- decide whether this ``FIXTURE_RESCHEDULED`` event
+    should be appended, skipped as a duplicate, or refused as a conflict.
+    ``append_fixture_rescheduled`` below and
+    ``pcbf_calculator.orchestration.forecast_ledger_writer.write_batch``'s
+    own preflight both build on this single function, so neither can
+    silently diverge from the other's notion of a conflict -- the same
+    "pure decision, shared by preflight and real append" split
+    ``ledgers.storage.decide_append``/``append_if_new`` already use.
+
+    Unlike ``RECORDED`` (exactly one event per forecast_id, ever), a
+    fixture may legitimately be RESCHEDULED more than once -- Bet9ja's
+    own displayed kickoff can move again on a later capture, even after
+    an earlier reschedule was already recorded for this forecast_id. This
+    therefore always compares against the MOST RECENT existing
+    ``FIXTURE_RESCHEDULED`` row (``find_latest_existing``), never the
+    first and never all of them at once:
+
+    - No prior reschedule at all for this forecast_id -> ``APPENDED``.
+    - Byte-identical (ignoring ``created_at_utc``) to the latest one ->
+      safe, idempotent ``DUPLICATE_SKIPPED`` -- unchanged behavior for a
+      same-day rerun.
+    - Its own ``old_kickoff_utc``/``old_scheduled_date`` exactly match the
+      latest row's ``new_kickoff_utc``/``new_scheduled_date`` -> a genuine
+      CHAIN CONTINUATION: ``APPENDED`` as a new, distinct row. The prior
+      reschedule row is never touched, replaced, or rewritten -- the full
+      reschedule history stays append-only, exactly like every other
+      event type in this ledger.
+    - Anything else -- a STALE base (proposing a reschedule from a
+      kickoff this fixture no longer currently has, e.g. a batch built
+      against an out-of-date snapshot) or a second capture within the
+      SAME batch proposing a DIFFERENT reschedule from that same base --
+      is refused as a real ``CONFLICT``, never silently chained past a
+      state it doesn't actually follow from."""
+
+    forecast_id = event["forecast_id"]
+    latest = find_latest_existing(existing_records, "forecast_id", forecast_id, EVENT_FIXTURE_RESCHEDULED)
+    if latest is None:
+        return AppendResult(status=APPENDED, record=event)
+
+    if _payload_equal_ignoring(latest.get("payload", {}), event.get("payload", {}), _RESCHEDULE_IGNORE_KEYS):
+        return AppendResult(status=DUPLICATE_SKIPPED, record=event, conflicting_record=latest)
+
+    latest_payload = latest.get("payload", {})
+    new_payload = event.get("payload", {})
+    chain_continues = new_payload.get("old_kickoff_utc") == latest_payload.get("new_kickoff_utc") and new_payload.get(
+        "old_scheduled_date"
+    ) == latest_payload.get("new_scheduled_date")
+    if chain_continues:
+        return AppendResult(status=APPENDED, record=event)
+
+    return AppendResult(status=CONFLICT, record=event, conflicting_record=latest)
+
+
+def append_fixture_rescheduled(ledger_path: Path, event: dict[str, Any]) -> AppendResult:
+    """Append a ``FIXTURE_RESCHEDULED`` event built by
+    ``build_fixture_rescheduled_event``, per
+    ``decide_fixture_reschedule_append``'s own decision (see its
+    docstring for the full APPENDED/DUPLICATE_SKIPPED/CONFLICT rules,
+    including chained rescheduling). Append-only: a commit here only ever
+    adds one new line, never rewrites or removes an existing one, whether
+    this is the fixture's first reschedule or a later link in its chain."""
+
+    records = read_all(ledger_path)
+    plan = decide_fixture_reschedule_append(records, event)
+    if plan.status != APPENDED:
+        return plan
+
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    with ledger_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(event, sort_keys=True) + "\n")
+    return plan
 
 
 def append_selection_updated(
