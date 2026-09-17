@@ -523,10 +523,20 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
     (now current) kickoff correctly classifies as a routine
     ``existing_fixture_reobserved`` on the next run, never a second
     reschedule attempt (comparison is always against the CURRENT merged
-    state, never the stale original). A SECOND, DIFFERENT reschedule for
-    the same fixture within one run is refused as a real conflict --
-    chaining more than one reschedule per fixture is out of scope for
-    this narrow fix.
+    state, never the stale original). A fixture may legitimately be
+    rescheduled MORE than once -- a still-unresolved fixture's displayed
+    kickoff can move again on a later capture, even after an earlier
+    reschedule was already recorded -- and each such chain link is
+    appended as its own new ``FIXTURE_RESCHEDULED`` row, never replacing
+    or rewriting a prior one (see ``forecast_ledger.
+    decide_fixture_reschedule_append``'s own docstring for the exact
+    chain-continuity rule: a new reschedule is only ever accepted when
+    its own claimed "old" kickoff/date exactly matches the MOST RECENT
+    existing reschedule's "new" kickoff/date). A reschedule proposing a
+    different "old" state than what is actually current -- a stale base,
+    or two captures within one batch proposing different reschedules from
+    the same base -- is still refused as a real ``CONFLICT``, never
+    silently chained past a state it doesn't actually follow from.
 
     Holds an exclusive, OS-level lock (``ledgers.locking.exclusive_ledger_lock``)
     for this entire preflight-then-commit sequence, so two concurrent calls
@@ -579,12 +589,17 @@ def write_batch(ledger_path: Path, events: list[dict[str, Any]]) -> dict[str, An
                         old_scheduled_date=merged_payload.get("scheduled_date"),
                         new_scheduled_date=event["payload"].get("scheduled_date"),
                     )
-                    r_existing = find_existing(
-                        staged, "forecast_id", reschedule_event["forecast_id"], reschedule_event["event_type"]
-                    )
-                    r_plan = decide_append(
-                        r_existing, reschedule_event, ignore_keys_in_payload_comparison=frozenset({"created_at_utc"})
-                    )
+                    # Uses the SAME pure decision function the real commit
+                    # below (forecast_ledger.append_fixture_rescheduled)
+                    # builds on -- see decide_fixture_reschedule_append's
+                    # own docstring for the full APPENDED/DUPLICATE_
+                    # SKIPPED/CONFLICT rules, including a fixture legitimately
+                    # rescheduled MORE than once (a still-unresolved
+                    # fixture's displayed kickoff moving again on a later
+                    # capture) -- never just a first-match lookup against
+                    # the fixture's ORIGINAL reschedule, which would wrongly
+                    # refuse every reschedule after the first as a conflict.
+                    r_plan = forecast_ledger.decide_fixture_reschedule_append(staged, reschedule_event)
                     if r_plan.status == CONFLICT:
                         conflicts.append(
                             {
