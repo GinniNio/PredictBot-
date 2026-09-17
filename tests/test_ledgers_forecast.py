@@ -248,6 +248,36 @@ class ForecastLedgerTests(unittest.TestCase):
         self.assertEqual(state["capture_id"], "cap-1")
         self.assertEqual(state["source"], "manual")
 
+    def test_fixture_rescheduled_event_validates_against_schema(self):
+        # Regression: FIXTURE_RESCHEDULED was a real, long-shipped event
+        # type (ledgers/forecast_ledger.py's own EVENT_FIXTURE_RESCHEDULED)
+        # that the schema's own event_type enum and event_payloads mapping
+        # never listed -- ledgers.cli validate flagged every real
+        # FIXTURE_RESCHEDULED row on disk as "not a recognized event type
+        # for this schema", a pure schema/validator gap (the writer/reader
+        # code path was always correct).
+        event = forecast_ledger.build_fixture_rescheduled_event(
+            forecast_id="fc_0000000000000000",
+            old_kickoff_utc="2026-09-19T15:00:00Z",
+            new_kickoff_utc="2026-09-19T14:00:00Z",
+        )
+        errors = validation.validate_envelope(event, validation.load_schema("forecast_ledger.v1"))
+        self.assertEqual(errors, [])
+
+    def test_fixture_rescheduled_with_null_scheduled_date_still_validates(self):
+        # scheduled_date/old_scheduled_date/new_scheduled_date are all
+        # legitimately null (kickoff_utc alone is the common case) --
+        # never required non-null by this event's own schema entry.
+        event = forecast_ledger.build_fixture_rescheduled_event(
+            forecast_id="fc_0000000000000000",
+            old_kickoff_utc="2026-09-19T15:00:00Z",
+            new_kickoff_utc="2026-09-19T14:00:00Z",
+            old_scheduled_date=None,
+            new_scheduled_date=None,
+        )
+        errors = validation.validate_envelope(event, validation.load_schema("forecast_ledger.v1"))
+        self.assertEqual(errors, [])
+
 
 class CandidateFieldsRemainOptionalRegressionTests(unittest.TestCase):
     """Direct regression coverage for the eight candidate-shadow-
