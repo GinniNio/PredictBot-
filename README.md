@@ -169,6 +169,21 @@ Produces the same four output files as every other settlement source, with `stat
 
 Explicit boundaries: forecast ledger only — no betting-ledger write, no automated model retraining, no calibration adjustment, no `PAPER`/`CASH` promotion, no outcome or stake decision of any kind.
 
+### Bridging an evidence-collection artifact (`convert-manual-results-evidence`)
+
+An LLM-driven evidence-collection pass over a supplied fixture list (join key: `fixture_id`) produces a genuinely different shape from `ingest-manual-results`'s own input schema — `convert-manual-results-evidence` bridges the two as its own separate, governed step, never fused into `ingest-manual-results` itself:
+
+```bash
+python -m pcbf_calculator convert-manual-results-evidence \
+  manual-results-evidence.json \
+  --ledger-dir ledger_data \
+  --output-dir runs/conversion-session-id
+```
+
+Read-only against the ledger (a `fixture_id` lookup only) — never writes a `SCORED` event, never touches `--confirm` at all. For each `result_status: "VERIFIED"` row: looks up its `fixture_id` in the CURRENT forecast-ledger state (no match is `SETTLE_FIXTURE_NOT_IN_LEDGER`; more than one is `SETTLE_FIXTURE_ID_AMBIGUOUS`; no full settlement identity recorded is `SETTLE_NO_SETTLEMENT_IDENTITY`); independently re-resolves the claimed competition/teams through `identity.py` and compares against what the ledger already recorded for that `fixture_id` (`SETTLE_IDENTITY_MISMATCH` on disagreement); and, for every source, requires a real `evidence_sha256` (a source still `null` — not yet retrieved and archived by a separate, not-yet-built evidence-preservation tool — is `SETTLE_EVIDENCE_NOT_ARCHIVED`, never fabricated) whose own `evidence_summary` text is independently parsed and must actually support the row's claimed score (`SETTLE_EVIDENCE_SCORE_MISMATCH` otherwise). `source_type` maps to `authoritative` via a small, fixed allowlist (`OFFICIAL_CLUB`/`OFFICIAL_COMPETITION`/`NEWSWIRE`/`MAJOR_PUBLICATION`; anything else, including `OTHER_CREDIBLE`, is not). Surviving sources are run through `ingest-manual-results`'s own corroboration function, reused verbatim — a row this converts is guaranteed to also pass that command's own gate.
+
+Writes `converted-manual-results-input.json` (ready to hand to `ingest-manual-results`, still dry-run there by default), `conversion-report.json`, and `conversion-rejected.json` (every rejected row with its typed reason). Its output is advisory only — nothing here is authoritative until `ingest-manual-results` itself, separately, accepts and (with `--confirm`) commits it.
+
 ## Prospective performance and calibration reporting (`report-forecast-performance`)
 
 Closes the loop: `capture → forecast → record → settle → score → report`. Reads only `SCORED` forecast-ledger events and produces deterministic, byte-identical (for unchanged ledger content) JSON reports — no ledger write of any kind.

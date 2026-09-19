@@ -189,6 +189,26 @@ jobs:
           if (-not (Test-Path "$check_dir\out\settlement-report.json")) { throw "settlement-report.json was never written" }
           if (Test-Path "$check_dir\ledger_data\forecast-ledger.jsonl") { throw "a dry run (no --confirm) must never write any ledger content" }
 
+      - name: convert-manual-results-evidence imports and runs cleanly on Windows -- read-only, no lock involved
+        # This command never opens exclusive_ledger_lock at all (a
+        # fixture_id lookup is a plain read), so this step's only job is
+        # confirming the module tree imports without error on Windows --
+        # the same failure class every other step in this job exists to
+        # catch -- and that it never creates or writes ledger_data itself.
+        shell: pwsh
+        run: |
+          $venv_python = "$env:GITHUB_WORKSPACE\runtime-test\Scripts\python.exe"
+          $check_dir = "$env:RUNNER_TEMP\manual-results-evidence-wheel-check"
+          New-Item -ItemType Directory -Force -Path $check_dir | Out-Null
+          Push-Location $check_dir
+          '{"schema_version": "predictbot.manual-results-evidence.v1", "results": []}' | Out-File -FilePath empty-evidence.json -Encoding utf8
+          & $venv_python -m pcbf_calculator convert-manual-results-evidence empty-evidence.json --ledger-dir ledger_data --output-dir out
+          $exit_code = $LASTEXITCODE
+          Pop-Location
+          if ($exit_code -ne 0) { throw "expected exit code 0, got $exit_code" }
+          if (-not (Test-Path "$check_dir\out\conversion-report.json")) { throw "conversion-report.json was never written" }
+          if (Test-Path "$check_dir\ledger_data") { throw "convert-manual-results-evidence must never create ledger_data -- it is read-only against an existing ledger" }
+
   bet9ja-capture-tests:
     # Independent job: the browser_extension/bet9ja_capture/ extension is a
     # separate JS ecosystem (its own package.json) and must never gate or

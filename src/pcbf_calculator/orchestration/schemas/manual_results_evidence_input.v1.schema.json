@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "manual_results_evidence_input.v1",
+  "title": "Manual results EVIDENCE-COLLECTION input -- an upstream, pre-archival artifact consumed only by convert-manual-results-evidence, never directly by ingest-manual-results",
+  "description": "The shape an LLM-driven evidence-collection pass (this schema's own schema_version constant names it 'predictbot.manual-results-evidence.v1') actually produces: one result per supplied fixture, joined by fixture_id back to an already-recorded forecast, with zero or more corroborating sources whose evidence_sha256 is null until a SEPARATE, not-yet-built evidence-preservation tool retrieves and archives each cited page. convert-manual-results-evidence never fabricates that hash -- see this module's own docstring.",
+  "schema_version": "manual_results_evidence_input.v1",
+  "type": "object",
+  "required": ["schema_version", "results"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "predictbot.manual-results-evidence.v1"},
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "fixture_id", "competition", "participants", "match_status",
+          "home_score", "away_score", "result_status", "sources"
+        ],
+        "properties": {
+          "fixture_id": {"type": "string"},
+          "competition": {"type": "string"},
+          "participants": {
+            "type": "object",
+            "required": ["home", "away"],
+            "properties": {"home": {"type": "string"}, "away": {"type": "string"}}
+          },
+          "match_status": {"type": "string"},
+          "home_score": {"type": ["integer", "null"], "minimum": 0},
+          "away_score": {"type": ["integer", "null"], "minimum": 0},
+          "result_status": {"type": "string", "enum": ["VERIFIED", "NEEDS_REVIEW"]},
+          "verification_method": {"type": ["string", "null"]},
+          "review_reason": {"type": ["string", "null"]},
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["source_name", "source_type", "source_url", "retrieved_at_utc", "evidence_summary", "evidence_sha256"],
+              "properties": {
+                "source_name": {"type": "string"},
+                "source_type": {"type": "string"},
+                "source_url": {"type": "string"},
+                "retrieved_at_utc": {"type": "string", "format": "date-time"},
+                "evidence_summary": {"type": "string"},
+                "evidence_sha256": {
+                  "type": ["string", "null"],
+                  "description": "Null until a separate, not-yet-built evidence-preservation tool retrieves and archives the cited page. convert-manual-results-evidence treats null here as SETTLE_EVIDENCE_NOT_ARCHIVED -- it never computes or fabricates this hash itself."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
