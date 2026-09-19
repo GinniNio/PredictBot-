@@ -23,12 +23,22 @@ from typing import Any
 
 # The exact five leagues research/soccer_1x2_elo_baseline actually trains
 # on (data_pipeline/sources/football_data_sources.yaml's football-data.co.uk
-# codes) -- a fixed, known correspondence, not something that needs an
-# alias lookup of its own.
+# codes) -- a fixed, known correspondence, not something that needs a
+# general alias-lookup mechanism of its own (unlike team names, which do --
+# see TeamAliasBook below). "laliga" (no space) is a second, confirmed
+# real-evidence key for the SAME already-covered league, never a widening
+# of coverage: La Liga's own competition rebranded its public-facing name
+# to "LaLiga" (no space) some years ago, and a real Bet9ja capture
+# (Espanyol v Elche, 2026-09-18) recorded the
+# competition group text as exactly "LaLiga" -- this fixture's own
+# forecast abstained with FORECAST_COMPETITION_UNRESOLVED until this
+# entry was added. Every other league name here stays exactly as
+# football-data.co.uk's own source data spells it.
 COMPETITION_NAME_TO_LEAGUE_CODE: dict[str, str] = {
     "premier league": "E0",
     "bundesliga": "D1",
     "la liga": "SP1",
+    "laliga": "SP1",
     "serie a": "I1",
     "ligue 1": "F1",
 }
