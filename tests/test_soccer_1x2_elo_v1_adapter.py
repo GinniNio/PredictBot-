@@ -275,6 +275,29 @@ class IdentityTests(unittest.TestCase):
         result = resolve_competition("Premier League")
         self.assertEqual(result.resolved, "E0")
 
+    def test_laliga_no_space_resolves_to_the_same_la_liga_league_code(self):
+        # Real evidence: a Bet9ja capture (bxf_f6698d34305005f0, 2026-09-18)
+        # recorded this competition's group text as "LaLiga" -- La Liga's
+        # own rebranded public-facing name, no space. This is the SAME
+        # already-covered league (SP1), never a new one.
+        with_space = resolve_competition("La Liga")
+        no_space = resolve_competition("LaLiga")
+        self.assertEqual(with_space.resolved, "SP1")
+        self.assertEqual(no_space.resolved, "SP1")
+        self.assertEqual(with_space.resolved, no_space.resolved)
+
+    def test_laliga_alias_is_case_insensitive_like_every_other_competition_name(self):
+        result = resolve_competition("laliga")
+        self.assertEqual(result.resolved, "SP1")
+
+    def test_competition_allowlist_still_covers_exactly_five_leagues(self):
+        # The "laliga" addition is a second KEY for an already-covered
+        # league, never a widening of coverage -- exactly 5 distinct
+        # league codes must still be reachable.
+        from pcbf_calculator.adapters.soccer_1x2_elo_v1.identity import COMPETITION_NAME_TO_LEAGUE_CODE
+
+        self.assertEqual(len(set(COMPETITION_NAME_TO_LEAGUE_CODE.values())), 5)
+
     def test_alias_resolution(self):
         alias_book = TeamAliasBook({"leagues": {"E0": {"Man Utd": "Manchester United"}}})
         result = resolve_team("Man Utd", "E0", {"Manchester United"}, alias_book)
