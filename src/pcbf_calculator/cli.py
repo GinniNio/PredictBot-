@@ -474,6 +474,18 @@ def main(argv: list[str] | None = None) -> int:
 
         return ingest_manual_results_main(argv[1:])
 
+    # ``convert-manual-results-evidence`` is likewise additive -- see
+    # ``orchestration/manual_results_evidence_converter.py``'s own module
+    # docstring. Bridges an upstream LLM-driven evidence-collection
+    # artifact into ``ingest-manual-results``'s own input schema --
+    # read-only against the ledger (a fixture_id lookup only), never
+    # writes a SCORED event itself, never fabricates an evidence hash for
+    # a source that hasn't actually been archived yet.
+    if argv and argv[0] == "convert-manual-results-evidence":
+        from .orchestration.manual_results_evidence_converter import main as convert_manual_results_evidence_main
+
+        return convert_manual_results_evidence_main(argv[1:])
+
     # ``report-forecast-performance`` is likewise additive -- see
     # ``orchestration/forecast_performance_report.py``'s own module
     # docstring. Read-only over the forecast ledger's SCORED events; never
