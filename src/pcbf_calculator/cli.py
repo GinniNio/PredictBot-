@@ -460,6 +460,20 @@ def main(argv: list[str] | None = None) -> int:
 
         return ingest_football_data_org_results_main(argv[1:])
 
+    # ``ingest-manual-results`` is likewise additive -- see
+    # ``orchestration/manual_results_settlement.py``'s own module
+    # docstring. The LAST-RESORT settlement source, for a fixture that
+    # football-data.org AND football-data.co.uk both genuinely could not
+    # settle: a corroboration-gated (one authoritative source, or two
+    # independently agreeing sources), dry-run-by-default command that
+    # reuses ``football_data_settlement.plan_settlement`` verbatim. Never
+    # records closing odds (a manually-verified score is never a closing
+    # price) and never touches ``ledgers/betting_ledger.py``.
+    if argv and argv[0] == "ingest-manual-results":
+        from .orchestration.manual_results_settlement import main as ingest_manual_results_main
+
+        return ingest_manual_results_main(argv[1:])
+
     # ``report-forecast-performance`` is likewise additive -- see
     # ``orchestration/forecast_performance_report.py``'s own module
     # docstring. Read-only over the forecast ledger's SCORED events; never

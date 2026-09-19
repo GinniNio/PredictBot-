@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "manual_results_input.v1",
+  "title": "Manual results ingestion input -- one file, a list of independently corroborated final scores",
+  "description": "Consumed only by pcbf_calculator.orchestration.manual_results_settlement (ingest-manual-results). Every result must carry one or more independent sources; see that module's own docstring 'The corroboration gate' for the acceptance rule (one authoritative source, or two agreeing sources with distinct source_name) -- this schema only enforces SHAPE, never corroboration/business rules, which are checked in code against the parsed structure. competition_raw/home_team_raw/away_team_raw are the bare display names this codebase's own identity resolution already expects (e.g. 'Serie A', 'Bayern Munich') -- never a bookmaker- or results-page-specific format.",
+  "schema_version": "manual-results-input.v1",
+  "type": "object",
+  "required": ["schema_version", "results"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "manual-results-input.v1"},
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "competition_raw", "home_team_raw", "away_team_raw", "scheduled_date",
+          "completion_status", "final_score", "sources"
+        ],
+        "properties": {
+          "competition_raw": {"type": "string"},
+          "home_team_raw": {"type": "string"},
+          "away_team_raw": {"type": "string"},
+          "scheduled_date": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+            "description": "UTC calendar date, matching this codebase's own scheduled_date convention everywhere else -- never a bookmaker-local date."
+          },
+          "completion_status": {
+            "type": "string",
+            "enum": ["COMPLETED", "POSTPONED", "ABANDONED", "CANCELLED"],
+            "description": "Only COMPLETED is ever scored -- see REASON_NOT_COMPLETED. The other three values exist so a caller can positively record why a fixture was NOT scored, rather than omitting it silently."
+          },
+          "final_score": {
+            "type": "object",
+            "required": ["home", "away"],
+            "properties": {
+              "home": {"type": "integer", "minimum": 0},
+              "away": {"type": "integer", "minimum": 0}
+            }
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["source_name", "source_url", "retrieved_at_utc", "evidence_hash", "authoritative", "reported_score"],
+              "properties": {
+                "source_name": {"type": "string", "description": "A human-readable identifier for this source (e.g. the site or feed name) -- two sources with the SAME source_name never count as independent corroboration."},
+                "source_url": {"type": "string"},
+                "retrieved_at_utc": {"type": "string", "format": "date-time"},
+                "evidence_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "description": "SHA-256 of whatever was actually retrieved (a saved page snapshot, a screenshot, an API response body) -- so the evidence is in principle re-checkable later, never just an unverifiable assertion."
+                },
+                "authoritative": {
+                  "type": "boolean",
+                  "description": "A human judgment call: is this ONE source alone trustworthy enough to accept without a second corroborating source (e.g. the competition's own official site)? See the module docstring's corroboration rule."
+                },
+                "reported_score": {
+                  "type": "object",
+                  "required": ["home", "away"],
+                  "properties": {
+                    "home": {"type": "integer", "minimum": 0},
+                    "away": {"type": "integer", "minimum": 0}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
