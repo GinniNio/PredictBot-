@@ -486,6 +486,23 @@ def main(argv: list[str] | None = None) -> int:
 
         return convert_manual_results_evidence_main(argv[1:])
 
+    # ``archive-manual-results-evidence`` is likewise additive -- see
+    # ``orchestration/manual_evidence_archiver.py``'s own module
+    # docstring. The evidence-preservation tool ``convert-manual-results-
+    # evidence``'s own archive-manifest lookup was built to depend on:
+    # fetches only https destinations that resolve to a public address (at
+    # every redirect hop), bounds timeout/size/content-type, independently
+    # validates the archived page's own visible text actually supports the
+    # claimed result, and appends tool-generated entries (never anything
+    # from the untrusted evidence-collection file) to the trusted archive
+    # manifest. The only command in this codebase that makes an outbound
+    # network request; never touches the forecast or betting ledger beyond
+    # one optional read-only fixture_id lookup.
+    if argv and argv[0] == "archive-manual-results-evidence":
+        from .orchestration.manual_evidence_archiver import main as archive_manual_results_evidence_main
+
+        return archive_manual_results_evidence_main(argv[1:])
+
     # ``report-forecast-performance`` is likewise additive -- see
     # ``orchestration/forecast_performance_report.py``'s own module
     # docstring. Read-only over the forecast ledger's SCORED events; never

@@ -209,6 +209,32 @@ jobs:
           if (-not (Test-Path "$check_dir\out\conversion-report.json")) { throw "conversion-report.json was never written" }
           if (Test-Path "$check_dir\ledger_data") { throw "convert-manual-results-evidence must never create ledger_data -- it is read-only against an existing ledger" }
 
+      - name: archive-manual-results-evidence imports and runs cleanly on Windows -- SSRF guard blocks a loopback URL with no real network access
+        # This step never depends on outbound network access at all: the
+        # cited source URL is a loopback address, so validate_https_url
+        # must block it before any socket is opened -- the exact same
+        # SSRF guard that would also block a redirect-to-private hop.
+        # This step's real job is confirming the module tree (ipaddress/
+        # socket/urllib.request usage included) imports and runs without
+        # error on Windows, same failure class every other step here
+        # exists to catch.
+        shell: pwsh
+        run: |
+          $venv_python = "$env:GITHUB_WORKSPACE\runtime-test\Scripts\python.exe"
+          $check_dir = "$env:RUNNER_TEMP\manual-evidence-archiver-wheel-check"
+          New-Item -ItemType Directory -Force -Path $check_dir | Out-Null
+          Push-Location $check_dir
+          $evidence = '{"schema_version": "predictbot.manual-results-evidence.v1", "results": [{"fixture_id": "bxf_win_smoke", "competition": "Premier League", "participants": {"home": "Arsenal", "away": "Chelsea"}, "match_status": "FINISHED", "home_score": 3, "away_score": 1, "result_status": "VERIFIED", "verification_method": "manual_search", "review_reason": null, "sources": [{"source_name": "Local Test", "source_type": "MAJOR_PUBLICATION", "source_url": "https://127.0.0.1/blocked", "retrieved_at_utc": "2026-09-20T18:00:00Z", "evidence_summary": "Arsenal beat Chelsea 3-1.", "evidence_sha256": null}]}]}'
+          $evidence | Out-File -FilePath evidence.json -Encoding utf8
+          & $venv_python -m pcbf_calculator archive-manual-results-evidence evidence.json --archive-dir manual_evidence --output-dir out
+          $exit_code = $LASTEXITCODE
+          Pop-Location
+          if ($exit_code -ne 0) { throw "expected exit code 0, got $exit_code" }
+          if (-not (Test-Path "$check_dir\out\archive-report.json")) { throw "archive-report.json was never written" }
+          $rejected = Get-Content "$check_dir\out\archive-rejected.json" -Raw | ConvertFrom-Json
+          if ($rejected.rejected[0].reason -ne "ARCHIVE_BLOCKED_DESTINATION") { throw "expected the loopback URL to be rejected as ARCHIVE_BLOCKED_DESTINATION, got $($rejected.rejected[0].reason)" }
+          if (Test-Path "$check_dir\manual_evidence\archive-manifest.json") { throw "no source was successfully archived -- the manifest must never be written" }
+
   bet9ja-capture-tests:
     # Independent job: the browser_extension/bet9ja_capture/ extension is a
     # separate JS ecosystem (its own package.json) and must never gate or

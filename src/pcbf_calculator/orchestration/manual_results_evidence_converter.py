@@ -38,11 +38,11 @@ either one is real. This module now IGNORES ``evidence_sha256`` (and
 trust purposes -- they are never read for anything. Instead, every
 source's own ``source_url`` is looked up in a separate, trusted
 **archive manifest** (``schemas/manual_evidence_archive_manifest.v1.
-schema.json`` -- produced by a SEPARATE, NOT-YET-BUILT evidence-
-preservation tool that actually fetches and archives the cited page,
-never by this module and never by an LLM). No manifest entry for that
-URL is ``SETTLE_EVIDENCE_NOT_ARCHIVED`` -- until that archiver exists
-(it does not yet), this is every source's outcome, and that is the
+schema.json`` -- produced by ``manual_evidence_archiver.py``, the
+separate evidence-preservation tool that actually fetches and archives
+the cited page, never by this module and never by an LLM). No manifest
+entry for that URL is ``SETTLE_EVIDENCE_NOT_ARCHIVED`` -- until that
+source has actually been archived, this is its outcome, and that is the
 correct, fail-closed result, never worked around here. When an entry
 DOES exist, this module reads the actual archived bytes at the
 manifest's own ``archive_path`` and RECOMPUTES their SHA-256 itself --
