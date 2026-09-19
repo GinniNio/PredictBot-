@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "manual_results_evidence_input.v1",
   "title": "Manual results EVIDENCE-COLLECTION input -- an upstream, pre-archival artifact consumed only by convert-manual-results-evidence, never directly by ingest-manual-results",
-  "description": "The shape an LLM-driven evidence-collection pass (this schema's own schema_version constant names it 'predictbot.manual-results-evidence.v1') actually produces: one result per supplied fixture, joined by fixture_id back to an already-recorded forecast, with zero or more corroborating sources whose evidence_sha256 is null until a SEPARATE, not-yet-built evidence-preservation tool retrieves and archives each cited page. convert-manual-results-evidence never fabricates that hash -- see this module's own docstring.",
+  "description": "The shape an LLM-driven evidence-collection pass (this schema's own schema_version constant names it 'predictbot.manual-results-evidence.v1') actually produces: one result per supplied fixture, joined by fixture_id back to an already-recorded forecast, with zero or more corroborating sources whose evidence_sha256 is null until the separate evidence-preservation tool (manual_evidence_archiver.py / archive-manual-results-evidence) retrieves and archives each cited page. convert-manual-results-evidence never fabricates that hash -- see this module's own docstring.",
   "schema_version": "manual_results_evidence_input.v1",
   "type": "object",
   "required": ["schema_version", "results"],
@@ -43,7 +43,7 @@
                 "evidence_summary": {"type": "string"},
                 "evidence_sha256": {
                   "type": ["string", "null"],
-                  "description": "Null until a separate, not-yet-built evidence-preservation tool retrieves and archives the cited page. convert-manual-results-evidence treats null here as SETTLE_EVIDENCE_NOT_ARCHIVED -- it never computes or fabricates this hash itself."
+                  "description": "Null until the separate evidence-preservation tool (manual_evidence_archiver.py / archive-manual-results-evidence) retrieves and archives the cited page. convert-manual-results-evidence treats null here as SETTLE_EVIDENCE_NOT_ARCHIVED -- it never computes or fabricates this hash itself."
                 }
               }
             }

@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "manual_evidence_archive_manifest.v1",
   "title": "Manual evidence archive manifest -- the ONLY trusted source of an evidence_hash convert-manual-results-evidence will ever accept",
-  "description": "Produced by a separate, not-yet-built evidence-preservation tool (see that tool's own future PR) that actually fetches, archives, and hashes a cited match-report page. Every field here is tool-generated at retrieval time -- NEVER copied from an LLM's own evidence-collection output, which is exactly the untrusted input this manifest exists to check against. Append-only: entries are added, never edited or removed, by that tool alone.",
+  "description": "Produced by manual_evidence_archiver.py (python -m pcbf_calculator archive-manual-results-evidence), the separate evidence-preservation tool that actually fetches, archives, and hashes a cited match-report page. Every field here is tool-generated at retrieval time -- NEVER copied from an LLM's own evidence-collection output, which is exactly the untrusted input this manifest exists to check against. Append-only: entries are added, never edited or removed, by that tool alone.",
   "schema_version": "manual-evidence-archive-manifest.v1",
   "type": "object",
   "required": ["schema_version", "entries"],
