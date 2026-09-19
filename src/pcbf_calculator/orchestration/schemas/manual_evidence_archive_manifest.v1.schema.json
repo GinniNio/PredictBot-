@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "manual_evidence_archive_manifest.v1",
+  "title": "Manual evidence archive manifest -- the ONLY trusted source of an evidence_hash convert-manual-results-evidence will ever accept",
+  "description": "Produced by a separate, not-yet-built evidence-preservation tool (see that tool's own future PR) that actually fetches, archives, and hashes a cited match-report page. Every field here is tool-generated at retrieval time -- NEVER copied from an LLM's own evidence-collection output, which is exactly the untrusted input this manifest exists to check against. Append-only: entries are added, never edited or removed, by that tool alone.",
+  "schema_version": "manual-evidence-archive-manifest.v1",
+  "type": "object",
+  "required": ["schema_version", "entries"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "manual-evidence-archive-manifest.v1"},
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "requested_url", "final_url", "retrieved_at_utc", "http_status",
+          "content_type", "byte_count", "sha256", "archive_path"
+        ],
+        "properties": {
+          "requested_url": {"type": "string", "description": "The exact URL an evidence-collection source cited -- the join key convert-manual-results-evidence looks sources up by."},
+          "final_url": {"type": "string", "description": "The URL actually retrieved after following any redirects -- may differ from requested_url."},
+          "retrieved_at_utc": {"type": "string", "format": "date-time", "description": "Tool-generated at fetch time -- never taken from the evidence-collection artifact's own (LLM-supplied) retrieved_at_utc."},
+          "http_status": {"type": "integer"},
+          "content_type": {"type": "string"},
+          "byte_count": {"type": "integer", "minimum": 0},
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the archived bytes at archive_path, computed by the archiving tool at retrieval time. convert-manual-results-evidence independently RECOMPUTES this from the file on disk and refuses the entry if they disagree -- this field is never trusted on its own."
+          },
+          "archive_path": {
+            "type": "string",
+            "description": "Path (relative to the manifest's own directory, i.e. under ledger_data/manual_evidence/) to the immutable, archived response bytes this entry describes."
+          }
+        }
+      }
+    }
+  }
+}
