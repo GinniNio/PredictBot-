@@ -6,6 +6,13 @@ Style matches ``tests/test_manual_results_settlement.py``: plain
 the real, committed adapter artifact actually resolves identity, a
 directly-built RECORDED event (never through the full research pipeline)
 to give the converter a real fixture_id to look up.
+
+**Trust-boundary discipline**: every test here that wants a source
+accepted must go through a REAL archive-manifest entry backed by REAL
+bytes on disk, recomputed via ``hashlib.sha256`` -- never a bare
+``evidence_sha256`` string in the evidence-collection envelope itself,
+which this module no longer reads for trust purposes at all. See
+``_archive`` below.
 """
 
 from __future__ import annotations
@@ -24,8 +31,6 @@ if str(REPO_ROOT) not in sys.path:
 from ledgers import forecast_ledger  # noqa: E402
 
 from pcbf_calculator.orchestration import manual_results_evidence_converter as conv  # noqa: E402
-
-VALID_HASH = hashlib.sha256(b"evidence-page-content").hexdigest()
 
 
 def _record_forecast(
@@ -60,6 +65,50 @@ def _record_forecast(
     return result.record["forecast_id"]
 
 
+class _Archive:
+    """A small in-memory archive builder: writes real bytes to a real
+    file under a temp "manual_evidence" directory and hands back the
+    manifest entry describing them, plus the exact URL to cite in an
+    evidence-collection source so it resolves against this entry."""
+
+    def __init__(self, manifest_dir: Path):
+        self.manifest_dir = manifest_dir
+        self.manifest_dir.mkdir(parents=True, exist_ok=True)
+        self.entries: list[dict] = []
+        self._n = 0
+
+    def add(self, url: str, content: bytes, final_url: str | None = None, corrupt_after_hashing: bool = False) -> dict:
+        self._n += 1
+        rel_path = f"page-{self._n}.html"
+        (self.manifest_dir / rel_path).write_bytes(content)
+        sha256 = hashlib.sha256(content).hexdigest()
+        if corrupt_after_hashing:
+            (self.manifest_dir / rel_path).write_bytes(content + b"tampered")
+        entry = {
+            "requested_url": url,
+            "final_url": final_url or url,
+            "retrieved_at_utc": "2026-09-19T12:00:00Z",
+            "http_status": 200,
+            "content_type": "text/html",
+            "byte_count": len(content),
+            "sha256": sha256,
+            "archive_path": rel_path,
+        }
+        self.entries.append(entry)
+        return entry
+
+    def manifest(self) -> dict:
+        return {"schema_version": "manual-evidence-archive-manifest.v1", "entries": self.entries}
+
+    def write_manifest_file(self) -> Path:
+        path = self.manifest_dir / "archive-manifest.json"
+        path.write_text(json.dumps(self.manifest()), encoding="utf-8")
+        return path
+
+    def index(self) -> dict[str, dict]:
+        return conv._build_archive_index(self.manifest(), self.manifest_dir)
+
+
 def _evidence_result(
     fixture_id="bxf_evidence_1",
     competition="Premier League",
@@ -72,7 +121,7 @@ def _evidence_result(
     sources=None,
 ):
     if sources is None:
-        sources = [_evidence_source(home_score=home_score, away_score=away_score)]
+        sources = []
     return {
         "fixture_id": fixture_id,
         "competition": competition,
@@ -91,18 +140,24 @@ def _evidence_result(
 
 
 def _evidence_source(
+    source_url,
     source_name="Arsenal FC",
     source_type="OFFICIAL_CLUB",
     home_score=2,
     away_score=1,
-    evidence_sha256=VALID_HASH,
     evidence_summary=None,
+    evidence_sha256=None,
 ):
+    """``evidence_sha256`` defaults to None (the real, honest upstream
+    shape) but a test may pass an arbitrary FABRICATED value here to
+    prove the converter ignores it either way -- see
+    ``test_a_fabricated_evidence_sha256_with_no_real_archive_entry_is_still_rejected``."""
+
     return {
         "source_name": source_name,
         "source_type": source_type,
-        "source_url": "https://example.com/match-report",
-        "retrieved_at_utc": "2026-09-21T09:00:00Z",
+        "source_url": source_url,
+        "retrieved_at_utc": "2020-01-01T00:00:00Z",  # deliberately implausible -- must never be trusted/forwarded
         "evidence_summary": evidence_summary if evidence_summary is not None else f"Final score: Arsenal {home_score}-{away_score} Chelsea.",
         "evidence_sha256": evidence_sha256,
     }
@@ -139,6 +194,25 @@ class SchemaValidationTests(unittest.TestCase):
         self.assertNotEqual(errors, [])
 
 
+class ArchiveManifestSchemaTests(unittest.TestCase):
+    def test_a_well_formed_manifest_validates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = _Archive(Path(tmp))
+            archive.add("https://example.com/report", b"<html>Arsenal 2-1 Chelsea</html>")
+            schema = conv.load_manual_evidence_archive_manifest_schema()
+            from ledgers.validation import _check_node
+
+            errors: list[str] = []
+            _check_node(archive.manifest(), schema, "manifest", errors)
+        self.assertEqual(errors, [])
+
+    def test_a_missing_manifest_file_loads_as_empty_never_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = conv.load_manual_evidence_archive_manifest_schema()
+            manifest = conv.load_archive_manifest(Path(tmp) / "does-not-exist.json", schema)
+        self.assertEqual(manifest["entries"], [])
+
+
 class ConvertEvidenceBatchTests(unittest.TestCase):
     def setUp(self):
         self.schema = conv.load_manual_results_evidence_schema()
@@ -147,35 +221,56 @@ class ConvertEvidenceBatchTests(unittest.TestCase):
 
         self.alias_book = TeamAliasBook({"leagues": {}})
 
-    def _convert(self, results, ledger_path):
+    def _convert(self, results, ledger_path, archive_index):
         with tempfile.TemporaryDirectory() as tmp:
             path = _write(tmp, "evidence.json", _envelope(results))
-            return conv.convert_evidence_batch([path], ledger_path, self.known_teams, self.alias_book, self.schema)
+            return conv.convert_evidence_batch([path], ledger_path, self.known_teams, self.alias_book, self.schema, archive_index)
 
-    def test_a_fully_archived_authoritative_result_converts_cleanly(self):
+    def test_a_source_backed_by_a_real_archived_and_verified_page_converts_cleanly(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(ledger_path)
-            converted, rejected, counts = self._convert([_evidence_result()], ledger_path)
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            archive.add("https://arsenal.com/report", b"Arsenal 2-1 Chelsea full match report")
+            result = _evidence_result(sources=[_evidence_source("https://arsenal.com/report")])
+            converted, rejected, counts = self._convert([result], ledger_path, archive.index())
         self.assertEqual(rejected, [])
         self.assertEqual(len(converted), 1)
         row = converted[0]
         self.assertEqual(row["competition_raw"], "Premier League")
-        self.assertEqual(row["home_team_raw"], "Arsenal")
-        self.assertEqual(row["away_team_raw"], "Chelsea")
-        self.assertEqual(row["completion_status"], "COMPLETED")
         self.assertEqual(row["final_score"], {"home": 2, "away": 1})
         self.assertEqual(len(row["sources"]), 1)
         self.assertTrue(row["sources"][0]["authoritative"])
-        self.assertEqual(row["sources"][0]["evidence_hash"], f"sha256:{VALID_HASH}")
+        # retrieved_at_utc/evidence_hash come from the ARCHIVE, never the
+        # (deliberately implausible) value the evidence source itself carries.
+        self.assertEqual(row["sources"][0]["retrieved_at_utc"], "2026-09-19T12:00:00Z")
+        self.assertNotEqual(row["sources"][0]["retrieved_at_utc"], "2020-01-01T00:00:00Z")
         self.assertEqual(counts["source_rows_total"], 1)
+
+    def test_a_fabricated_evidence_sha256_with_no_real_archive_entry_is_still_rejected(self):
+        # THE regression test for the trust-boundary fix: an LLM supplying
+        # a plausible, well-formed-looking evidence_sha256 (fabricated,
+        # self-consistent with its own evidence_summary) must NEVER be
+        # accepted just because the field is present and looks valid --
+        # only a real, independently-verified archive entry counts.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            fabricated_hash = hashlib.sha256(b"this was never actually fetched or archived").hexdigest()
+            result = _evidence_result(
+                sources=[_evidence_source("https://arsenal.com/report", evidence_sha256=fabricated_hash)]
+            )
+            empty_index: dict = {}  # no archiver has ever run -- nothing is real yet
+            converted, rejected, _ = self._convert([result], ledger_path, empty_index)
+        self.assertEqual(converted, [])
+        self.assertEqual(rejected[0]["reason"], conv.REASON_EVIDENCE_NOT_ARCHIVED)
 
     def test_needs_review_rows_are_rejected_as_not_verified(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(ledger_path)
             result = _evidence_result(result_status="NEEDS_REVIEW", review_reason="no evidence found")
-            converted, rejected, _ = self._convert([result], ledger_path)
+            converted, rejected, _ = self._convert([result], ledger_path, {})
         self.assertEqual(converted, [])
         self.assertEqual(rejected[0]["reason"], conv.REASON_NOT_VERIFIED)
         self.assertEqual(rejected[0]["detail"], "no evidence found")
@@ -184,13 +279,12 @@ class ConvertEvidenceBatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             # ledger stays empty
-            converted, rejected, _ = self._convert([_evidence_result()], ledger_path)
+            result = _evidence_result(sources=[_evidence_source("https://arsenal.com/report")])
+            converted, rejected, _ = self._convert([result], ledger_path, {})
         self.assertEqual(converted, [])
         self.assertEqual(rejected[0]["reason"], conv.REASON_FIXTURE_NOT_IN_LEDGER)
 
     def test_a_forecast_with_no_settlement_identity_is_rejected(self):
-        # The real shape an unresolved-competition abstention has --
-        # competition_code/resolved_home_team/resolved_away_team all null.
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(
@@ -201,49 +295,84 @@ class ConvertEvidenceBatchTests(unittest.TestCase):
                 scheduled_date=None,
                 stop_reason="FORECAST_COMPETITION_UNRESOLVED",
             )
-            converted, rejected, _ = self._convert([_evidence_result()], ledger_path)
+            result = _evidence_result(sources=[_evidence_source("https://arsenal.com/report")])
+            converted, rejected, _ = self._convert([result], ledger_path, {})
         self.assertEqual(converted, [])
         self.assertEqual(rejected[0]["reason"], conv.REASON_NO_SETTLEMENT_IDENTITY)
 
-    def test_evidence_not_yet_archived_is_rejected_never_fabricated(self):
+    def test_a_url_with_no_manifest_entry_at_all_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(ledger_path)
-            result = _evidence_result(sources=[_evidence_source(evidence_sha256=None)])
-            converted, rejected, _ = self._convert([result], ledger_path)
+            result = _evidence_result(sources=[_evidence_source("https://never-archived.example.com/report")])
+            converted, rejected, _ = self._convert([result], ledger_path, {})
         self.assertEqual(converted, [])
         self.assertEqual(rejected[0]["reason"], conv.REASON_EVIDENCE_NOT_ARCHIVED)
+
+    def test_a_manifest_entry_whose_archived_file_is_missing_on_disk_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            entry = archive.add("https://arsenal.com/report", b"Arsenal 2-1 Chelsea")
+            index = archive.index()
+            (archive.manifest_dir / entry["archive_path"]).unlink()  # simulate a lost/never-written archive file
+            result = _evidence_result(sources=[_evidence_source("https://arsenal.com/report")])
+            converted, rejected, _ = self._convert([result], ledger_path, index)
+        self.assertEqual(converted, [])
+        self.assertIn(conv.REASON_ARCHIVE_INTEGRITY_MISMATCH, rejected[0]["reason"])
+
+    def test_a_manifest_entry_whose_recomputed_hash_does_not_match_is_rejected(self):
+        # Simulates a tampered or corrupted archive file -- the manifest's
+        # OWN recorded hash is never trusted on its own either.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            archive.add("https://arsenal.com/report", b"Arsenal 2-1 Chelsea", corrupt_after_hashing=True)
+            result = _evidence_result(sources=[_evidence_source("https://arsenal.com/report")])
+            converted, rejected, _ = self._convert([result], ledger_path, archive.index())
+        self.assertEqual(converted, [])
+        self.assertIn(conv.REASON_ARCHIVE_INTEGRITY_MISMATCH, rejected[0]["reason"])
 
     def test_an_unparseable_evidence_summary_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(ledger_path)
-            result = _evidence_result(sources=[_evidence_source(evidence_summary="Match completed, no scoreline given.")])
-            converted, rejected, _ = self._convert([result], ledger_path)
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            archive.add("https://arsenal.com/report", b"content")
+            result = _evidence_result(
+                sources=[_evidence_source("https://arsenal.com/report", evidence_summary="Match completed, no scoreline given.")]
+            )
+            converted, rejected, _ = self._convert([result], ledger_path, archive.index())
         self.assertEqual(converted, [])
-        self.assertEqual(rejected[0]["reason"], conv.REASON_INSUFFICIENT_CORROBORATION)
+        self.assertEqual(rejected[0]["reason"], conv.REASON_EVIDENCE_SUMMARY_UNPARSEABLE)
 
     def test_a_source_whose_own_text_disagrees_with_the_claimed_score_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(ledger_path)
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            archive.add("https://arsenal.com/report", b"content")
             result = _evidence_result(
                 home_score=2, away_score=1,
-                sources=[_evidence_source(evidence_summary="Final score: Arsenal 3-1 Chelsea.")],
+                sources=[_evidence_source("https://arsenal.com/report", evidence_summary="Final score: Arsenal 3-1 Chelsea.")],
             )
-            converted, rejected, _ = self._convert([result], ledger_path)
+            converted, rejected, _ = self._convert([result], ledger_path, archive.index())
         self.assertEqual(converted, [])
-        self.assertIn(rejected[0]["reason"], (conv.REASON_INSUFFICIENT_CORROBORATION,))
+        self.assertEqual(rejected[0]["reason"], conv.REASON_EVIDENCE_SCORE_MISMATCH)
         self.assertIn("SETTLE_EVIDENCE_SCORE_MISMATCH", rejected[0]["detail"])
 
     def test_single_other_credible_source_is_insufficient_corroboration(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(ledger_path)
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            archive.add("https://sportytrader.example.com/report", b"content")
             result = _evidence_result(
-                sources=[_evidence_source(source_type="OTHER_CREDIBLE", source_name="SportyTrader")]
+                sources=[_evidence_source("https://sportytrader.example.com/report", source_type="OTHER_CREDIBLE", source_name="SportyTrader")]
             )
-            converted, rejected, _ = self._convert([result], ledger_path)
+            converted, rejected, _ = self._convert([result], ledger_path, archive.index())
         self.assertEqual(converted, [])
         self.assertEqual(rejected[0]["reason"], conv.REASON_INSUFFICIENT_CORROBORATION)
 
@@ -251,14 +380,16 @@ class ConvertEvidenceBatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(ledger_path)
-            hash_b = hashlib.sha256(b"second-source-content").hexdigest()
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            archive.add("https://source-a.example.com/report", b"content A")
+            archive.add("https://source-b.example.com/report", b"content B")
             result = _evidence_result(
                 sources=[
-                    _evidence_source(source_type="OTHER_CREDIBLE", source_name="Source A"),
-                    _evidence_source(source_type="OTHER_CREDIBLE", source_name="Source B", evidence_sha256=hash_b),
+                    _evidence_source("https://source-a.example.com/report", source_type="OTHER_CREDIBLE", source_name="Source A"),
+                    _evidence_source("https://source-b.example.com/report", source_type="OTHER_CREDIBLE", source_name="Source B"),
                 ]
             )
-            converted, rejected, _ = self._convert([result], ledger_path)
+            converted, rejected, _ = self._convert([result], ledger_path, archive.index())
         self.assertEqual(rejected, [])
         self.assertEqual(len(converted), 1)
         self.assertEqual(len(converted[0]["sources"]), 2)
@@ -267,9 +398,8 @@ class ConvertEvidenceBatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(ledger_path, competition_code="E0", resolved_home_team="Arsenal", resolved_away_team="Chelsea")
-            # Evidence file claims a DIFFERENT competition for this exact fixture_id.
             result = _evidence_result(competition="Bundesliga")
-            converted, rejected, _ = self._convert([result], ledger_path)
+            converted, rejected, _ = self._convert([result], ledger_path, {})
         self.assertEqual(converted, [])
         self.assertEqual(rejected[0]["reason"], conv.REASON_IDENTITY_MISMATCH)
 
@@ -279,7 +409,7 @@ class ConvertEvidenceBatchTests(unittest.TestCase):
             _record_forecast(ledger_path)
             path = _write(tmp, "bad.json", {"schema_version": conv.SCHEMA_VERSION_EVIDENCE, "results": "not-a-list"})
             converted, rejected, counts = conv.convert_evidence_batch(
-                [path], ledger_path, self.known_teams, self.alias_book, self.schema
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, {}
             )
         self.assertEqual(converted, [])
         self.assertEqual(len(rejected), 1)
@@ -289,32 +419,55 @@ class ConvertEvidenceBatchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_path = Path(tmp) / "forecast-ledger.jsonl"
             _record_forecast(ledger_path)
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            archive.add("https://arsenal.com/report", b"content")
             results = [
-                _evidence_result(),
+                _evidence_result(sources=[_evidence_source("https://arsenal.com/report")]),
                 _evidence_result(fixture_id="bxf_missing", result_status="NEEDS_REVIEW", review_reason="x"),
             ]
-            converted, rejected, counts = self._convert(results, ledger_path)
+            converted, rejected, counts = self._convert(results, ledger_path, archive.index())
         self.assertEqual(counts["source_rows_total"], len(results))
         self.assertEqual(counts["source_rows_total"], len(rejected) + len(converted))
 
 
 class RunConversionSessionTests(unittest.TestCase):
-    def test_never_writes_to_the_ledger(self):
+    def test_never_writes_to_the_ledger_and_uses_the_default_manifest_location(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger_dir = Path(tmp) / "ledger_data"
             output_dir = Path(tmp) / "out"
             ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
             _record_forecast(ledger_path)
             before = ledger_path.read_bytes()
-            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result()]))
+
+            archive = _Archive(ledger_dir / conv.DEFAULT_ARCHIVE_MANIFEST_RELATIVE_PATH.parent)
+            archive.add("https://arsenal.com/report", b"Arsenal 2-1 Chelsea")
+            archive.write_manifest_file()
+
+            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://arsenal.com/report")])]))
 
             result = conv.run_conversion_session(input_path, ledger_dir, output_dir)
 
             after = ledger_path.read_bytes()
             self.assertEqual(before, after)
             self.assertEqual(len(result["converted_input"]["results"]), 1)
+            self.assertEqual(result["conversion_report"]["archive_manifest_entries"], 1)
             for name in ("conversion-report.json", "converted-manual-results-input.json", "conversion-rejected.json"):
                 self.assertTrue((output_dir / name).exists())
+
+    def test_a_missing_manifest_yields_zero_conversions_never_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            output_dir = Path(tmp) / "out"
+            ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
+            _record_forecast(ledger_path)
+            # No manifest file written at all -- the archiver doesn't exist yet.
+            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://arsenal.com/report")])]))
+
+            result = conv.run_conversion_session(input_path, ledger_dir, output_dir)
+
+            self.assertEqual(result["conversion_report"]["archive_manifest_entries"], 0)
+            self.assertEqual(len(result["converted_input"]["results"]), 0)
+            self.assertEqual(result["rejected"][0]["reason"], conv.REASON_EVIDENCE_NOT_ARCHIVED)
 
     def test_converted_output_validates_against_ingest_manual_results_own_schema(self):
         # The whole point of this converter: its output must be directly
@@ -326,7 +479,10 @@ class RunConversionSessionTests(unittest.TestCase):
             output_dir = Path(tmp) / "out"
             ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
             _record_forecast(ledger_path)
-            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result()]))
+            archive = _Archive(ledger_dir / conv.DEFAULT_ARCHIVE_MANIFEST_RELATIVE_PATH.parent)
+            archive.add("https://arsenal.com/report", b"Arsenal 2-1 Chelsea")
+            archive.write_manifest_file()
+            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://arsenal.com/report")])]))
 
             result = conv.run_conversion_session(input_path, ledger_dir, output_dir)
             errors = mrs.validate_manual_results_envelope(result["converted_input"], mrs.load_manual_results_schema())
@@ -341,12 +497,31 @@ class MainCliTests(unittest.TestCase):
             ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
             _record_forecast(ledger_path)
             before = ledger_path.read_bytes()
-            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result()]))
+            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://arsenal.com/report")])]))
 
             exit_code = conv.main([str(input_path), "--ledger-dir", str(ledger_dir), "--output-dir", str(output_dir)])
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(ledger_path.read_bytes(), before)
+
+    def test_explicit_archive_manifest_option_is_honored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            output_dir = Path(tmp) / "out"
+            ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
+            _record_forecast(ledger_path)
+            archive = _Archive(Path(tmp) / "custom_archive_location")
+            archive.add("https://arsenal.com/report", b"Arsenal 2-1 Chelsea")
+            manifest_path = archive.write_manifest_file()
+            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://arsenal.com/report")])]))
+
+            exit_code = conv.main(
+                [str(input_path), "--ledger-dir", str(ledger_dir), "--output-dir", str(output_dir), "--archive-manifest", str(manifest_path)]
+            )
+
+            self.assertEqual(exit_code, 0)
+            converted = json.loads((output_dir / "converted-manual-results-input.json").read_text())
+            self.assertEqual(len(converted["results"]), 1)
 
 
 if __name__ == "__main__":
