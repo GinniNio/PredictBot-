@@ -224,9 +224,7 @@ jobs:
           $check_dir = "$env:RUNNER_TEMP\manual-evidence-archiver-wheel-check"
           New-Item -ItemType Directory -Force -Path $check_dir | Out-Null
           Push-Location $check_dir
-          $evidence = @'
-          {"schema_version": "predictbot.manual-results-evidence.v1", "results": [{"fixture_id": "bxf_win_smoke", "competition": "Premier League", "participants": {"home": "Arsenal", "away": "Chelsea"}, "match_status": "FINISHED", "home_score": 3, "away_score": 1, "result_status": "VERIFIED", "verification_method": "manual_search", "review_reason": null, "sources": [{"source_name": "Local Test", "source_type": "MAJOR_PUBLICATION", "source_url": "https://127.0.0.1/blocked", "retrieved_at_utc": "2026-09-20T18:00:00Z", "evidence_summary": "Arsenal beat Chelsea 3-1.", "evidence_sha256": null}]}]}
-'@
+          $evidence = '{"schema_version": "predictbot.manual-results-evidence.v1", "results": [{"fixture_id": "bxf_win_smoke", "competition": "Premier League", "participants": {"home": "Arsenal", "away": "Chelsea"}, "match_status": "FINISHED", "home_score": 3, "away_score": 1, "result_status": "VERIFIED", "verification_method": "manual_search", "review_reason": null, "sources": [{"source_name": "Local Test", "source_type": "MAJOR_PUBLICATION", "source_url": "https://127.0.0.1/blocked", "retrieved_at_utc": "2026-09-20T18:00:00Z", "evidence_summary": "Arsenal beat Chelsea 3-1.", "evidence_sha256": null}]}]}'
           $evidence | Out-File -FilePath evidence.json -Encoding utf8
           & $venv_python -m pcbf_calculator archive-manual-results-evidence evidence.json --archive-dir manual_evidence --output-dir out
           $exit_code = $LASTEXITCODE
