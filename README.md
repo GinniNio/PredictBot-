@@ -145,6 +145,30 @@ Always produces four output files: `settlement-report.json` (counts and row-acco
 
 Explicit boundaries: forecast ledger only — no betting-ledger write, no Bet9ja capture/scraping change, no automated model retraining, no calibration adjustment, no `PAPER`/`CASH` promotion, no outcome or stake decision of any kind.
 
+## Manual results settlement — governed last resort (`ingest-manual-results`)
+
+**Priority order for settling a forecast: football-data.org (live API, primary) → football-data.co.uk file (`ingest-football-data-results`, above) → this command.** `ingest-manual-results` exists only for a fixture the two automated sources genuinely could not settle (not yet published, a league gap, or some other confirmed reason) — nothing in this command enforces that ordering in code; it is an operator discipline, documented here.
+
+```bash
+python -m pcbf_calculator ingest-manual-results \
+  manual-results.json \
+  --ledger-dir ledger_data \
+  --output-dir runs/settlement-session-id \
+  [--confirm]
+```
+
+**Dry run by default.** Every invocation without `--confirm` runs the complete pipeline — schema validation, corroboration checks, identity resolution, and a real preflight against the ledger's current on-disk content — and writes the same four report files a real run would, but never opens the ledger for writing. `--confirm` re-plans (never reuses the dry run's own plan — the ledger could have changed since) and commits, under the same exclusive lock every other settlement source shares.
+
+**Corroboration gate — the whole reason this is a distinct, governed command rather than a bare results file.** Each result must carry `source_name`/`source_url`/`retrieved_at_utc`/`evidence_hash`/`authoritative`/`reported_score` for one or more sources (see `src/pcbf_calculator/orchestration/schemas/manual_results_input.v1.schema.json` for the full documented shape). A result is accepted only when at least one source is marked `authoritative` and agrees with the claimed score, **or** at least two sources with distinct `source_name` values agree. Any source disagreeing with the claimed score fails the whole result closed (`SETTLE_SOURCE_SCORE_DISAGREEMENT`) — never averaged or voted on. Fewer than the required corroboration is `SETTLE_INSUFFICIENT_CORROBORATION`, never accepted on trust.
+
+**Never expands model coverage.** Reuses `adapters/soccer_1x2_elo_v1/identity.py`'s `resolve_competition`/`resolve_team` completely unmodified — the same fixed 5-league allowlist, exact-match-only team resolution as every other source in this codebase. A competition outside that allowlist is `SETTLE_COMPETITION_NOT_COVERED`; an unresolved team name is `SETTLE_HOME_TEAM_UNRESOLVED`/`SETTLE_AWAY_TEAM_UNRESOLVED` — never fuzzy-matched or guessed.
+
+**Matches only forecasts already in the ledger**, reusing `football_data_settlement.plan_settlement` verbatim — the identical matching key, duplicate/conflict rules, and one-time `SCORED` transition every settlement source shares. `closing_odds` is always `null` (a manually-verified score is never a closing price). Provenance (`settlement_basis: "MANUAL_VERIFIED"`, the full `manual_sources` evidence list) is recorded in this command's own `settled-forecasts.json` report — never inside the forecast ledger's own `SCORED` payload, which has no field for "which settlement source produced this row" (the same design choice `ingest-bet9ja-results`'s own `bet9ja_result_id` already makes, for the identical reason).
+
+Produces the same four output files as every other settlement source, with `status: "DRY_RUN"` when `--confirm` was omitted.
+
+Explicit boundaries: forecast ledger only — no betting-ledger write, no automated model retraining, no calibration adjustment, no `PAPER`/`CASH` promotion, no outcome or stake decision of any kind.
+
 ## Prospective performance and calibration reporting (`report-forecast-performance`)
 
 Closes the loop: `capture → forecast → record → settle → score → report`. Reads only `SCORED` forecast-ledger events and produces deterministic, byte-identical (for unchanged ledger content) JSON reports — no ledger write of any kind.

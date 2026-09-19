@@ -86,3 +86,8 @@ exclude = ["build*", "build.*"]
 # the "ledgers" package, not its own subpackage (no __init__.py), so
 # this glob is relative to "ledgers"'s own package root.
 "ledgers" = ["schemas/*.json"]
+# manual_results_settlement.load_manual_results_schema() reads this at
+# runtime the identical way -- same reasoning, same "plain data
+# subdirectory, no __init__.py" shape, just under
+# "pcbf_calculator.orchestration" (a real package) instead of "ledgers".
+"pcbf_calculator.orchestration" = ["schemas/*.json"]
