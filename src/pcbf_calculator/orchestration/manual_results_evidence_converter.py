@@ -103,9 +103,10 @@ import hashlib
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
@@ -275,6 +276,10 @@ def convert_evidence_batch(
     alias_book: Any,
     schema: dict[str, Any],
     archive_index: dict[str, dict[str, Any]],
+    accept_operator_attested_evidence: bool = False,
+    accepted_by: str | None = None,
+    attestation_reason_code: str = "ARCHIVE_UNVERIFIABLE_EGRESS",
+    now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
     """Reads every evidence-collection envelope in ``json_paths`` and
     converts each independently-verifiable ``VERIFIED`` result into
@@ -289,15 +294,41 @@ def convert_evidence_batch(
     ``archive_index`` (see ``_build_archive_index``) is the ONLY source of
     truth for whether a source's evidence is real -- ``source["evidence_
     sha256"]``/``source["retrieved_at_utc"]`` from the evidence-collection
-    envelope itself are never read here at all."""
+    envelope itself are never read here at all.
+
+    **Operator-attested fallback -- off by default, explicit every time.**
+    When ``accept_operator_attested_evidence`` is ``False`` (the default),
+    behavior is completely unchanged: a source with no archive-manifest
+    entry is rejected as ``SETTLE_EVIDENCE_NOT_ARCHIVED``, exactly as
+    before this parameter existed. When it is ``True`` (requires
+    ``accepted_by`` too -- never silently defaulted), a source that fails
+    ONLY because it was never archived (``archive_index`` has no entry for
+    its ``source_url``) is instead downgraded to an ``OPERATOR_ATTESTED``
+    row -- but only after its ``evidence_summary`` still independently
+    parses and matches the claimed score, exactly like an ``ARCHIVED``
+    source must. A source rejected for any OTHER reason (integrity
+    mismatch, unparseable/mismatched summary) is NEVER eligible for this
+    downgrade -- those indicate a real problem with the evidence itself,
+    not merely "not archived yet". ``operator_attestation.source_artifact_
+    sha256``/``source_artifact_name`` are computed by THIS function from
+    the real bytes of the specific ``json_path`` a row came from -- never
+    taken from the envelope's own content. ``ingest-manual-results`` still
+    requires its OWN separate ``--accept-operator-attested-evidence-for``
+    flag before treating any of this as accepted -- this flag only
+    controls whether THIS converter is willing to construct such a row at
+    all."""
 
     fixture_index = _build_fixture_id_index(ledger_path)
+    if accept_operator_attested_evidence and not accepted_by:
+        raise ValueError("accepted_by is required when accept_operator_attested_evidence is True")
     rejected: list[dict[str, Any]] = []
     converted: list[dict[str, Any]] = []
     source_rows_total = 0
 
     for json_path in json_paths:
         envelope = json.loads(json_path.read_text(encoding="utf-8"))
+        source_artifact_bytes = json_path.read_bytes()
+        source_artifact_sha256 = hashlib.sha256(source_artifact_bytes).hexdigest()
         errors: list[str] = []
         _check_node(envelope, schema, "envelope", errors)
         if errors:
@@ -380,15 +411,23 @@ def convert_evidence_batch(
                 # trusted archive manifest, keyed by source_url, is the
                 # only thing consulted for whether this source is real.
                 archive_entry = archive_index.get(source["source_url"])
-                if archive_entry is None:
+
+                if archive_entry is None and not accept_operator_attested_evidence:
                     source_rejections.append(f"{source['source_name']}: {REASON_EVIDENCE_NOT_ARCHIVED}")
                     source_rejection_reasons.append(REASON_EVIDENCE_NOT_ARCHIVED)
                     continue
-                verified, recomputed_hash, verify_error = _verify_archived_source(archive_entry)
-                if not verified:
-                    source_rejections.append(f"{source['source_name']}: {REASON_ARCHIVE_INTEGRITY_MISMATCH} ({verify_error})")
-                    source_rejection_reasons.append(REASON_ARCHIVE_INTEGRITY_MISMATCH)
-                    continue
+
+                if archive_entry is not None:
+                    verified, recomputed_hash, verify_error = _verify_archived_source(archive_entry)
+                    if not verified:
+                        source_rejections.append(f"{source['source_name']}: {REASON_ARCHIVE_INTEGRITY_MISMATCH} ({verify_error})")
+                        source_rejection_reasons.append(REASON_ARCHIVE_INTEGRITY_MISMATCH)
+                        continue
+
+                # Independently re-verified regardless of archive status --
+                # an OPERATOR_ATTESTED source still must have a real,
+                # score-matching evidence_summary; "not archived" is never
+                # itself a substitute for this check.
                 match = _SCORELINE_RE.search(source["evidence_summary"])
                 if match is None:
                     source_rejections.append(f"{source['source_name']}: {REASON_EVIDENCE_SUMMARY_UNPARSEABLE}")
@@ -402,16 +441,39 @@ def convert_evidence_batch(
                     )
                     source_rejection_reasons.append(REASON_EVIDENCE_SCORE_MISMATCH)
                     continue
-                manual_sources.append(
-                    {
-                        "source_name": source["source_name"],
-                        "source_url": archive_entry["final_url"],
-                        "retrieved_at_utc": archive_entry["retrieved_at_utc"],
-                        "evidence_hash": f"sha256:{recomputed_hash}",
-                        "authoritative": source["source_type"] in AUTHORITATIVE_SOURCE_TYPES,
-                        "reported_score": reported_score,
-                    }
-                )
+
+                if archive_entry is not None:
+                    manual_sources.append(
+                        {
+                            "source_name": source["source_name"],
+                            "source_url": archive_entry["final_url"],
+                            "retrieved_at_utc": archive_entry["retrieved_at_utc"],
+                            "evidence_mode": "ARCHIVED",
+                            "evidence_hash": f"sha256:{recomputed_hash}",
+                            "authoritative": source["source_type"] in AUTHORITATIVE_SOURCE_TYPES,
+                            "reported_score": reported_score,
+                        }
+                    )
+                else:
+                    manual_sources.append(
+                        {
+                            "source_name": source["source_name"],
+                            "source_url": source["source_url"],
+                            "retrieved_at_utc": now_fn().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "evidence_mode": "OPERATOR_ATTESTED",
+                            "evidence_hash": None,
+                            "authoritative": source["source_type"] in AUTHORITATIVE_SOURCE_TYPES,
+                            "reported_score": reported_score,
+                            "operator_attestation": {
+                                "accepted_by": accepted_by,
+                                "accepted_at_utc": now_fn().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                "reason_code": attestation_reason_code,
+                                "source_artifact_sha256": source_artifact_sha256,
+                                "source_artifact_name": json_path.name,
+                                "source_urls_preserved": True,
+                            },
+                        }
+                    )
 
             # The SAME shared corroboration function ingest-manual-results
             # itself uses, reused verbatim -- a row this converter accepts
@@ -456,7 +518,13 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def run_conversion_session(
-    input_path: Path, ledger_dir: Path, output_dir: Path, archive_manifest_path: Path | None = None
+    input_path: Path,
+    ledger_dir: Path,
+    output_dir: Path,
+    archive_manifest_path: Path | None = None,
+    accept_operator_attested_evidence: bool = False,
+    accepted_by: str | None = None,
+    attestation_reason_code: str = "ARCHIVE_UNVERIFIABLE_EGRESS",
 ) -> dict[str, Any]:
     json_paths = discover_input_files(input_path)
     schema = load_manual_results_evidence_schema()
@@ -470,26 +538,43 @@ def run_conversion_session(
     archive_index = _build_archive_index(manifest, resolved_manifest_path.parent)
 
     converted, rejected, counts = convert_evidence_batch(
-        json_paths, ledger_path, known_teams_by_league, alias_book, schema, archive_index
+        json_paths,
+        ledger_path,
+        known_teams_by_league,
+        alias_book,
+        schema,
+        archive_index,
+        accept_operator_attested_evidence=accept_operator_attested_evidence,
+        accepted_by=accepted_by,
+        attestation_reason_code=attestation_reason_code,
     )
 
+    operator_attested_sources = sum(
+        1 for row in converted for s in row["sources"] if s["evidence_mode"] == "OPERATOR_ATTESTED"
+    )
     converted_input = {"schema_version": SCHEMA_VERSION_INPUT, "results": converted}
     report = {
         "schema_version": SCHEMA_VERSION_REPORT,
         "source_files": [str(p) for p in json_paths],
         "archive_manifest": str(resolved_manifest_path),
         "archive_manifest_entries": len(archive_index),
+        "accept_operator_attested_evidence": accept_operator_attested_evidence,
         "note": (
             "Read-only: never touches the forecast ledger beyond looking up each fixture_id's "
             "current state. NEVER trusts evidence_sha256/retrieved_at_utc from the evidence-"
-            "collection file itself -- every source must resolve through the trusted archive "
-            "manifest above, and its SHA-256 is independently recomputed from the archived bytes "
-            "on disk, never taken on faith. converted-manual-results-input.json is advisory only: "
-            "hand it to ingest-manual-results for its own dry run and --confirm."
+            "collection file itself -- every ARCHIVED source must resolve through the trusted "
+            "archive manifest above, and its SHA-256 is independently recomputed from the archived "
+            "bytes on disk, never taken on faith. When --accept-operator-attested-evidence is set, "
+            "an otherwise-valid but never-archived source is instead emitted with evidence_mode "
+            "OPERATOR_ATTESTED and a recorded operator_attestation -- ingest-manual-results still "
+            "requires its OWN separate --accept-operator-attested-evidence-for flag before treating "
+            "any of this as accepted. converted-manual-results-input.json is advisory only: hand it "
+            "to ingest-manual-results for its own dry run and --confirm."
         ),
         "counts": {
             **counts,
             "converted": len(converted),
+            "operator_attested_sources": operator_attested_sources,
         },
     }
 
@@ -518,12 +603,48 @@ def main(argv: list[str] | None = None) -> int:
         "A missing manifest is treated as empty -- every source falls through to SETTLE_EVIDENCE_NOT_ARCHIVED, "
         "never a fallback to trusting the evidence-collection file's own claims.",
     )
+    parser.add_argument(
+        "--accept-operator-attested-evidence",
+        action="store_true",
+        help="Off by default. When set (requires --accepted-by too), a source that fails ONLY because "
+        "it was never archived is emitted with evidence_mode OPERATOR_ATTESTED instead of being "
+        "rejected -- still requires its evidence_summary to independently parse and match the claimed "
+        "score. Never applies to a source rejected for any other reason (integrity mismatch, "
+        "unparseable/mismatched summary). ingest-manual-results still requires its own separate "
+        "--accept-operator-attested-evidence-for flag before treating any of this as accepted.",
+    )
+    parser.add_argument(
+        "--accepted-by",
+        type=str,
+        default=None,
+        help="Required with --accept-operator-attested-evidence: a human-readable identity recorded in "
+        "every OPERATOR_ATTESTED source's own operator_attestation.accepted_by.",
+    )
+    parser.add_argument(
+        "--attestation-reason-code",
+        type=str,
+        default="ARCHIVE_UNVERIFIABLE_EGRESS",
+        help="Recorded verbatim in every OPERATOR_ATTESTED source's operator_attestation.reason_code "
+        "(default: ARCHIVE_UNVERIFIABLE_EGRESS).",
+    )
     args = parser.parse_args(argv)
 
-    result = run_conversion_session(args.input, args.ledger_dir, args.output_dir, archive_manifest_path=args.archive_manifest)
+    if args.accept_operator_attested_evidence and not args.accepted_by:
+        parser.error("--accepted-by is required when --accept-operator-attested-evidence is set")
+
+    result = run_conversion_session(
+        args.input,
+        args.ledger_dir,
+        args.output_dir,
+        archive_manifest_path=args.archive_manifest,
+        accept_operator_attested_evidence=args.accept_operator_attested_evidence,
+        accepted_by=args.accepted_by,
+        attestation_reason_code=args.attestation_reason_code,
+    )
     counts = result["conversion_report"]["counts"]
     print(
-        f"CONVERTED: {counts['converted']} ready for ingest-manual-results, "
+        f"CONVERTED: {counts['converted']} ready for ingest-manual-results "
+        f"({counts['operator_attested_sources']} operator-attested source(s)), "
         f"{counts['rejected_at_conversion']} rejected "
         f"({counts['source_rows_total']} source rows) -> {args.output_dir}"
     )

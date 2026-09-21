@@ -65,6 +65,58 @@ source is right. A result with fewer than the required corroboration
 schema's own ``minItems: 1``) is refused as
 ``REASON_INSUFFICIENT_CORROBORATION``, never accepted on trust.
 
+**Operator-attested evidence -- a deliberate, explicit exception to "every
+source has a real archived hash", never a silent one.** A source's
+``evidence_mode`` is either ``"ARCHIVED"`` (the ordinary case: a real
+``evidence_hash`` of independently-archived bytes, no
+``operator_attestation``) or ``"OPERATOR_ATTESTED"`` (``evidence_hash`` is
+``null`` -- never a sentinel string dressed up to look like a hash -- and
+``operator_attestation`` names who accepted this source without one, when,
+why (``reason_code``, e.g. ``ARCHIVE_UNVERIFIABLE_EGRESS``), and which
+exact source artifact -- by its own tool-computed SHA-256 -- the claim
+came from). This exists for exactly one situation: a source's page
+genuinely cannot be archived (e.g. this session's own outbound network
+policy blocks the host), evidence CONSTRUCTION otherwise passed (the
+claimed result is still corroborated by two independent sources or one
+authoritative one, per the ordinary rule above), and a human operator has
+reviewed and explicitly accepted that gap rather than waiting indefinitely
+for archiving to become possible.
+
+This is never accepted on the file's own say-so alone. Every
+``OPERATOR_ATTESTED`` source is rejected (``SETTLE_OPERATOR_ATTESTED_NOT_
+ACCEPTED``) unless THIS invocation also passes
+``--accept-operator-attested-evidence-for SOURCE_ARTIFACT_SHA256``, naming
+the exact hash the source's own ``operator_attestation.source_artifact_
+sha256`` must match (``SETTLE_OPERATOR_ATTESTATION_SOURCE_ARTIFACT_
+MISMATCH`` otherwise) -- two independent human gates, not one: whoever
+built the input file, and whoever actually runs this command. An
+``ARCHIVED`` source carrying a non-null ``evidence_hash`` alongside an
+``operator_attestation`` block (or vice versa -- an ``OPERATOR_ATTESTED``
+source carrying a real-looking hash) is a shape inconsistency, rejected
+outright (``SETTLE_EVIDENCE_MODE_INCONSISTENT``) rather than resolved by
+preferring one field over the other. A single result row mixing an
+``ARCHIVED`` source with an ``OPERATOR_ATTESTED`` one is explicitly
+supported -- corroboration counts both the same way once each has
+individually passed its own evidence-mode check.
+
+This changes nothing about the ordinary ``ARCHIVED`` path: without
+``--accept-operator-attested-evidence-for``, a file containing only
+``ARCHIVED`` sources behaves exactly as before this feature existed.
+``convert-manual-results-evidence`` never emits ``OPERATOR_ATTESTED``
+sources on its own ordinary path -- see that module's own docstring for
+its own, separately-gated ``--accept-operator-attested-evidence``/
+``--accepted-by`` flags, required there too before it will ever downgrade
+an unarchived-but-otherwise-valid source instead of rejecting it.
+
+A forecast already ``SCORED`` from operator-attested evidence is exactly
+as immutable as one scored any other way -- ``plan_settlement``'s own
+one-time-transition rule (unchanged here) means a LATER, successfully
+archived re-submission of the same fixture is a duplicate-skip (same
+result) or a real conflict (a different one), never a silent rewrite of
+the original ``SCORED`` event. A superseding, fully-archived evidence
+record can only ever be appended as new provenance elsewhere -- it cannot
+retroactively alter what was already recorded.
+
 **Never expands model coverage.** Competition resolution reuses
 ``adapters.soccer_1x2_elo_v1.identity.resolve_competition`` completely
 unmodified -- the same fixed 5-league allowlist every forecast and every
@@ -189,6 +241,10 @@ REASON_COMPETITION_NOT_COVERED = "SETTLE_COMPETITION_NOT_COVERED"
 REASON_HOME_TEAM_UNRESOLVED = "SETTLE_HOME_TEAM_UNRESOLVED"
 REASON_AWAY_TEAM_UNRESOLVED = "SETTLE_AWAY_TEAM_UNRESOLVED"
 REASON_CONFLICTING_SOURCE_ROW = "SETTLE_CONFLICTING_SOURCE_ROW"
+REASON_EVIDENCE_MODE_INCONSISTENT = "SETTLE_EVIDENCE_MODE_INCONSISTENT"
+REASON_OPERATOR_ATTESTATION_MISSING = "SETTLE_OPERATOR_ATTESTATION_MISSING"
+REASON_OPERATOR_ATTESTED_NOT_ACCEPTED = "SETTLE_OPERATOR_ATTESTED_NOT_ACCEPTED"
+REASON_OPERATOR_ATTESTATION_SOURCE_ARTIFACT_MISMATCH = "SETTLE_OPERATOR_ATTESTATION_SOURCE_ARTIFACT_MISMATCH"
 
 
 def load_manual_results_schema() -> dict[str, Any]:
@@ -258,11 +314,46 @@ def _check_corroboration(final_score: dict[str, int], sources: list[dict[str, An
     return False, REASON_INSUFFICIENT_CORROBORATION
 
 
+def _validate_evidence_mode(source: dict[str, Any], accepted_source_artifact_sha256: str | None) -> str | None:
+    """Returns a typed rejection reason, or ``None`` iff this ONE source's
+    ``evidence_mode``/``evidence_hash``/``operator_attestation`` are
+    internally consistent AND -- for ``OPERATOR_ATTESTED`` -- explicitly
+    accepted by THIS command invocation via
+    ``accepted_source_artifact_sha256`` (never inferred from the file's
+    own say-so alone). See this module's own docstring section
+    "Operator-attested evidence" for the full rule."""
+
+    mode = source.get("evidence_mode")
+    evidence_hash = source.get("evidence_hash")
+    attestation = source.get("operator_attestation")
+
+    if mode == "ARCHIVED":
+        if not (isinstance(evidence_hash, str) and evidence_hash.startswith("sha256:")):
+            return REASON_EVIDENCE_MODE_INCONSISTENT
+        if attestation is not None:
+            return REASON_EVIDENCE_MODE_INCONSISTENT
+        return None
+
+    if mode == "OPERATOR_ATTESTED":
+        if evidence_hash is not None:
+            return REASON_EVIDENCE_MODE_INCONSISTENT
+        if attestation is None:
+            return REASON_OPERATOR_ATTESTATION_MISSING
+        if accepted_source_artifact_sha256 is None:
+            return REASON_OPERATOR_ATTESTED_NOT_ACCEPTED
+        if attestation.get("source_artifact_sha256") != accepted_source_artifact_sha256:
+            return REASON_OPERATOR_ATTESTATION_SOURCE_ARTIFACT_MISMATCH
+        return None
+
+    return REASON_EVIDENCE_MODE_INCONSISTENT  # pragma: no cover -- schema enum already excludes any other value
+
+
 def build_manual_results_batch(
     json_paths: list[Path],
     known_teams_by_league: dict[str, set[str]],
     alias_book: Any,
     schema: dict[str, Any],
+    accepted_operator_attested_source_artifact_sha256: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
     """Reads every manual-results-*.json envelope in ``json_paths`` and
     normalizes each usable result into
@@ -320,6 +411,22 @@ def build_manual_results_batch(
                 )
                 continue
 
+            evidence_mode_failures = [
+                (s.get("source_name"), reason)
+                for s in raw["sources"]
+                for reason in [_validate_evidence_mode(s, accepted_operator_attested_source_artifact_sha256)]
+                if reason is not None
+            ]
+            if evidence_mode_failures:
+                rejected.append(
+                    {
+                        **base,
+                        "reason": evidence_mode_failures[0][1],
+                        "detail": "; ".join(f"{name}: {reason}" for name, reason in evidence_mode_failures),
+                    }
+                )
+                continue
+
             final_score = raw["final_score"]
             accepted, corroboration_reason = _check_corroboration(final_score, raw["sources"])
             if not accepted:
@@ -358,8 +465,10 @@ def build_manual_results_batch(
                     "source_name": s["source_name"],
                     "source_url": s["source_url"],
                     "retrieved_at_utc": s["retrieved_at_utc"],
+                    "evidence_mode": s["evidence_mode"],
                     "evidence_hash": s["evidence_hash"],
                     "authoritative": s["authoritative"],
+                    **({"operator_attestation": s["operator_attestation"]} if s.get("operator_attestation") is not None else {}),
                 }
                 for s in raw["sources"]
             ]
@@ -418,7 +527,11 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def run_settlement_session(
-    input_path: Path, ledger_dir: Path, output_dir: Path, confirm: bool = False
+    input_path: Path,
+    ledger_dir: Path,
+    output_dir: Path,
+    confirm: bool = False,
+    accept_operator_attested_evidence_for: str | None = None,
 ) -> dict[str, Any]:
     """Discovers JSON files at ``input_path`` (a file or a directory --
     see ``discover_input_files``), runs the full manual-results settlement
@@ -441,7 +554,11 @@ def run_settlement_session(
     known_teams_by_league = load_known_teams_by_league()
     alias_book = load_team_alias_book()
     normalized_rows, rejected_at_parse, parse_counts = build_manual_results_batch(
-        json_paths, known_teams_by_league, alias_book, schema
+        json_paths,
+        known_teams_by_league,
+        alias_book,
+        schema,
+        accepted_operator_attested_source_artifact_sha256=accept_operator_attested_evidence_for,
     )
 
     ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
@@ -549,10 +666,27 @@ def main(argv: list[str] | None = None) -> int:
         help="Actually commit to the ledger. Omitting this runs a complete dry run: every check "
         "runs for real, but nothing is written.",
     )
+    parser.add_argument(
+        "--accept-operator-attested-evidence-for",
+        type=str,
+        default=None,
+        metavar="SOURCE_ARTIFACT_SHA256",
+        help="Explicitly accept OPERATOR_ATTESTED sources (see this module's own docstring section "
+        "'Operator-attested evidence') whose operator_attestation.source_artifact_sha256 equals this "
+        "exact value. Never inferred from the input file's own say-so alone -- omitting this rejects "
+        "every OPERATOR_ATTESTED source (SETTLE_OPERATOR_ATTESTED_NOT_ACCEPTED). Has no effect on "
+        "ordinary ARCHIVED sources.",
+    )
     args = parser.parse_args(argv)
 
     try:
-        result = run_settlement_session(args.input, args.ledger_dir, args.output_dir, confirm=args.confirm)
+        result = run_settlement_session(
+            args.input,
+            args.ledger_dir,
+            args.output_dir,
+            confirm=args.confirm,
+            accept_operator_attested_evidence_for=args.accept_operator_attested_evidence_for,
+        )
     except LedgerLockTimeoutError as exc:
         print(f"LOCKED: {exc}")
         return 2
