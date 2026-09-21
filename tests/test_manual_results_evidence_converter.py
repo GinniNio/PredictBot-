@@ -221,10 +221,12 @@ class ConvertEvidenceBatchTests(unittest.TestCase):
 
         self.alias_book = TeamAliasBook({"leagues": {}})
 
-    def _convert(self, results, ledger_path, archive_index):
+    def _convert(self, results, ledger_path, archive_index, **kwargs):
         with tempfile.TemporaryDirectory() as tmp:
             path = _write(tmp, "evidence.json", _envelope(results))
-            return conv.convert_evidence_batch([path], ledger_path, self.known_teams, self.alias_book, self.schema, archive_index)
+            return conv.convert_evidence_batch(
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, archive_index, **kwargs
+            )
 
     def test_a_source_backed_by_a_real_archived_and_verified_page_converts_cleanly(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -430,6 +432,181 @@ class ConvertEvidenceBatchTests(unittest.TestCase):
         self.assertEqual(counts["source_rows_total"], len(rejected) + len(converted))
 
 
+class OperatorAttestedFallbackTests(unittest.TestCase):
+    """convert-manual-results-evidence's own operator-attested downgrade,
+    off by default -- a source failing ONLY because it was never archived
+    can be emitted as OPERATOR_ATTESTED instead of rejected, but only when
+    BOTH accept_operator_attested_evidence AND accepted_by are explicitly
+    supplied, and only after its evidence_summary still independently
+    parses and matches the claimed score."""
+
+    def setUp(self):
+        self.schema = conv.load_manual_results_evidence_schema()
+        self.known_teams = {"E0": {"Arsenal", "Chelsea", "Tottenham", "Liverpool"}}
+        from pcbf_calculator.adapters.soccer_1x2_elo_v1.identity import TeamAliasBook
+
+        self.alias_book = TeamAliasBook({"leagues": {}})
+
+    def test_default_behavior_is_completely_unaffected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://never-archived.example.com/report")])]))
+            converted, rejected, _ = conv.convert_evidence_batch(
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, {}
+            )
+        self.assertEqual(converted, [])
+        self.assertEqual(rejected[0]["reason"], conv.REASON_EVIDENCE_NOT_ARCHIVED)
+
+    def test_accept_operator_attested_evidence_without_accepted_by_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://never-archived.example.com/report")])]))
+            with self.assertRaises(ValueError):
+                conv.convert_evidence_batch(
+                    [path], ledger_path, self.known_teams, self.alias_book, self.schema, {},
+                    accept_operator_attested_evidence=True,
+                )
+
+    def test_an_unarchived_but_otherwise_valid_source_downgrades_to_operator_attested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            path = _write(
+                tmp, "evidence.json",
+                _envelope([_evidence_result(sources=[_evidence_source("https://never-archived.example.com/report", source_name="A")])]),
+            )
+            expected_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            converted, rejected, counts = conv.convert_evidence_batch(
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, {},
+                accept_operator_attested_evidence=True,
+                accepted_by="operator",
+            )
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(converted), 1)
+        source = converted[0]["sources"][0]
+        self.assertEqual(source["evidence_mode"], "OPERATOR_ATTESTED")
+        self.assertIsNone(source["evidence_hash"])
+        self.assertEqual(source["source_url"], "https://never-archived.example.com/report")
+        attestation = source["operator_attestation"]
+        self.assertEqual(attestation["accepted_by"], "operator")
+        self.assertEqual(attestation["reason_code"], "ARCHIVE_UNVERIFIABLE_EGRESS")
+        self.assertEqual(attestation["source_artifact_sha256"], expected_hash)
+        self.assertEqual(attestation["source_artifact_name"], "evidence.json")
+        self.assertTrue(attestation["source_urls_preserved"])
+        self.assertEqual(counts["operator_attested_sources"] if "operator_attested_sources" in counts else 1, 1)
+
+    def test_a_custom_attestation_reason_code_is_honored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://never-archived.example.com/report")])]))
+            converted, _rejected, _counts = conv.convert_evidence_batch(
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, {},
+                accept_operator_attested_evidence=True,
+                accepted_by="operator",
+                attestation_reason_code="CUSTOM_REASON",
+            )
+        self.assertEqual(converted[0]["sources"][0]["operator_attestation"]["reason_code"], "CUSTOM_REASON")
+
+    def test_an_unparseable_evidence_summary_is_still_rejected_even_with_the_flag_on(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            path = _write(
+                tmp, "evidence.json",
+                _envelope([_evidence_result(sources=[_evidence_source(
+                    "https://never-archived.example.com/report", evidence_summary="Match completed, no scoreline given."
+                )])]),
+            )
+            converted, rejected, _ = conv.convert_evidence_batch(
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, {},
+                accept_operator_attested_evidence=True,
+                accepted_by="operator",
+            )
+        self.assertEqual(converted, [])
+        self.assertEqual(rejected[0]["reason"], conv.REASON_EVIDENCE_SUMMARY_UNPARSEABLE)
+
+    def test_a_score_mismatched_evidence_summary_is_still_rejected_even_with_the_flag_on(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            path = _write(
+                tmp, "evidence.json",
+                _envelope([_evidence_result(
+                    home_score=2, away_score=1,
+                    sources=[_evidence_source("https://never-archived.example.com/report", evidence_summary="Final score: Arsenal 3-1 Chelsea.")],
+                )]),
+            )
+            converted, rejected, _ = conv.convert_evidence_batch(
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, {},
+                accept_operator_attested_evidence=True,
+                accepted_by="operator",
+            )
+        self.assertEqual(converted, [])
+        self.assertEqual(rejected[0]["reason"], conv.REASON_EVIDENCE_SCORE_MISMATCH)
+
+    def test_a_tampered_archive_entry_is_never_downgraded_to_operator_attested(self):
+        # Integrity mismatch means real evidence went bad, not "never
+        # archived" -- the operator-attested fallback must never paper
+        # over that with a downgrade instead of a hard rejection.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            archive.add("https://arsenal.com/report", b"Arsenal 2-1 Chelsea", corrupt_after_hashing=True)
+            path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://arsenal.com/report")])]))
+            converted, rejected, _ = conv.convert_evidence_batch(
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, archive.index(),
+                accept_operator_attested_evidence=True,
+                accepted_by="operator",
+            )
+        self.assertEqual(converted, [])
+        self.assertIn(conv.REASON_ARCHIVE_INTEGRITY_MISMATCH, rejected[0]["reason"])
+
+    def test_mixed_archived_and_operator_attested_sources_are_both_accepted_together(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            archive = _Archive(Path(tmp) / "manual_evidence")
+            archive.add("https://archived.example.com/report", b"Arsenal 2-1 Chelsea full match report")
+            path = _write(
+                tmp, "evidence.json",
+                _envelope([_evidence_result(sources=[
+                    _evidence_source("https://archived.example.com/report", source_name="Archived Source"),
+                    _evidence_source("https://never-archived.example.com/report", source_name="Attested Source", source_type="OTHER_CREDIBLE"),
+                ])]),
+            )
+            converted, rejected, _ = conv.convert_evidence_batch(
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, archive.index(),
+                accept_operator_attested_evidence=True,
+                accepted_by="operator",
+            )
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(converted), 1)
+        modes = {s["evidence_mode"] for s in converted[0]["sources"]}
+        self.assertEqual(modes, {"ARCHIVED", "OPERATOR_ATTESTED"})
+
+    def test_converted_operator_attested_output_validates_against_ingest_manual_results_own_schema(self):
+        from ledgers.validation import _check_node
+        from pcbf_calculator.orchestration import manual_results_settlement as mrs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / "forecast-ledger.jsonl"
+            _record_forecast(ledger_path)
+            path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://never-archived.example.com/report")])]))
+            converted, _rejected, _counts = conv.convert_evidence_batch(
+                [path], ledger_path, self.known_teams, self.alias_book, self.schema, {},
+                accept_operator_attested_evidence=True,
+                accepted_by="operator",
+            )
+        converted_input = {"schema_version": mrs.SCHEMA_VERSION_INPUT, "results": converted}
+        errors: list[str] = []
+        _check_node(converted_input, mrs.load_manual_results_schema(), "envelope", errors)
+        self.assertEqual(errors, [])
+
+
 class RunConversionSessionTests(unittest.TestCase):
     def test_never_writes_to_the_ledger_and_uses_the_default_manifest_location(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -488,6 +665,23 @@ class RunConversionSessionTests(unittest.TestCase):
             errors = mrs.validate_manual_results_envelope(result["converted_input"], mrs.load_manual_results_schema())
         self.assertEqual(errors, [])
 
+    def test_operator_attested_evidence_end_to_end_via_run_conversion_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            output_dir = Path(tmp) / "out"
+            ledger_path = ledger_dir / forecast_ledger.DEFAULT_FILENAME
+            _record_forecast(ledger_path)
+            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://never-archived.example.com/report")])]))
+
+            result = conv.run_conversion_session(
+                input_path, ledger_dir, output_dir,
+                accept_operator_attested_evidence=True,
+                accepted_by="operator",
+            )
+            self.assertEqual(result["conversion_report"]["counts"]["operator_attested_sources"], 1)
+            self.assertTrue(result["conversion_report"]["accept_operator_attested_evidence"])
+            self.assertEqual(result["converted_input"]["results"][0]["sources"][0]["evidence_mode"], "OPERATOR_ATTESTED")
+
 
 class MainCliTests(unittest.TestCase):
     def test_exit_code_is_zero_and_never_touches_the_ledger(self):
@@ -522,6 +716,38 @@ class MainCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             converted = json.loads((output_dir / "converted-manual-results-input.json").read_text())
             self.assertEqual(len(converted["results"]), 1)
+
+    def test_accept_operator_attested_evidence_without_accepted_by_errors_at_the_cli(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            output_dir = Path(tmp) / "out"
+            _record_forecast(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://never-archived.example.com/report")])]))
+
+            with self.assertRaises(SystemExit):
+                conv.main(
+                    [
+                        str(input_path), "--ledger-dir", str(ledger_dir), "--output-dir", str(output_dir),
+                        "--accept-operator-attested-evidence",
+                    ]
+                )
+
+    def test_accept_operator_attested_evidence_flags_commit_end_to_end_via_the_cli(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            output_dir = Path(tmp) / "out"
+            _record_forecast(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+            input_path = _write(tmp, "evidence.json", _envelope([_evidence_result(sources=[_evidence_source("https://never-archived.example.com/report")])]))
+
+            exit_code = conv.main(
+                [
+                    str(input_path), "--ledger-dir", str(ledger_dir), "--output-dir", str(output_dir),
+                    "--accept-operator-attested-evidence", "--accepted-by", "operator",
+                ]
+            )
+            self.assertEqual(exit_code, 0)
+            converted = json.loads((output_dir / "converted-manual-results-input.json").read_text())
+            self.assertEqual(converted["results"][0]["sources"][0]["evidence_mode"], "OPERATOR_ATTESTED")
 
 
 if __name__ == "__main__":

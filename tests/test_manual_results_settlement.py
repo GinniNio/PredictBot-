@@ -94,9 +94,40 @@ def _source(source_name="Source A", authoritative=False, reported_score=None, ev
         "source_name": source_name,
         "source_url": "https://example.com/result",
         "retrieved_at_utc": "2026-09-21T09:00:00Z",
+        "evidence_mode": "ARCHIVED",
         "evidence_hash": evidence_hash,
         "authoritative": authoritative,
         "reported_score": reported_score if reported_score is not None else {"home": 2, "away": 1},
+    }
+
+
+def _operator_attested_source(
+    source_name="Source A",
+    authoritative=False,
+    reported_score=None,
+    accepted_by="operator",
+    accepted_at_utc="2026-09-21T09:00:00Z",
+    reason_code="ARCHIVE_UNVERIFIABLE_EGRESS",
+    source_artifact_sha256="a" * 64,
+    source_artifact_name="evidence.json",
+    source_urls_preserved=True,
+):
+    return {
+        "source_name": source_name,
+        "source_url": "https://example.com/result",
+        "retrieved_at_utc": "2026-09-21T09:00:00Z",
+        "evidence_mode": "OPERATOR_ATTESTED",
+        "evidence_hash": None,
+        "authoritative": authoritative,
+        "reported_score": reported_score if reported_score is not None else {"home": 2, "away": 1},
+        "operator_attestation": {
+            "accepted_by": accepted_by,
+            "accepted_at_utc": accepted_at_utc,
+            "reason_code": reason_code,
+            "source_artifact_sha256": source_artifact_sha256,
+            "source_artifact_name": source_artifact_name,
+            "source_urls_preserved": source_urls_preserved,
+        },
     }
 
 
@@ -166,10 +197,16 @@ class BuildManualResultsBatchTests(unittest.TestCase):
         self.known_teams = {"E0": {"Arsenal", "Chelsea", "Tottenham", "Liverpool"}}
         self.alias_book = TeamAliasBook({"leagues": {}})  # empty -- every team below resolves by exact match
 
-    def _build(self, results):
+    def _build(self, results, accepted_operator_attested_source_artifact_sha256=None):
         with tempfile.TemporaryDirectory() as tmp:
             path = _write(tmp, "manual-results.json", _envelope(results))
-            return mrs.build_manual_results_batch([path], self.known_teams, self.alias_book, self.schema)
+            return mrs.build_manual_results_batch(
+                [path],
+                self.known_teams,
+                self.alias_book,
+                self.schema,
+                accepted_operator_attested_source_artifact_sha256=accepted_operator_attested_source_artifact_sha256,
+            )
 
     def test_a_well_formed_authoritative_result_normalizes_cleanly(self):
         normalized, rejected, counts = self._build([_result()])
@@ -234,6 +271,124 @@ class BuildManualResultsBatchTests(unittest.TestCase):
             counts["source_rows_total"],
             len(rejected) + len(normalized) + counts["duplicate_source_rows_collapsed"],
         )
+
+
+class OperatorAttestedEvidenceTests(unittest.TestCase):
+    """The exact scenario this feature exists for: a source's page cannot
+    be archived (e.g. blocked network egress), evidence construction still
+    passes (two independent sources agree, or one is authoritative), and a
+    human operator explicitly accepts the gap -- but ONLY when the command
+    invocation itself also explicitly accepts it, never inferred from the
+    file's own say-so alone."""
+
+    def setUp(self):
+        self.schema = mrs.load_manual_results_schema()
+        self.known_teams = {"E0": {"Arsenal", "Chelsea", "Tottenham", "Liverpool"}}
+        self.alias_book = TeamAliasBook({"leagues": {}})
+        self.artifact_sha = "f" * 64
+
+    def _build(self, results, accepted_operator_attested_source_artifact_sha256=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write(tmp, "manual-results.json", _envelope(results))
+            return mrs.build_manual_results_batch(
+                [path],
+                self.known_teams,
+                self.alias_book,
+                self.schema,
+                accepted_operator_attested_source_artifact_sha256=accepted_operator_attested_source_artifact_sha256,
+            )
+
+    def test_two_operator_attested_sources_accepted_when_the_command_explicitly_accepts_the_artifact_hash(self):
+        sources = [
+            _operator_attested_source(source_name="A", source_artifact_sha256=self.artifact_sha),
+            _operator_attested_source(source_name="B", source_artifact_sha256=self.artifact_sha),
+        ]
+        normalized, rejected, _ = self._build(
+            [_result(sources=sources)], accepted_operator_attested_source_artifact_sha256=self.artifact_sha
+        )
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(normalized), 1)
+        modes = {s["evidence_mode"] for s in normalized[0]["manual_sources"]}
+        self.assertEqual(modes, {"OPERATOR_ATTESTED"})
+        for s in normalized[0]["manual_sources"]:
+            self.assertIsNone(s["evidence_hash"])
+            self.assertIn("operator_attestation", s)
+
+    def test_operator_attested_source_is_rejected_when_the_command_was_not_invoked_with_acceptance(self):
+        sources = [
+            _operator_attested_source(source_name="A", source_artifact_sha256=self.artifact_sha),
+            _operator_attested_source(source_name="B", source_artifact_sha256=self.artifact_sha),
+        ]
+        normalized, rejected, _ = self._build([_result(sources=sources)])  # no acceptance passed
+        self.assertEqual(normalized, [])
+        self.assertEqual(rejected[0]["reason"], mrs.REASON_OPERATOR_ATTESTED_NOT_ACCEPTED)
+
+    def test_operator_attested_source_is_rejected_when_the_accepted_hash_does_not_match(self):
+        sources = [
+            _operator_attested_source(source_name="A", source_artifact_sha256=self.artifact_sha),
+            _operator_attested_source(source_name="B", source_artifact_sha256=self.artifact_sha),
+        ]
+        normalized, rejected, _ = self._build(
+            [_result(sources=sources)], accepted_operator_attested_source_artifact_sha256="0" * 64
+        )
+        self.assertEqual(normalized, [])
+        self.assertEqual(rejected[0]["reason"], mrs.REASON_OPERATOR_ATTESTATION_SOURCE_ARTIFACT_MISMATCH)
+
+    def test_operator_attested_source_missing_its_attestation_block_is_rejected(self):
+        bad_source = _operator_attested_source(source_artifact_sha256=self.artifact_sha)
+        del bad_source["operator_attestation"]
+        normalized, rejected, _ = self._build(
+            [_result(sources=[bad_source, _operator_attested_source(source_name="B", source_artifact_sha256=self.artifact_sha)])],
+            accepted_operator_attested_source_artifact_sha256=self.artifact_sha,
+        )
+        self.assertEqual(normalized, [])
+        self.assertEqual(rejected[0]["reason"], mrs.REASON_OPERATOR_ATTESTATION_MISSING)
+
+    def test_archived_source_carrying_an_operator_attestation_is_a_shape_inconsistency(self):
+        bad_source = _source()
+        bad_source["operator_attestation"] = _operator_attested_source()["operator_attestation"]
+        normalized, rejected, _ = self._build(
+            [_result(sources=[bad_source, _source(source_name="B")])],
+        )
+        self.assertEqual(normalized, [])
+        self.assertEqual(rejected[0]["reason"], mrs.REASON_EVIDENCE_MODE_INCONSISTENT)
+
+    def test_operator_attested_source_carrying_a_real_looking_hash_is_a_shape_inconsistency(self):
+        bad_source = _operator_attested_source(source_artifact_sha256=self.artifact_sha)
+        bad_source["evidence_hash"] = VALID_HASH_A
+        normalized, rejected, _ = self._build(
+            [_result(sources=[bad_source, _operator_attested_source(source_name="B", source_artifact_sha256=self.artifact_sha)])],
+            accepted_operator_attested_source_artifact_sha256=self.artifact_sha,
+        )
+        self.assertEqual(normalized, [])
+        self.assertEqual(rejected[0]["reason"], mrs.REASON_EVIDENCE_MODE_INCONSISTENT)
+
+    def test_mixed_archived_and_operator_attested_sources_in_one_row_are_both_accepted(self):
+        sources = [
+            _source(source_name="Archived Source", authoritative=False),
+            _operator_attested_source(source_name="Attested Source", source_artifact_sha256=self.artifact_sha),
+        ]
+        normalized, rejected, _ = self._build(
+            [_result(sources=sources)], accepted_operator_attested_source_artifact_sha256=self.artifact_sha
+        )
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(normalized), 1)
+        modes = {s["evidence_mode"] for s in normalized[0]["manual_sources"]}
+        self.assertEqual(modes, {"ARCHIVED", "OPERATOR_ATTESTED"})
+
+    def test_ordinary_archived_only_batches_are_completely_unaffected(self):
+        normalized, rejected, _ = self._build([_result()])
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0]["manual_sources"][0]["evidence_mode"], "ARCHIVED")
+
+    def test_a_single_non_authoritative_operator_attested_source_still_needs_real_corroboration(self):
+        sources = [_operator_attested_source(authoritative=False, source_artifact_sha256=self.artifact_sha)]
+        normalized, rejected, _ = self._build(
+            [_result(sources=sources)], accepted_operator_attested_source_artifact_sha256=self.artifact_sha
+        )
+        self.assertEqual(normalized, [])
+        self.assertEqual(rejected[0]["reason"], mrs.REASON_INSUFFICIENT_CORROBORATION)
 
 
 class RunSettlementSessionTests(unittest.TestCase):
@@ -320,6 +475,79 @@ class RunSettlementSessionTests(unittest.TestCase):
             records = read_all(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
             self.assertEqual(records, [])  # ledger was never even created
 
+    def test_operator_attested_evidence_is_rejected_end_to_end_without_the_session_level_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            output_dir = Path(tmp) / "out"
+            sha = "e" * 64
+            sources = [
+                _operator_attested_source(source_name="A", source_artifact_sha256=sha),
+                _operator_attested_source(source_name="B", source_artifact_sha256=sha),
+            ]
+            input_path = _write(tmp, "manual-results.json", _envelope([_result(sources=sources)]))
+            _record_forecast(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+
+            result = mrs.run_settlement_session(input_path, ledger_dir, output_dir, confirm=True)
+            self.assertEqual(len(result["settled_forecasts"]["settled"]), 0)
+            self.assertEqual(result["unmatched_results"]["unmatched"][0]["reason"], mrs.REASON_OPERATOR_ATTESTED_NOT_ACCEPTED)
+            records = read_all(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+            self.assertEqual(sum(1 for r in records if r["event_type"] == "SCORED"), 0)
+
+    def test_operator_attested_evidence_commits_end_to_end_when_the_session_explicitly_accepts_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            output_dir = Path(tmp) / "out"
+            sha = "e" * 64
+            sources = [
+                _operator_attested_source(source_name="A", source_artifact_sha256=sha),
+                _operator_attested_source(source_name="B", source_artifact_sha256=sha),
+            ]
+            input_path = _write(tmp, "manual-results.json", _envelope([_result(sources=sources)]))
+            forecast_id = _record_forecast(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+
+            result = mrs.run_settlement_session(
+                input_path, ledger_dir, output_dir, confirm=True, accept_operator_attested_evidence_for=sha
+            )
+            self.assertEqual(result["settlement_report"]["status"], "OK")
+            self.assertEqual(len(result["settled_forecasts"]["settled"]), 1)
+            settled_sources = result["settled_forecasts"]["settled"][0]["manual_sources"]
+            self.assertTrue(all(s["evidence_mode"] == "OPERATOR_ATTESTED" for s in settled_sources))
+            self.assertTrue(all(s["operator_attestation"]["source_artifact_sha256"] == sha for s in settled_sources))
+
+            state = forecast_ledger.current_state(ledger_dir / forecast_ledger.DEFAULT_FILENAME, forecast_id)
+            self.assertEqual(state["actual_result"], "H")
+
+    def test_a_later_archived_resubmission_of_an_operator_attested_forecast_never_rewrites_the_scored_event(self):
+        """Once SCORED (however the evidence was accepted), the SAME
+        result via a later, fully-archived source is a safe duplicate-skip
+        -- plan_settlement's own one-time-transition rule, unchanged here,
+        already guarantees this; this test exists to prove the guarantee
+        still holds for an operator-attested-origin SCORED event too."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            sha = "e" * 64
+            attested_sources = [
+                _operator_attested_source(source_name="A", source_artifact_sha256=sha),
+                _operator_attested_source(source_name="B", source_artifact_sha256=sha),
+            ]
+            input_path_1 = _write(tmp, "manual-results-1.json", _envelope([_result(sources=attested_sources)]))
+            forecast_id = _record_forecast(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+            mrs.run_settlement_session(
+                input_path_1, ledger_dir, Path(tmp) / "out1", confirm=True, accept_operator_attested_evidence_for=sha
+            )
+
+            archived_sources = [_source(source_name="Later Archived Source", authoritative=True)]
+            input_path_2 = _write(tmp, "manual-results-2.json", _envelope([_result(sources=archived_sources)]))
+            second = mrs.run_settlement_session(input_path_2, ledger_dir, Path(tmp) / "out2", confirm=True)
+
+            self.assertEqual(second["settlement_report"]["status"], "OK")
+            self.assertEqual(len(second["settled_forecasts"]["settled"]), 0)  # duplicate-skipped, not rewritten
+            records = read_all(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+            self.assertEqual(sum(1 for r in records if r["event_type"] == "SCORED"), 1)
+            state = forecast_ledger.current_state(ledger_dir / forecast_ledger.DEFAULT_FILENAME, forecast_id)
+            self.assertEqual(state["actual_result"], "H")
+
 
 class MainCliTests(unittest.TestCase):
     def test_dry_run_exit_code_is_zero_with_no_conflicts(self):
@@ -341,6 +569,41 @@ class MainCliTests(unittest.TestCase):
             _record_forecast(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
             exit_code = mrs.main(
                 [str(input_path), "--ledger-dir", str(ledger_dir), "--output-dir", str(output_dir), "--confirm"]
+            )
+            self.assertEqual(exit_code, 0)
+            records = read_all(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+            self.assertEqual(sum(1 for r in records if r["event_type"] == "SCORED"), 1)
+
+    def test_accept_operator_attested_evidence_for_flag_is_required_to_commit_attested_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_dir = Path(tmp) / "ledger_data"
+            output_dir = Path(tmp) / "out"
+            sha = "d" * 64
+            sources = [
+                _operator_attested_source(source_name="A", source_artifact_sha256=sha),
+                _operator_attested_source(source_name="B", source_artifact_sha256=sha),
+            ]
+            input_path = _write(tmp, "manual-results.json", _envelope([_result(sources=sources)]))
+            _record_forecast(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+
+            exit_code = mrs.main(
+                [str(input_path), "--ledger-dir", str(ledger_dir), "--output-dir", str(output_dir), "--confirm"]
+            )
+            self.assertEqual(exit_code, 0)
+            records = read_all(ledger_dir / forecast_ledger.DEFAULT_FILENAME)
+            self.assertEqual(sum(1 for r in records if r["event_type"] == "SCORED"), 0)
+
+            exit_code = mrs.main(
+                [
+                    str(input_path),
+                    "--ledger-dir",
+                    str(ledger_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--confirm",
+                    "--accept-operator-attested-evidence-for",
+                    sha,
+                ]
             )
             self.assertEqual(exit_code, 0)
             records = read_all(ledger_dir / forecast_ledger.DEFAULT_FILENAME)

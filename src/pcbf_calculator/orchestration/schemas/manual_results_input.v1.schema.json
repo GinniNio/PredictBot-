@@ -43,19 +43,47 @@
             "minItems": 1,
             "items": {
               "type": "object",
-              "required": ["source_name", "source_url", "retrieved_at_utc", "evidence_hash", "authoritative", "reported_score"],
+              "required": ["source_name", "source_url", "retrieved_at_utc", "evidence_mode", "evidence_hash", "authoritative", "reported_score"],
               "properties": {
                 "source_name": {"type": "string", "description": "A human-readable identifier for this source (e.g. the site or feed name) -- two sources with the SAME source_name never count as independent corroboration."},
                 "source_url": {"type": "string"},
                 "retrieved_at_utc": {"type": "string", "format": "date-time"},
-                "evidence_hash": {
+                "evidence_mode": {
                   "type": "string",
+                  "enum": ["ARCHIVED", "OPERATOR_ATTESTED"],
+                  "description": "ARCHIVED: evidence_hash is a real SHA-256 of independently-archived bytes; operator_attestation must be absent. OPERATOR_ATTESTED: evidence_hash is null; operator_attestation is required and records who explicitly accepted this source in place of an archived hash, and why. This schema only enforces SHAPE -- the consistency between evidence_mode and evidence_hash/operator_attestation, and whether an OPERATOR_ATTESTED source is actually accepted by the command invocation, are checked in code (manual_results_settlement.py's own docstring section 'Operator-attested evidence')."
+                },
+                "evidence_hash": {
+                  "type": ["string", "null"],
                   "pattern": "^sha256:[0-9a-f]{64}$",
-                  "description": "SHA-256 of whatever was actually retrieved (a saved page snapshot, a screenshot, an API response body) -- so the evidence is in principle re-checkable later, never just an unverifiable assertion."
+                  "description": "This field's meaning never changes: a cryptographic SHA-256 of independently-archived bytes, or nothing at all. Required (a real hash) when evidence_mode is ARCHIVED. Always null when evidence_mode is OPERATOR_ATTESTED -- never a sentinel string, never a placeholder that looks hash-shaped but isn't."
+                },
+                "operator_attestation": {
+                  "type": "object",
+                  "description": "Present if and only if evidence_mode is OPERATOR_ATTESTED. Records who explicitly accepted this source without an archived hash, when, why, and ties that acceptance to a specific, checksummed source artifact -- never inferred from the file's own say-so alone; ingest-manual-results additionally requires the command invocation itself to explicitly accept the exact source_artifact_sha256 named here (--accept-operator-attested-evidence-for) before any such source counts toward corroboration.",
+                  "required": [
+                    "accepted_by", "accepted_at_utc", "reason_code",
+                    "source_artifact_sha256", "source_artifact_name", "source_urls_preserved"
+                  ],
+                  "properties": {
+                    "accepted_by": {"type": "string", "description": "Human-readable identity of whoever accepted this source (an operator name/handle) -- never a bare boolean or 'system'."},
+                    "accepted_at_utc": {"type": "string", "format": "date-time"},
+                    "reason_code": {"type": "string", "description": "Why an archived hash isn't available, e.g. ARCHIVE_UNVERIFIABLE_EGRESS -- a short, typed code, not free text."},
+                    "source_artifact_sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$",
+                      "description": "SHA-256 (bare hex, no 'sha256:' prefix -- this identifies the WHOLE upstream evidence-collection file this source's claim came from, distinct from evidence_hash's own meaning) of the specific file this source's evidence_summary/claim was read from, computed by the tool that produced this row -- never asserted by the file itself without that computation."
+                    },
+                    "source_artifact_name": {"type": "string"},
+                    "source_urls_preserved": {
+                      "type": "boolean",
+                      "description": "True iff this source's own source_url is preserved verbatim from the original evidence-collection artifact, so a future successful archive attempt can still target the exact same URL."
+                    }
+                  }
                 },
                 "authoritative": {
                   "type": "boolean",
-                  "description": "A human judgment call: is this ONE source alone trustworthy enough to accept without a second corroborating source (e.g. the competition's own official site)? See the module docstring's corroboration rule."
+                  "description": "A human judgment call: is this ONE source alone trustworthy enough to accept without a second corroborating source (e.g. the competition's own official site)? See the module docstring's corroboration rule. Independent of evidence_mode -- an OPERATOR_ATTESTED source can still be marked authoritative if the underlying source itself would qualify."
                 },
                 "reported_score": {
                   "type": "object",
