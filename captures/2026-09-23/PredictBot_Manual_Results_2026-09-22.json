@@ -1,0 +1,1514 @@
+{
+  "schema_version": "predictbot.manual-results-evidence.v1",
+  "template_only": false,
+  "purpose": "Populate verified final football results for PredictBot's governed manual settlement fallback when the primary results API cannot settle eligible recorded forecasts.",
+  "llm_instructions": [
+    "Use the supplied match list as the complete input scope. Do not add fixtures that are absent from it.",
+    "Search for the completed match result and record the full-time score after regulation plus stoppage time. Do not use half-time, extra-time, penalty-shootout, aggregate, or live scores unless the input explicitly requests that market.",
+    "Preserve fixture_id, competition, participants, scheduled_date, kickoff_utc, and market_type exactly as supplied. Do not guess missing identity fields.",
+    "Set result_status to VERIFIED only when the score is supported by either one authoritative competition, club, governing-body, or established news source, or by two independent credible match-report sources.",
+    "Every source_url must link directly to the specific match page or match report. Search-result pages, homepages, generic help pages, knowledge-panel help pages, snippets, and AI-generated summaries are invalid evidence.",
+    "If reliable evidence is unavailable, conflicting, or the match is unfinished, set result_status to NEEDS_REVIEW, leave scores null, explain the reason in review_reason, and do not guess.",
+    "Never invent URLs, timestamps, quotations, hashes, identifiers, scores, or source names.",
+    "Set evidence_sha256 to null. The downstream evidence-preservation tool calculates hashes after retrieving and archiving the cited pages.",
+    "Use an actual UTC retrieval timestamp ending in Z for each source.",
+    "Return valid JSON only. Set template_only to false. Put one result object in results for every supplied fixture, in the same order. Do not include commentary outside the JSON."
+  ],
+  "verification_policy": {
+    "accepted_methods": [
+      "ONE_AUTHORITATIVE_SOURCE",
+      "TWO_INDEPENDENT_SOURCES"
+    ],
+    "authoritative_source_examples": [
+      "official competition or governing-body match page",
+      "official club match report",
+      "established newswire or major publication match report"
+    ],
+    "rejected_source_examples": [
+      "search-result page",
+      "generic homepage",
+      "generic Google Knowledge Panel help page",
+      "AI answer without a direct source",
+      "social-media post without official match evidence",
+      "live score before full time"
+    ]
+  },
+  "result_record_template": {
+    "fixture_id": "COPY_EXACTLY_FROM_INPUT",
+    "competition": "COPY_EXACTLY_FROM_INPUT",
+    "participants": {
+      "home": "COPY_EXACTLY_FROM_INPUT",
+      "away": "COPY_EXACTLY_FROM_INPUT"
+    },
+    "scheduled_date": "YYYY-MM-DD_OR_COPY_NULL",
+    "kickoff_utc": "COPY_EXACTLY_FROM_INPUT_OR_NULL",
+    "market_type": "1X2",
+    "match_status": "COMPLETED",
+    "home_score": null,
+    "away_score": null,
+    "result_status": "NEEDS_REVIEW",
+    "verification_method": null,
+    "review_reason": "Replace with null only after valid evidence confirms the final score.",
+    "sources": [
+      {
+        "source_name": "ACTUAL_SOURCE_NAME",
+        "source_type": "OFFICIAL_COMPETITION|OFFICIAL_CLUB|NEWSWIRE|MAJOR_PUBLICATION|OTHER_CREDIBLE",
+        "source_url": "DIRECT_MATCH_SPECIFIC_URL",
+        "retrieved_at_utc": "YYYY-MM-DDTHH:MM:SSZ",
+        "evidence_summary": "Final score: Home Team N-N Away Team.",
+        "evidence_sha256": null
+      }
+    ]
+  },
+  "results": [
+    {
+      "fixture_id": "bxf_4f6510b50d7cf871",
+      "competition": "FA Cup",
+      "participants": {
+        "away": "Leamington",
+        "home": "Gainsborough Trinity"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_4d650d8f0b7cf54b",
+      "competition": "FA Cup",
+      "participants": {
+        "away": "Telford Utd",
+        "home": "Worksop Town"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Worksop Town FC",
+          "source_type": "OFFICIAL_CLUB",
+          "source_url": "https://www.worksoptownfc.com/news/report-tigers-5-2-afc-telford-united-aet",
+          "retrieved_at_utc": "2026-09-23T07:44:03Z",
+          "evidence_summary": "Final regulation-time score: Worksop Town 2-2 Telford Utd. 2-2 at the end of regulation; 5-2 only after three extra-time goals.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_4c650bfc0a7cf3b8",
+      "competition": "FA Cup",
+      "participants": {
+        "away": "Waltham Abbey",
+        "home": "Dagenham & Redbridge"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_53651701097cf225",
+      "competition": "FA Cup",
+      "participants": {
+        "away": "Merthyr Town",
+        "home": "Truro City"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b6dda2c65c08cfda",
+      "competition": "FA Cup",
+      "participants": {
+        "away": "Hemel Hempstead Town",
+        "home": "Wingate & Finchley"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b5dda1335b08ce47",
+      "competition": "FA Cup",
+      "participants": {
+        "away": "Yate Town",
+        "home": "Chippenham Town FC"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Chippenham Town FC",
+          "source_type": "OFFICIAL_CLUB",
+          "source_url": "https://chippenhamtown.com/09/22/report-chippenham-town-2-1-yate-town-after-extra-time/",
+          "retrieved_at_utc": "2026-09-23T07:44:03Z",
+          "evidence_summary": "Final regulation-time score: Chippenham Town FC 1-1 Yate Town. Goals at 66 and 68 minutes; the winning goal came at 99 minutes in extra time.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_bbddaaa55908cb21",
+      "competition": "FA Cup",
+      "participants": {
+        "away": "Uxbridge",
+        "home": "Farnborough"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_83707871ad84a6a5",
+      "competition": "Liga 2",
+      "participants": {
+        "away": "ACSM Resita",
+        "home": "CSC Dumbravita"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_067c7f9d387d32b1",
+      "competition": "Liga 2",
+      "participants": {
+        "away": "CS Dinamo Bucuresti",
+        "home": "Asa Targu Mures"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_53e55d88e5ea6ffc",
+      "competition": "KNVB Beker",
+      "participants": {
+        "away": "SV Spakenburg",
+        "home": "Rkav Volendam"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "RKAV Volendam",
+          "source_type": "OFFICIAL_CLUB",
+          "source_url": "https://rkav-volendam.nl/nieuws/rkav-volendam-overleeft-zinderende-bekeravond-en-knikkert-spakenburg-eruit/",
+          "retrieved_at_utc": "2026-09-23T07:44:03Z",
+          "evidence_summary": "Final regulation-time score: Rkav Volendam 2-2 SV Spakenburg. 2-2 after a 90+4 minute equalizer; extra time and penalties excluded.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_58e56567e2ea6b43",
+      "competition": "KNVB Beker",
+      "participants": {
+        "away": "Dovo Veenendaal",
+        "home": "Koninklijke"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_4de55416efea7fba",
+      "competition": "KNVB Beker",
+      "participants": {
+        "away": "BVV Barendrecht",
+        "home": "HHC Hardenberg"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_4ee555a9f0ea814d",
+      "competition": "KNVB Beker",
+      "participants": {
+        "away": "SV Dvs 33 Ermelo",
+        "home": "GVVV Veenendaal"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5be7a8b7edecbb2b",
+      "competition": "KNVB Beker",
+      "participants": {
+        "away": "SC Genemuiden",
+        "home": "Staphorst"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5ae7a724ececb998",
+      "competition": "KNVB Beker",
+      "participants": {
+        "away": "RBC Roosendaal",
+        "home": "VV Eemdijk"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8302a49d6c0438e9",
+      "competition": "KNVB Beker",
+      "participants": {
+        "away": "Rksv Halsteren",
+        "home": "EVV Echt"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8102a1776a0435c3",
+      "competition": "KNVB Beker",
+      "participants": {
+        "away": "VV Hoogeveen",
+        "home": "ACV Assen"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_0405ae47750685ab",
+      "competition": "KNVB Beker",
+      "participants": {
+        "away": "Excelsior Maassluis",
+        "home": "ZSV Sportlust 46"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_81058009cafbb3cd",
+      "competition": "Azadegan League",
+      "participants": {
+        "away": "Saipa",
+        "home": "Sanat Mes Kerman"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8205819cc3fba8c8",
+      "competition": "Azadegan League",
+      "participants": {
+        "away": "Besat Kermanshah",
+        "home": "Sorkhpooshan Pakdasht"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3b061cd3f247a4bf",
+      "competition": "Azadegan League",
+      "participants": {
+        "away": "Palayesh Naft Bandar Abbas FC",
+        "home": "Naft Masjed Soleyman"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b30d95806a4f1d6c",
+      "competition": "Azadegan League",
+      "participants": {
+        "away": "Ario Eslamshahr",
+        "home": "Naft Gachsaran"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6e07800a8ce94eb6",
+      "competition": "Ligue 1",
+      "participants": {
+        "away": "JS Saoura",
+        "home": "Biskra"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_731a7bb8f95734d4",
+      "competition": "Brasileiro Serie B",
+      "participants": {
+        "away": "Operario Ferroviario EC PR",
+        "home": "Criciuma"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_90bfec86a24b1b6a",
+      "competition": "Primera B, Clausura",
+      "participants": {
+        "away": "Internacional Fc De Palmira",
+        "home": "Independiente Valle Del Cauca"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_94bdb43b9648c9ef",
+      "competition": "Primera B, Clausura",
+      "participants": {
+        "away": "Tigres",
+        "home": "Atletico FC Cali"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_53be41eb1b7aa397",
+      "competition": "Primera B, Clausura",
+      "participants": {
+        "away": "Orsomarso",
+        "home": "Real Santander"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_389be663bb6eff6f",
+      "competition": "Copa Paraguay",
+      "participants": {
+        "away": "Sol de America Villa Elisa",
+        "home": "CS 2 de Mayo"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3a061b40f147a32c",
+      "competition": "Regionalliga East",
+      "participants": {
+        "away": "Kremser",
+        "home": "Traiskirchen"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_88e755c538474e69",
+      "competition": "3rd Division",
+      "participants": {
+        "away": "Skjervoey",
+        "home": "Skjetten"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3a51d57bc7237b07",
+      "competition": "Challenge Cup",
+      "participants": {
+        "away": "Dundee FC B",
+        "home": "Elgin City"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2f42b9a0443c44b4",
+      "competition": "Challenge Cup",
+      "participants": {
+        "away": "Annan Athletic",
+        "home": "Queen of The South"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_805d18fdd53e0839",
+      "competition": "Challenge Cup",
+      "participants": {
+        "away": "Dundee United B",
+        "home": "Edinburgh City"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_10ad9c6a2434d0ae",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Alvechurch",
+        "home": "Anstey Nomads"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f4ebbd66f76de842",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Kettering Town",
+        "home": "Rushall Olympic"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_04e759688768bac4",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Bromsgrove Rover",
+        "home": "Stratford Town"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8af3654df5611929",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Hitchin Town",
+        "home": "Bury Town"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_84f35bdbf7611c4f",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Peterborough Sports",
+        "home": "Leiston"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f8e9156f490a5a63",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Banbury Utd",
+        "home": "Worcester City"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_e36abd182227a4ec",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Real Bedford",
+        "home": "Stourbridge"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_044aa9690ee06895",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Frome Town",
+        "home": "Plymouth Parkway"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_054aaafc07e05d90",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Chertsey Town FC",
+        "home": "Chichester City"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_074aae2209e060b6",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Gloucester City",
+        "home": "Malvern Town"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_084aafb50ae06249",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Bath City FC",
+        "home": "Taunton Town"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d763ee6fae20328b",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Hanworth Villa",
+        "home": "Berkhamsted"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8872e8c913e7a3fd",
+      "competition": "Northern Premier League, Premier Division",
+      "participants": {
+        "away": "Hyde Utd",
+        "home": "Leek Town"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8a72ebef0de79a8b",
+      "competition": "Northern Premier League, Premier Division",
+      "participants": {
+        "away": "Redcar Athletic FC",
+        "home": "Cleethorpes Town"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_054ce9930fe2a8bf",
+      "competition": "Isthmian League, Premier Division",
+      "participants": {
+        "away": "Maldon & Tiptree",
+        "home": "Brentwood Town"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8c4ffcaf16e4f25b",
+      "competition": "Isthmian League, Premier Division",
+      "participants": {
+        "away": "Leatherhead",
+        "home": "Three Bridges"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_37bcd60a2a90e166",
+      "competition": "EFL Trophy",
+      "participants": {
+        "away": "Port Vale",
+        "home": "Chesterfield"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Chesterfield FC",
+          "source_type": "OFFICIAL_CLUB",
+          "source_url": "https://chesterfield-fc.co.uk/news/shootout-win-for-spireites-in-jersey-mikes-trophy",
+          "retrieved_at_utc": "2026-09-23T07:44:03Z",
+          "evidence_summary": "Final regulation-time score: Chesterfield 1-1 Port Vale. 1-1 at full time; penalty shootout excluded.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_ca30fa277190e633",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "CSM Alexandria",
+        "home": "Fotbal Club FCSB 2"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cd333d7774932983",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "ACS Inter Ilfov",
+        "home": "Voluntari II"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_393864a908988fad",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "FCM Baia Mare",
+        "home": "Sanatatea Cluj"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_fa985a88c611563c",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "CS Blejoi",
+        "home": "CSO Plopeni"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_0c7ffd477c0809b3",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "CS Universitatea Craiova II",
+        "home": "Acso Filiasi"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_a0fce2a585141df1",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "AS Usv Iasi",
+        "home": "Csm Adjud 1946"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_9dfcddec82141938",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "Oxigen Bucuresti",
+        "home": "ACS Axi Arena"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ce4de4825b8c7386",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "CS Tunari",
+        "home": "CS Paulesti"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_4a4927a32c4029a7",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "CS Timisul Sag",
+        "home": "Unirea 1924"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cc4622b21e3dd506",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "CSM Cetatea Turnu Magurele",
+        "home": "FC Dinamo Bucuresti 1948 2"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b50d98a66c4f2092",
+      "competition": "Pro Liga",
+      "participants": {
+        "away": "FK Gazalkent",
+        "home": "PFC Terdu"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cb0b7cb16a4cded5",
+      "competition": "Professional Development League",
+      "participants": {
+        "away": "Coventry City U21",
+        "home": "Wigan Athletic U21"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c213c1297846291d",
+      "competition": "2. Liga",
+      "participants": {
+        "away": "FC Rubin Yalta",
+        "home": "FC Sevastopol"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_bc0da3ab734f2b97",
+      "competition": "USL Super League, Women",
+      "participants": {
+        "away": "Fort Lauderdale United FC",
+        "home": "DC Power FC"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b7b89d76bc360d82",
+      "competition": "Copa Chile",
+      "participants": {
+        "away": "Nublense",
+        "home": "Puerto Montt"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_89032c42c84eecde",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "CA Huracan",
+        "home": "San Lorenzo de Almagro Res."
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ca4004b1098bc54d",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "Atletico Tucuman Reserve",
+        "home": "Central Cordoba SE Reserve"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_adce51e8e50f1054",
+      "competition": "QSL Cup",
+      "participants": {
+        "away": "Al-Khor SC",
+        "home": "Muaither"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_acd08eecd3fdac70",
+      "competition": "QSL Cup",
+      "participants": {
+        "away": "AL Waab",
+        "home": "Al Mesaimeer"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2e51bb2f079fcc5b",
+      "competition": "UEFA Champions League, Women",
+      "participants": {
+        "away": "Hacken Gothenburg",
+        "home": "Inter"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Inter",
+          "source_type": "OFFICIAL_CLUB",
+          "source_url": "https://www.inter.it/en/inter-tv/0_ttis38tq",
+          "retrieved_at_utc": "2026-09-23T07:44:03Z",
+          "evidence_summary": "Final regulation-time score: Inter 1-0 Hacken Gothenburg. Official match-specific highlights identify Inter 1-0 Häcken.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_2d51b99c069fcac8",
+      "competition": "UEFA Champions League, Women",
+      "participants": {
+        "away": "Manchester City Ladies",
+        "home": "Bayern Munich"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Manchester City FC",
+          "source_type": "OFFICIAL_CLUB",
+          "source_url": "https://www.mancity.com/news/womens/bayern-munich-v-city-champions-league-2627-match-report-63925686",
+          "retrieved_at_utc": "2026-09-23T07:44:03Z",
+          "evidence_summary": "Final regulation-time score: Bayern Munich 2-2 Manchester City Ladies. Bayern Munich 2-2 Manchester City at full time.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_665ebf5eb52f481a",
+      "competition": "UEFA Champions League, Women",
+      "participants": {
+        "away": "SL Benfica",
+        "home": "Juventus Women"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "UEFA",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.uefa.com/womenschampionsleague/news/02a9-21a7b7ddf6ed-95d5505fd788-1000--women-s-champions-league-matchday-1-tuesday-highlights-an/",
+          "retrieved_at_utc": "2026-09-23T07:44:03Z",
+          "evidence_summary": "Final regulation-time score: Juventus Women 1-2 SL Benfica. UEFA matchday report section: Juventus 1-2 Benfica.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_4f60d9c0b6318844",
+      "competition": "UEFA Champions League, Women",
+      "participants": {
+        "away": "HB Koege",
+        "home": "Arsenal WFC"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "UEFA",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.uefa.com/womenschampionsleague/news/02a9-21a7b7ddf6ed-95d5505fd788-1000--women-s-champions-league-matchday-1-tuesday-highlights-an/",
+          "retrieved_at_utc": "2026-09-23T07:44:03Z",
+          "evidence_summary": "Final regulation-time score: Arsenal WFC 1-0 HB Koege. UEFA matchday report section: Arsenal 1-0 HB Køge Women.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_469e3b04b9713ae0",
+      "competition": "UEFA Champions League, Women",
+      "participants": {
+        "away": "PSG",
+        "home": "Real Madrid"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Real Madrid CF",
+          "source_type": "OFFICIAL_CLUB",
+          "source_url": "https://www.realmadrid.com/en-US/news/football/womens-team/reports/cronica-rm-psg-j1-wcl-22-09-2026",
+          "retrieved_at_utc": "2026-09-23T07:44:03Z",
+          "evidence_summary": "Final regulation-time score: Real Madrid 1-1 PSG. Real Madrid 1-1 Paris Saint-Germain at full time.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_b5d09d17dcfdba9b",
+      "competition": "Regionalliga Sud, Group Karnten",
+      "participants": {
+        "away": "Donau Klagenfurt",
+        "home": "Austria Klagenfurt"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_479e3c97ba713c73",
+      "competition": "U23 Liga Next Gen",
+      "participants": {
+        "away": "Estoril Praia",
+        "home": "Academico Viseu"
+      },
+      "scheduled_date": "2026-09-22",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source meeting the template verification policy was not confirmed; completion and regulation-time score require review.",
+      "sources": []
+    }
+  ]
+}

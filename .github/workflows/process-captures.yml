@@ -1,0 +1,128 @@
+name: Process uploaded captures
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: Committed capture directory date (YYYY-MM-DD)
+        required: true
+        default: '2026-09-23'
+      currency:
+        description: Operator-confirmed ticket currency
+        required: true
+        default: NGN
+
+permissions:
+  contents: read
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: src
+      BATCH: ${{ inputs.batch }}
+      CURRENCY: ${{ inputs.currency }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate inputs, reconcile segment, and record provenance
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import re
+          from pathlib import Path
+
+          batch = os.environ['BATCH']
+          if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', batch):
+              raise SystemExit('batch must be YYYY-MM-DD')
+          if not re.fullmatch(r'[A-Z]{3}', os.environ['CURRENCY']):
+              raise SystemExit('currency must be three uppercase letters')
+          root = Path('captures') / batch
+          patterns = [
+              'bet9ja-soccer-all-soccer-*.json',
+              'bet9ja-soccer-session-*-segment-*.json',
+              'bet9ja-settled-bets-*.json',
+              'bet9ja-open-bets-*.json',
+              'PredictBot_Manual_Results_*.json',
+          ]
+          groups = [sorted(root.glob(pattern)) for pattern in patterns]
+          if any(not paths for paths in groups) or any(len(groups[i]) != 1 for i in (0, 2, 3, 4)):
+              raise SystemExit('Expected one aggregate, open, settled, manual file, and at least one segment')
+          aggregate = json.loads(groups[0][0].read_text())
+          segments = [json.loads(path.read_text()) for path in groups[1]]
+          fixtures = {row['fixture_id']: row for row in aggregate['fixtures']}
+          segment_fixtures = {}
+          for segment in segments:
+              if segment['capture_session_id'] != aggregate['capture_session_id']:
+                  raise SystemExit('Segment session does not match aggregate')
+              for row in segment['fixtures']:
+                  key = row['fixture_id']
+                  if key in segment_fixtures and segment_fixtures[key] != row:
+                      raise SystemExit('Conflicting segment fixture')
+                  segment_fixtures[key] = row
+          if fixtures != segment_fixtures or len(fixtures) != len(aggregate['fixtures']):
+              raise SystemExit('Aggregate and segment fixtures do not reconcile')
+          output = Path('runs') / batch
+          output.mkdir(parents=True)
+          provenance = {
+              'commit': os.environ['GITHUB_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'python': platform.python_version(),
+              'currency': os.environ['CURRENCY'],
+              'ledger_scope': 'isolated batch; no local or historical ledger imported',
+              'segment_fixture_count': len(segment_fixtures),
+              'inputs': {
+                  str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+                  for paths in groups for path in paths
+              },
+          }
+          (output / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
+          PY
+      - name: Record research forecasts and abstentions
+        run: |
+          python -m pcbf_calculator run-bet9ja-research \
+            captures/"$BATCH"/bet9ja-soccer-all-soccer-*.json \
+            --ledger-dir ledger_data --output-dir runs/"$BATCH"/research
+      - name: Import open and settled tickets
+        run: |
+          python -m pcbf_calculator import-bet9ja-tickets \
+            captures/"$BATCH"/bet9ja-settled-bets-*.json \
+            captures/"$BATCH"/bet9ja-open-bets-*.json \
+            --currency "$CURRENCY" --forecast-ledger-dir ledger_data \
+            --betting-ledger-dir ledger_data --output-dir runs/"$BATCH"/tickets
+      - name: Archive cited manual-result evidence
+        run: |
+          python -m pcbf_calculator archive-manual-results-evidence \
+            captures/"$BATCH"/PredictBot_Manual_Results_*.json \
+            --archive-dir ledger_data/manual_evidence --ledger-dir ledger_data \
+            --output-dir runs/"$BATCH"/archive
+      - name: Convert verified evidence and settle matching forecasts
+        run: |
+          python -m pcbf_calculator convert-manual-results-evidence \
+            captures/"$BATCH"/PredictBot_Manual_Results_*.json \
+            --ledger-dir ledger_data --output-dir runs/"$BATCH"/manual-conversion
+          python -m pcbf_calculator ingest-manual-results \
+            runs/"$BATCH"/manual-conversion/converted-manual-results-input.json \
+            --ledger-dir ledger_data --output-dir runs/"$BATCH"/manual-settlement --confirm
+      - name: Generate performance reports and CSV views
+        run: |
+          python -m pcbf_calculator report-forecast-performance \
+            --ledger-dir ledger_data --output-dir runs/"$BATCH"/performance
+          python -m ledgers.cli export-csv --dir ledger_data
+      - name: Save ledgers, evidence, and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: processed-captures-${{ inputs.batch }}-${{ github.run_id }}
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            runs/
+            ledger_data/
+            !ledger_data/**/*.lock
