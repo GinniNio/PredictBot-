@@ -4,6 +4,17 @@ Source: the operator's explicit routine supplied on 2026-09-23.
 Apply this routine whenever the operator supplies daily captures. These are
 standing instructions for future sessions, not a request to rerun an old batch.
 
+Reconfirmed by the operator on 2026-09-24: attaching new daily files is the
+trigger to perform this routine. Do not require the operator to repeat the
+steps or ask whether to start normal forecast recording and ticket import.
+The explicit approval requirements in section 7 still apply. A message that
+only repeats these instructions does not authorize reprocessing previous files.
+
+Outstanding continuity question as of that confirmation: the authoritative
+cumulative ledgers used by the other tool have not been located or transferred
+in this session. Establish their location before the next production write;
+the local ledger and the isolated GitHub artifact must not be presumed current.
+
 ## Preserve production history
 
 Use the established cumulative forecast and betting ledgers. Before writing,
