@@ -28,8 +28,19 @@ publishing the full historical ledgers.
 
 The `process-captures.yml` workflow introduced at commit `dd917fb` uses source
 execution and an isolated ledger, and automatically archives and confirms manual
-settlement. It is NOT the approved daily routine. Do not dispatch it as a daily
-cycle unless it has first been corrected to meet all requirements below.
+settlement. It is NOT the approved daily routine, and it was actually dispatched
+once (2026-09-23, run `35835661105`) before this was caught -- its own
+`processed-captures-2026-09-23-35835661105` artifact is a real, divergent
+ledger history, produced from an empty starting ledger, that has NOT been
+reconciled against the cumulative one. Do not treat that artifact as
+authoritative, and do not let a later reconciliation silently overwrite the
+cumulative ledger with it -- reconcile explicitly, event by event, instead.
+
+The workflow file has been renamed to `process-captures.yml.disabled` so
+GitHub Actions can no longer discover or dispatch it at all -- see that file's
+own header comment for the two conditions (an externally-supplied, persisted
+ledger; a real per-batch approval gate) required before it is ever renamed
+back to `.yml` and re-enabled.
 
 ## 1. Identify each input
 

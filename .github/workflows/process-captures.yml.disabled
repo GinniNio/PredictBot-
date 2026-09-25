@@ -1,3 +1,24 @@
+# DISABLED -- renamed off the .yml extension so GitHub Actions can never
+# discover or dispatch this workflow. It ran once (2026-09-23, run 35835661105,
+# commit dd917fb) on a fully isolated ledger_data (never the workstation's
+# cumulative forecast/betting ledger) and unconditionally ran
+# archive-manual-results-evidence and `ingest-manual-results --confirm` with
+# no approval gate -- both violate AGENTS.md section 7's explicit-approval
+# requirement, and its isolated-ledger design violates AGENTS.md's "Preserve
+# production history" section. That run's own artifact
+# (processed-captures-2026-09-23-35835661105) is a real, divergent ledger
+# history that has not yet been reconciled against the cumulative one -- see
+# AGENTS.md's own "Outstanding continuity question".
+#
+# Do not restore the .yml extension until this workflow: (1) accepts an
+# externally-supplied, already-authoritative ledger_data (e.g. downloaded from
+# a durable location) rather than starting from an empty one every run, and
+# persists its output back to that same location -- an ephemeral CI runner
+# with a 90-day artifact retention window is not a durable ledger store on its
+# own; (2) never runs archive-manual-results-evidence or
+# `ingest-manual-results --confirm` (nor passes either operator-attested-
+# evidence flag) without a separate, explicit per-batch approval step, exactly
+# like every interactive daily cycle already requires.
 name: Process uploaded captures
 
 on:
