@@ -5,10 +5,14 @@
 # archive-manual-results-evidence and `ingest-manual-results --confirm` with
 # no approval gate -- both violate AGENTS.md section 7's explicit-approval
 # requirement, and its isolated-ledger design violates AGENTS.md's "Preserve
-# production history" section. That run's own artifact
-# (processed-captures-2026-09-23-35835661105) is a real, divergent ledger
-# history that has not yet been reconciled against the cumulative one -- see
-# AGENTS.md's own "Outstanding continuity question".
+# production history" section. The run's GitHub-reported "success" proves
+# only that these steps executed without error -- automatic settlement was
+# ATTEMPTED, not confirmed scored; the actual SCORED-event count (zero, some,
+# or all of that batch) is unknown until its own logs or artifact
+# (processed-captures-2026-09-23-35835661105) are inspected -- that artifact
+# is a real, divergent ledger history that has not yet been reconciled
+# against the cumulative one -- see AGENTS.md's own "Outstanding continuity
+# question".
 #
 # Do not restore the .yml extension until this workflow: (1) accepts an
 # externally-supplied, already-authoritative ledger_data (e.g. downloaded from
