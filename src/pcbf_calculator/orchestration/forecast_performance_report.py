@@ -132,6 +132,16 @@ SCHEMA_VERSION_SUMMARY = "pcbf-forecast-performance-summary.v1"
 SCHEMA_VERSION_CALIBRATION = "pcbf-forecast-calibration-report.v1"
 SCHEMA_VERSION_CLOSING_LINE = "pcbf-forecast-closing-line-report.v1"
 SCHEMA_VERSION_EXCLUDED = "pcbf-forecast-performance-excluded-records.v1"
+SCHEMA_VERSION_BASELINE_COMPARISON = "pcbf-forecast-baseline-comparison-report.v1"
+
+# The fixed, degenerate probability assignment behind "always predict
+# home" -- never a real forecast, a trivial rule that ignores the model
+# entirely. Kept as an actual probability triple (not just an accuracy
+# tally) so it can be scored with the exact same compute_metrics/Brier/
+# log-loss machinery as every other group here, for a like-for-like
+# comparison -- ledgers.scoring.log_loss's own floor keeps this finite
+# even though the assignment is maximally overconfident.
+_ALWAYS_HOME_PROBABILITIES = {"H": 1.0, "D": 0.0, "A": 0.0}
 
 MARKET_TYPE = "1X2"
 CLASS_ORDER = scoring.CLASS_ORDER  # ("H", "D", "A")
@@ -555,6 +565,94 @@ def build_closing_line_report(included: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def build_baseline_comparison_report(included: list[dict[str, Any]]) -> dict[str, Any]:
+    """Two naive baselines, each compared against the model on its own
+    matched subset -- kept in its own file, never blended into
+    performance-summary.json's own model-quality metrics.
+
+    ``always_predict_home``: a fixed rule that ignores the model and every
+    market entirely and always picks "H". Scored over every included
+    forecast (no gating). Named literally "always predict home", never
+    "favourite" -- this comparison does not establish which side the
+    market (or anyone else) actually favoured; it is only the base rate
+    of home wins in this sample.
+
+    ``market_probability``: the de-vigged fair probability
+    (``market_devig_probabilities``) computed from this forecast's own
+    ``offered_odds`` at RECORD time (``ledgers.forecast_ledger.
+    build_recorded_event`` / ``score_and_append``'s own opening-market
+    comparison) -- the market's own read at forecast time, distinct from
+    ``closing-line-report.json``'s closing-odds-gated comparison, and
+    available for every included forecast that has a valid one (no
+    closing-odds requirement), so it covers a larger sample than the
+    closing-line report.
+
+    Both blocks report their own ``sample_count``/``small_sample`` --
+    never inferred as promotion or trustworthiness evidence, exactly like
+    every other metric this module produces. Results here reflect only
+    whatever ledger this command was pointed at; they say nothing about
+    whether that ledger is the authoritative cumulative one."""
+
+    always_home_states = [
+        {
+            "model_probabilities": _ALWAYS_HOME_PROBABILITIES,
+            "actual_result": state["actual_result"],
+            "brier_score": scoring.multiclass_brier(_ALWAYS_HOME_PROBABILITIES, state["actual_result"]),
+            "log_loss": scoring.log_loss(_ALWAYS_HOME_PROBABILITIES, state["actual_result"]),
+        }
+        for state in included
+    ]
+
+    market_model_states = []
+    market_states = []
+    for state in included:
+        market_probabilities = state.get("market_devig_probabilities")
+        if not _is_valid_probabilities(market_probabilities):
+            continue
+        market_model_states.append(state)
+        market_states.append(
+            {
+                "model_probabilities": market_probabilities,
+                "actual_result": state["actual_result"],
+                "brier_score": scoring.multiclass_brier(market_probabilities, state["actual_result"]),
+                "log_loss": scoring.log_loss(market_probabilities, state["actual_result"]),
+                "competition_code": state.get("competition_code"),
+                "artifact_hash": state.get("artifact_hash"),
+                "created_at_utc": state.get("created_at_utc"),
+            }
+        )
+
+    return {
+        "schema_version": SCHEMA_VERSION_BASELINE_COMPARISON,
+        "note": (
+            "Two naive baselines, each scored against the model on its own matched subset -- "
+            "never blended into performance-summary.json's own metrics. always_predict_home is a "
+            "fixed rule (ignores the model and the market) always picking 'H'; it is named literally "
+            "'always predict home', not 'favourite' -- this sample does not establish which side was "
+            "actually favoured. market_probability is the de-vigged fair probability computed from "
+            "each forecast's own offered_odds at RECORD time (the opening market read at forecast "
+            "time), scored on every included forecast that has one -- a larger, differently-gated "
+            "sample than closing-line-report.json's closing-odds-only comparison. Every count here "
+            "carries its own small_sample flag; this report says nothing about whether the ledger it "
+            "was computed from is the authoritative cumulative one -- see AGENTS.md's own outstanding "
+            "continuity question. Treat every number here as provisional until that is resolved."
+        ),
+        "small_sample_threshold": SMALL_SAMPLE_THRESHOLD,
+        "always_predict_home": {
+            "sample_count": len(always_home_states),
+            "small_sample": len(always_home_states) < SMALL_SAMPLE_THRESHOLD,
+            "model": compute_metrics(included),
+            "always_predict_home": compute_metrics(always_home_states),
+        },
+        "market_probability": {
+            "sample_count_with_valid_market_probability": len(market_states),
+            "excluded_missing_market_probability": len(included) - len(market_states),
+            "model": compute_metrics(market_model_states),
+            "market_probability": compute_metrics(market_states),
+        },
+    }
+
+
 def build_excluded_records(excluded: list[dict[str, Any]]) -> dict[str, Any]:
     return {"schema_version": SCHEMA_VERSION_EXCLUDED, "excluded": excluded}
 
@@ -574,6 +672,7 @@ def run_performance_report(ledger_dir: Path) -> dict[str, Any]:
         "performance_summary": build_performance_summary(included, excluded, len(scored_states)),
         "calibration_report": build_calibration_report(included),
         "closing_line_report": build_closing_line_report(included),
+        "baseline_comparison_report": build_baseline_comparison_report(included),
         "excluded_records": build_excluded_records(excluded),
     }
 
@@ -588,6 +687,7 @@ def write_performance_reports(ledger_dir: Path, output_dir: Path) -> dict[str, A
     _write_json(output_dir / "performance-summary.json", result["performance_summary"])
     _write_json(output_dir / "calibration-report.json", result["calibration_report"])
     _write_json(output_dir / "closing-line-report.json", result["closing_line_report"])
+    _write_json(output_dir / "baseline-comparison-report.json", result["baseline_comparison_report"])
     _write_json(output_dir / "excluded-records.json", result["excluded_records"])
     return result
 
@@ -599,15 +699,19 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
     )
     parser.add_argument("--ledger-dir", type=Path, required=True, help="Existing forecast-ledger directory")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write the four report files into")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write the five report files into")
     args = parser.parse_args(argv)
 
     result = write_performance_reports(args.ledger_dir, args.output_dir)
     counts = result["performance_summary"]["counts"]
+    baselines = result["baseline_comparison_report"]
     print(
         f"OK: {counts['included']} included, {counts['excluded']} excluded, "
         f"{counts['with_closing_odds']} with closing odds, {counts['missing_closing_odds']} missing closing odds "
-        f"({counts['total_scored_events_on_disk']} SCORED events on disk) -> {args.output_dir}"
+        f"({counts['total_scored_events_on_disk']} SCORED events on disk) -> {args.output_dir}\n"
+        f"    always_predict_home accuracy: {baselines['always_predict_home']['always_predict_home']['accuracy']} "
+        f"(n={baselines['always_predict_home']['sample_count']}) vs. model accuracy: "
+        f"{baselines['always_predict_home']['model']['accuracy']} -- PROVISIONAL, see baseline-comparison-report.json"
     )
     return 0
 

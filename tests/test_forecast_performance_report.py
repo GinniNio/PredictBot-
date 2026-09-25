@@ -288,7 +288,13 @@ class DeterminismTests(unittest.TestCase):
             fpr.write_performance_reports(ledger_dir, out1)
             fpr.write_performance_reports(ledger_dir, out2)
 
-            for filename in ("performance-summary.json", "calibration-report.json", "closing-line-report.json", "excluded-records.json"):
+            for filename in (
+                "performance-summary.json",
+                "calibration-report.json",
+                "closing-line-report.json",
+                "baseline-comparison-report.json",
+                "excluded-records.json",
+            ):
                 self.assertEqual((out1 / filename).read_bytes(), (out2 / filename).read_bytes(), filename)
 
     def test_no_wall_clock_timestamp_field_present(self):
@@ -409,6 +415,99 @@ class DuplicateScoredEventTests(unittest.TestCase):
             self.assertEqual(included, [])
             self.assertEqual(len(excluded), 1)
             self.assertIn(fpr.REASON_DUPLICATE_SCORED_EVENTS, excluded[0]["reasons"])
+
+
+class BaselineComparisonReportTests(unittest.TestCase):
+    def test_always_predict_home_accuracy_matches_the_home_outcome_share(self):
+        # Controlled fixture: 15 scored forecasts, actual outcomes
+        # 12 H / 1 D / 2 A -- "always predict home" must score exactly
+        # 12/15, independent of what the model itself predicted.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / forecast_ledger.DEFAULT_FILENAME
+            actual_results = ["H"] * 12 + ["D"] * 1 + ["A"] * 2
+            for i, actual in enumerate(actual_results):
+                _record_and_score(
+                    ledger_path, f"bxf_{i}", "E0", f"Team{i}A", f"Team{i}B", "2026-09-20",
+                    {"H": 0.5, "D": 0.3, "A": 0.2}, actual,
+                )
+            included, excluded = fpr.classify_and_filter(fpr.load_scored_states(ledger_path))
+            self.assertEqual(excluded, [])
+            report = fpr.build_baseline_comparison_report(included)
+            home_block = report["always_predict_home"]
+            self.assertEqual(home_block["sample_count"], 15)
+            self.assertAlmostEqual(home_block["always_predict_home"]["accuracy"], 12 / 15)
+            self.assertEqual(
+                home_block["always_predict_home"]["actual_outcome_distribution"], {"H": 12, "D": 1, "A": 2}
+            )
+            # Named literally "always_predict_home" as a field key -- never
+            # "favourite"/"favorite": this comparison never claims to know
+            # which side was favoured.
+            self.assertIn("always_predict_home", report)
+            self.assertNotIn("favourite", report.keys())
+            self.assertNotIn("favorite", report.keys())
+            self.assertNotIn("favourite", home_block.keys())
+            self.assertNotIn("favorite", home_block.keys())
+
+    def test_always_predict_home_is_scored_regardless_of_the_models_own_prediction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / forecast_ledger.DEFAULT_FILENAME
+            # The model itself predicts away (A highest) but the actual
+            # result is H -- always_predict_home must still count this as
+            # correct, since it never looks at the model's own output.
+            _record_and_score(
+                ledger_path, "bxf_1", "E0", "Arsenal", "Chelsea", "2026-09-20",
+                {"H": 0.2, "D": 0.2, "A": 0.6}, "H",
+            )
+            included, _ = fpr.classify_and_filter(fpr.load_scored_states(ledger_path))
+            report = fpr.build_baseline_comparison_report(included)
+            self.assertEqual(report["always_predict_home"]["always_predict_home"]["accuracy"], 1.0)
+            self.assertEqual(report["always_predict_home"]["model"]["accuracy"], 0.0)
+
+    def test_market_probability_uses_market_devig_probabilities_not_model_probabilities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / forecast_ledger.DEFAULT_FILENAME
+            # Overconfident, wrong model (0.9 on H, actual A); the market's
+            # own offered_odds (1.9/3.4/4.3 -- set by _record_and_score)
+            # de-vig to a much less confident, less wrong H probability.
+            _record_and_score(
+                ledger_path, "bxf_1", "E0", "Arsenal", "Chelsea", "2026-09-20",
+                {"H": 0.9, "D": 0.06, "A": 0.04}, "A",
+            )
+            included, excluded = fpr.classify_and_filter(fpr.load_scored_states(ledger_path))
+            self.assertEqual(excluded, [])
+            self.assertIsNotNone(included[0].get("market_devig_probabilities"))
+            report = fpr.build_baseline_comparison_report(included)
+            market_block = report["market_probability"]
+            self.assertEqual(market_block["sample_count_with_valid_market_probability"], 1)
+            self.assertEqual(market_block["excluded_missing_market_probability"], 0)
+            self.assertGreater(market_block["model"]["brier_score"], market_block["market_probability"]["brier_score"])
+
+    def test_market_probability_sample_is_not_gated_on_closing_odds(self):
+        # No closing_odds given at all -- closing-line-report.json would
+        # exclude this forecast entirely, but market_devig_probabilities
+        # is computed at RECORD time from offered_odds alone, so the
+        # baseline-comparison report must still include it.
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / forecast_ledger.DEFAULT_FILENAME
+            _record_and_score(
+                ledger_path, "bxf_1", "E0", "Arsenal", "Chelsea", "2026-09-20",
+                {"H": 0.6, "D": 0.25, "A": 0.15}, "H", closing_odds=None,
+            )
+            included, _ = fpr.classify_and_filter(fpr.load_scored_states(ledger_path))
+            closing_report = fpr.build_closing_line_report(included)
+            self.assertEqual(closing_report["sample_count_with_complete_closing_odds"], 0)
+            baseline_report = fpr.build_baseline_comparison_report(included)
+            self.assertEqual(baseline_report["market_probability"]["sample_count_with_valid_market_probability"], 1)
+
+    def test_empty_included_produces_well_formed_zero_sample_report(self):
+        report = fpr.build_baseline_comparison_report([])
+        self.assertEqual(report["always_predict_home"]["sample_count"], 0)
+        self.assertTrue(report["always_predict_home"]["small_sample"])
+        self.assertEqual(report["market_probability"]["sample_count_with_valid_market_probability"], 0)
+
+    def test_note_flags_results_as_provisional_pending_ledger_continuity(self):
+        report = fpr.build_baseline_comparison_report([])
+        self.assertIn("provisional", report["note"].lower())
 
 
 class ReconciliationInvariantTests(unittest.TestCase):
