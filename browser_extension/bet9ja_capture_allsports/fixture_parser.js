@@ -238,25 +238,48 @@
   }
 
   /**
+   * Parses fixtures from an EXPLICIT list of `.sports-table` elements,
+   * rather than scanning the whole document -- the hook `sport_walker.js`
+   * needs. Real evidence (2026-09-30T17:00Z, a full 34-competition Ice
+   * Hockey walk): Bet9ja's own SPA does NOT remove a competition's
+   * `.sports-table` blocks when navigating to a different one within the
+   * same walker session -- they accumulate (with what looks like a
+   * rolling eviction window, not unbounded growth). A document-wide
+   * `.sports-table` query is exactly correct for a single, freshly loaded
+   * page (this module's original, still-valid contract) but silently
+   * mixes in STALE fixtures from every earlier competition once a walker
+   * has clicked through several without a full page reload. There is no
+   * fix for this in `fixture_parser.js` alone -- it has no notion of
+   * "before this click" -- so the walker itself snapshots which
+   * `.sports-table` elements already existed before a click and passes
+   * only the NEW ones here.
+   *
+   * `includeStrayRows`: a row not inside any of the given tables is only
+   * ever counted when `true` (the whole-document convenience wrapper
+   * below) -- for a caller-scoped subset of tables, a "stray" row found
+   * document-wide could just as easily belong to stale accumulated
+   * content the caller deliberately excluded, so it's never assumed
+   * to belong to the current scope.
+   *
    * @param {Document} documentLike
+   * @param {Element[]} tables
    * @param {{href: string, capturedAtUtc: string}} context
+   * @param {{includeStrayRows?: boolean}} [options]
    */
-  function parseFixturesFromDocument(documentLike, context) {
+  function parseFixturesFromTables(documentLike, tables, context, options) {
     if (!documentLike || typeof documentLike.querySelectorAll !== 'function') {
-      throw new Error('parseFixturesFromDocument requires a Document-like object.');
+      throw new Error('parseFixturesFromTables requires a Document-like object.');
     }
     const href = (context && context.href) || '';
     const capturedAtUtc = (context && context.capturedAtUtc) || null;
+    const includeStrayRows = !!(options && options.includeStrayRows);
 
     const breadcrumbRaw = text(documentLike.querySelector(SELECTORS.breadcrumb)) || null;
 
     // Rows are attributed to a date via their OWN containing
     // `.sports-table` group (see resolveDateGroupText) rather than a
     // single document-wide query, so each row can carry its own
-    // date_text_raw. A row that (unexpectedly) isn't inside any
-    // `.sports-table` is still captured, with date_text_raw: null,
-    // never dropped.
-    const tables = Array.from(documentLike.querySelectorAll('.sports-table'));
+    // date_text_raw.
     const rowsInTables = new Set();
     const fixtures = [];
     for (const tableEl of tables) {
@@ -273,11 +296,16 @@
         fixtures.push(parseFixtureRow(rowEl, dateTextRaw));
       }
     }
-    const strayRows = Array.from(documentLike.querySelectorAll('[id^="prematch_event-"]'))
-      .filter(isExactFixtureRow)
-      .filter((el) => !rowsInTables.has(el));
-    for (const rowEl of strayRows) {
-      fixtures.push(parseFixtureRow(rowEl, null));
+    if (includeStrayRows) {
+      // A row (unexpectedly) not inside any `.sports-table` is still
+      // captured, with date_text_raw: null, never dropped -- only done
+      // for the whole-document convenience wrapper, see header comment.
+      const strayRows = Array.from(documentLike.querySelectorAll('[id^="prematch_event-"]'))
+        .filter(isExactFixtureRow)
+        .filter((el) => !rowsInTables.has(el));
+      for (const rowEl of strayRows) {
+        fixtures.push(parseFixtureRow(rowEl, null));
+      }
     }
 
     const seenIds = new Set();
@@ -305,8 +333,26 @@
     };
   }
 
+  /**
+   * Whole-document convenience wrapper -- correct for a single, freshly
+   * loaded page (this module's original contract). See
+   * `parseFixturesFromTables`'s own comment for why a multi-navigation
+   * walker must NOT use this and must scope to specific tables instead.
+   *
+   * @param {Document} documentLike
+   * @param {{href: string, capturedAtUtc: string}} context
+   */
+  function parseFixturesFromDocument(documentLike, context) {
+    if (!documentLike || typeof documentLike.querySelectorAll !== 'function') {
+      throw new Error('parseFixturesFromDocument requires a Document-like object.');
+    }
+    const tables = Array.from(documentLike.querySelectorAll('.sports-table'));
+    return parseFixturesFromTables(documentLike, tables, context, { includeStrayRows: true });
+  }
+
   const api = {
     parseFixturesFromDocument,
+    parseFixturesFromTables,
     resolveSportSlugFromUrl,
     parseThreeWayOdds,
     FIXTURE_ROW_ID_PATTERN,

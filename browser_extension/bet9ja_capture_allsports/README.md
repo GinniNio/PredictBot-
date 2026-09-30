@@ -167,56 +167,110 @@ Output shape:
 
 ```
 {
-  sport, groups_seen, competitions_seen, competitions_visited,
+  sport, groups_seen, competitions_seen,
+  competitions_attempted, competitions_successful, competitions_failed,
   results: [{ competition_id, competition_label, source_url_after_click,
-              parse_result, fixtures }],
+              observed_breadcrumb_raw, parse_result, fixtures }],
   failures,
 }
 ```
 
 `parse_result` is one of `populated` / `confirmed_empty` / `unknown_empty`
-/ `invalid_content_mismatch`.
+/ `invalid_content_mismatch`. `observed_breadcrumb_raw` and
+`source_url_after_click` are present on **every** result, success or
+failure, for audit.
 
 **Validation is fail-closed.** After every click, the resulting page's own
 breadcrumb must agree with the competition actually requested (normalized
 substring match); a page with no resolvable breadcrumb at all is treated
 as a mismatch too, never assumed correct. A mismatch is recorded as
 `invalid_content_mismatch` and its fixtures are **never** ingested into
-`results[]`. Confirmed real evidence backing the design (2026-09-30): a
-real Ice Hockey capture (16:25:09Z) showed the sport expanded with its
-"show more" control and 10 groups visible, but zero competition links —
-because no group had been opened yet, exactly matching this module's own
-"open one group" step before competition links exist.
+`results[]`.
 
 **Every element is re-queried fresh, never cached across a click** — a
-navigation can replace the DOM entirely (per the operator's own rule),
-and competitions are tracked by their own stable `competition_id`, never
-array position, matching this project's established resume discipline
-elsewhere (`bet9ja_capture/soccer_walker.js`).
+navigation can replace the DOM entirely, and competitions are tracked by
+their own stable `competition_id`, never array position, matching this
+project's established resume discipline elsewhere
+(`bet9ja_capture/soccer_walker.js`).
+
+### Real run, real bugs (2026-09-30T17:00:14Z)
+
+The first run against a live, authenticated session — a full 34-
+competition Ice Hockey walk — surfaced two real, previously-unconfirmed
+facts about Bet9ja's own SPA behavior, both fixed and now regression-
+tested against realistic simulated sites (not just the original "wipes
+everything" fake site, which happened to hide both bugs):
+
+1. **Old competitions' fixture tables are never removed.** Direct
+   analysis of that run's own output showed e.g. "Alps Hockey League"
+   reporting 20 fixtures — 14 genuinely its own, plus the exact same 6
+   already reported under "NHL" moments earlier. `fixture_parser.js`
+   gained `parseFixturesFromTables(documentLike, tables, context)` (see
+   its own header comment); `visitCompetition` now snapshots which
+   `.sports-table` elements exist before a click and parses only the
+   ones that are new after it. The original whole-document
+   `parseFixturesFromDocument` stays correct and unchanged for its own
+   contract — a single, freshly-loaded page.
+2. **A group's toggle is a real accordion, not a one-way "open."** That
+   run's 10 failures (all `MISSING_COMPETITION`) matched a clean pattern:
+   almost every one was the competition immediately following a
+   successful one in the same group (USA: NHL succeeded, AHL failed;
+   Russia: KHL succeeded, VHL failed, MHL succeeded). The "reopen" step
+   was clicking the group's toggle unconditionally, which **closes** an
+   already-open group instead of ensuring it's open. `ensureGroupOpen`
+   now checks whether the group's links already exist before ever
+   clicking it.
+
+Five further corrections applied on top of these two:
+
+1. **Separate success/failure counts** — `competitions_visited` is
+   renamed `competitions_attempted`, with `competitions_successful` and
+   `competitions_failed` reported alongside it.
+2. **Competition links are rediscovered before every click**, never
+   reused from the list frozen at group-open time — sharpens bug #2
+   above: a group's own rendered link set can change between visits
+   independent of open/closed state. A competition seen once but never
+   reached before disappearing is still recorded (`MISSING_COMPETITION`
+   in `failures[]`), not silently dropped.
+3. **Table-level validation beyond breadcrumb/URL.** No confirmed
+   selector exists for a competition heading distinct from the
+   breadcrumb on this sidebar, so a `fixtureOwners` map tracks which
+   competition each fixture id was first attributed to across the whole
+   walk instead; a fixture id reused from an earlier, different
+   competition is rejected (`STALE_FIXTURE_ID_REUSED_FROM_EARLIER_
+   COMPETITION`) — real, evidence-grounded defense-in-depth on top of
+   the table-diffing fix, not a substitute for a heading selector this
+   project doesn't have evidence for yet.
+4. **Audit fields on every result** — `observed_breadcrumb_raw` and
+   `source_url_after_click`, not only on a mismatch.
+5. **3way odds stay nullable, confirmed correct, unchanged** — the real
+   run's own output shows `three_way_odds: null` on every Ice Hockey
+   fixture, since that market isn't shown by default and the walker
+   never clicks a market-tab control.
 
 **`failures[]` covers every required record type**: `EXPAND_SPORT`
 (sport root missing or never expands), `OPEN_GROUP` (a group's own
-toggle missing, or its competitions never render), `REOPEN_SPORT` (the
-sport fails to re-expand after a navigation), `MISSING_COMPETITION` (a
-competition's own link isn't found at the moment it's clicked — e.g. it
-didn't survive a reopen), and `CONTENT_VALIDATION` (the click timed out,
-or its resulting breadcrumb didn't match). The last two are recorded
+toggle missing, or its competitions never render), `REOPEN_SPORT`/
+`REOPEN_GROUP` (failure to re-expand after a navigation),
+`MISSING_COMPETITION` (a competition's own link isn't found when needed
+— whether at click time or because it vanished before its turn came up),
+and `CONTENT_VALIDATION` (the click timed out, or its resulting
+breadcrumb/fixture ids didn't match). The last two stages are recorded
 here *in addition to* their own `results[]` entry (`invalid_content_
 mismatch`, with `failure_reason` for detail) — `failures[]` is the flat
 list of everything that went wrong; `results[]` is the full per-
 competition record.
 
 **What's still unconfirmed (no live browser access to test against):**
-exact accordion open/closed state selectors (this sidebar has no
-confirmed "is-open" class the way the retired Soccer accordion did); real
-click-to-render timing: every timeout/poll interval in `sport_walker.js`
-is an explicitly labeled `[UNVERIFIED]` placeholder, not an evidence-based
-constant, pending a real timed run. Tests exercise the full sequence
-(expand → show-more → group → competition → reopen → next competition)
-against a simulated site with a delegated click listener, including a
-deliberately mismatched competition and a confirmed-empty one — but a
-simulated DOM is not a live Bet9ja session, and timing/exact toggle
-behavior can only be corrected against one.
+exact accordion open/closed state selectors beyond "links present or
+not" (this sidebar has no confirmed CSS `is-open`-style class); real
+click-to-render timing — every timeout/poll interval in `sport_walker.js`
+remains an explicitly labeled `[UNVERIFIED]` placeholder pending further
+real timed runs. Tests exercise the full sequence against simulated
+sites, including ones built specifically to reproduce both bugs above
+(a real accordion toggle, persistent sidebar, and accumulating fixture
+tables) — but a simulated DOM still isn't a live Bet9ja session, and only
+further real runs can confirm whether other, not-yet-seen quirks exist.
 
 ## Stage 2a: competition catalogue (`catalogue_parser.js`)
 

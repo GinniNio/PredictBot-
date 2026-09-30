@@ -69,6 +69,83 @@
  * instead. On any mismatch this module records `INVALID_CONTENT_
  * MISMATCH` and discards whatever fixtures were parsed; a mismatched
  * page's rows are NEVER ingested into `results[]`.
+ *
+ * TWO REAL BUGS FOUND FROM A LIVE 34-COMPETITION ICE HOCKEY WALK
+ * (2026-09-30T17:00:14Z, the first real run against an authenticated
+ * session):
+ *
+ * 1. **Stale-content accumulation.** Bet9ja's own SPA does NOT remove a
+ *    competition's `.sports-table` blocks when navigating to a different
+ *    one within the same walk -- they pile up (a rolling window, not
+ *    unbounded: later competitions' fixture counts fluctuated rather
+ *    than growing forever, but each one's own set kept mixing in earlier
+ *    competitions' real fixtures). Confirmed by direct analysis of that
+ *    run's own output: e.g. "Alps Hockey League" reported 20 fixtures,
+ *    14 genuinely its own plus the exact same 6 fixtures already
+ *    reported under "NHL" moments earlier. `visitCompetition` now
+ *    snapshots which `.sports-table` elements exist BEFORE a click and
+ *    calls `fixture_parser.js`'s `parseFixturesFromTables` on only the
+ *    ones that are NEW after it -- never the whole-document
+ *    `parseFixturesFromDocument`, which mixes in every earlier
+ *    competition's still-present tables.
+ * 2. **Group-toggle click was a blind toggle, not an "ensure open".**
+ *    The same real run's failures (10 of 34, all `MISSING_COMPETITION`)
+ *    matched a clean pattern: almost every one was the competition
+ *    immediately following a successful one in the same group (e.g. USA:
+ *    NHL succeeded, AHL failed; Russia: KHL succeeded, VHL failed, MHL
+ *    succeeded). This is exactly what happens if a group's own toggle is
+ *    a real accordion click (open<->closed) and the "reopen" step clicks
+ *    it unconditionally: after the first competition, the still-OPEN
+ *    group gets toggled CLOSED instead of "ensured open", so the next
+ *    competition's link genuinely isn't there; the failure after THAT
+ *    one's own reopen-click toggles it back open again, explaining the
+ *    open/fail/open/fail/open rhythm. `ensureGroupOpen` now checks
+ *    whether the group's competition links already exist before ever
+ *    clicking its toggle, both on first open and on every reopen.
+ *
+ * FIVE FURTHER REQUIREMENTS applied on top of the above (same review):
+ *
+ * 1. **Separate success/failure counts.** `competitions_visited` is
+ *    renamed `competitions_attempted`; `competitions_successful` and
+ *    `competitions_failed` are reported alongside it (an "attempt" that
+ *    hit `invalid_content_mismatch` counts as failed, everything else --
+ *    populated/confirmed_empty/unknown_empty -- as successful).
+ * 2. **Rediscover a group's competition links before every click, never
+ *    reuse the list frozen at group-open time.** This sharpens bug #2
+ *    above: even with `ensureGroupOpen` fixed, a group's own rendered
+ *    link SET can genuinely change between visits (a competition can
+ *    stop being offered, or start being offered, independent of the
+ *    open/closed toggle state) -- the exact root cause the operator
+ *    traced the original run's 10 `COMPETITION_LINK_NOT_FOUND_AT_CLICK_
+ *    TIME` failures to. The walker now re-runs discovery on every loop
+ *    iteration and tracks progress by stable `competition_id`, never a
+ *    frozen array or array position. A competition seen in an earlier
+ *    pass but absent by the time its own turn comes up is still recorded
+ *    (`MISSING_COMPETITION` in `failures[]`) rather than silently
+ *    dropped -- it just never wastes a click attempting something that
+ *    is confirmed, right now, not to be there.
+ * 3. **Table-level validation beyond breadcrumb/URL.** This sidebar has
+ *    no confirmed selector for a competition heading distinct from the
+ *    breadcrumb, so a literal "heading" check isn't implemented --
+ *    instead, a shared `fixtureOwners` map tracks which competition each
+ *    fixture id was first attributed to across the WHOLE walk. A newly-
+ *    scoped fixture whose id is already owned by a DIFFERENT competition
+ *    is rejected as `invalid_content_mismatch`
+ *    (`STALE_FIXTURE_ID_REUSED_FROM_EARLIER_COMPETITION`), with zero
+ *    fixtures ingested -- real, evidence-grounded defense-in-depth on
+ *    top of the table-diffing fix, not a substitute for a heading
+ *    selector this project doesn't have evidence for yet.
+ * 4. **Audit fields on every result.** `observed_breadcrumb_raw` and
+ *    `source_url_after_click` are now present on every `results[]` entry
+ *    -- success or failure -- not only on a breadcrumb mismatch.
+ * 5. **3way odds stay nullable, never assumed.** Unchanged by this
+ *    review, confirmed still correct: `fixture_parser.js`'s
+ *    `parseThreeWayOdds` only ever returns a value when the exact
+ *    `_odds_market-3way_sign-` ids are actually present in the DOM: the
+ *    live 34-competition Ice Hockey walk's own real output shows
+ *    `three_way_odds: null` on every single fixture, since Ice Hockey
+ *    never renders that market by default and this walker never clicks
+ *    a market-tab control to try to force it into view.
  */
 (function (root) {
   const CatalogueParser =
@@ -156,6 +233,32 @@
   }
 
   /**
+   * Ensures one group's own competition links are visible WITHOUT
+   * assuming its current open/closed state -- checks first, and only
+   * clicks the group's toggle if its links aren't already there. See
+   * header comment ("TWO REAL BUGS...", #2): clicking unconditionally
+   * toggles an already-open group CLOSED, which was confirmed as the
+   * real cause of a clean succeed/fail/succeed failure pattern in a live
+   * run.
+   */
+  async function ensureGroupOpen(doc, sportId, sportSlug, group) {
+    if (discoverCompetitionLinksForGroup(doc, sportId, sportSlug, group.group_id).length > 0) {
+      return { ok: true, reason: null };
+    }
+    const groupToggle = findGroupToggle(doc, sportId, sportSlug, group.group_id, group.group_slug);
+    if (!groupToggle) {
+      return { ok: false, reason: 'GROUP_TOGGLE_NOT_FOUND' };
+    }
+    groupToggle.click();
+    const settled = await waitFor(
+      () => discoverCompetitionLinksForGroup(doc, sportId, sportSlug, group.group_id).length > 0,
+      GROUP_EXPAND_TIMEOUT_MS,
+      POLL_INTERVAL_MS
+    );
+    return settled ? { ok: true, reason: null } : { ok: false, reason: 'GROUP_EXPAND_TIMEOUT_OR_EMPTY' };
+  }
+
+  /**
    * Ensures the sport's own accordion is expanded and returns its
    * discovered groups. Safe to call repeatedly (e.g. to "reopen" after a
    * navigation) -- clicking an already-expanded toggle is the one
@@ -204,64 +307,128 @@
     return { ok: true, reason: null, groups: CatalogueParser.parseGroupsFromDocument(doc, { sportId, sportSlug }) };
   }
 
+  function currentTables(doc) {
+    return Array.from(doc.querySelectorAll('.sports-table'));
+  }
+
   /**
    * Clicks one competition link, waits for its own page to settle, runs
-   * `fixture_parser.js`, and validates the result -- never mutates
-   * `results` itself, so the caller decides what to do with a mismatch.
+   * `fixture_parser.js` SCOPED to only the `.sports-table` elements that
+   * are new since before this click (see header comment, bug #1 -- old
+   * competitions' tables are never removed by Bet9ja's own SPA), and
+   * validates the result -- never mutates `results` itself, so the
+   * caller decides what to do with a mismatch.
+   *
+   * `fixtureOwners` is a shared `Map<fixture_id, competition_id>`
+   * threaded through the whole walk. This project has no confirmed
+   * selector for a table-level competition heading distinct from the
+   * breadcrumb (the only confirmed heading-like text on this sidebar IS
+   * the breadcrumb) -- as a real, evidence-grounded substitute for that
+   * check, a newly-scoped fixture whose id was already attributed to a
+   * DIFFERENT, earlier competition in this same walk is treated as
+   * contamination and rejected, on the theory that two genuinely
+   * different competitions never legitimately share a fixture id. This
+   * is a defense-in-depth check on top of the table-diffing fix, not a
+   * replacement for it.
+   *
+   * Every result -- success or failure -- carries `observed_breadcrumb_raw`
+   * and `source_url_after_click` for audit, per the operator's own rule.
    */
-  async function visitCompetition(doc, { sportId, sportSlug, groupId, competitionEntry, now }) {
+  async function visitCompetition(doc, { sportId, sportSlug, groupId, competitionEntry, now, fixtureOwners }) {
     const linkEl = findCompetitionLink(doc, sportId, sportSlug, groupId, competitionEntry.competition_id);
     if (!linkEl) {
       return {
         competition_id: competitionEntry.competition_id,
         competition_label: competitionEntry.label_raw,
         source_url_after_click: null,
+        observed_breadcrumb_raw: null,
         parse_result: 'invalid_content_mismatch',
         fixtures: [],
         failure_reason: 'COMPETITION_LINK_NOT_FOUND_AT_CLICK_TIME',
       };
     }
 
+    const tablesBefore = new Set(currentTables(doc));
     linkEl.click();
 
+    // "Settled" means either genuinely NEW content arrived, or the page
+    // is confirmed-empty, or its breadcrumb already agrees with the
+    // requested competition -- never just "some fixture_row_count > 0
+    // somewhere in the whole document", which would be satisfied
+    // instantly by stale tables left over from an earlier competition
+    // (bug #1) and never actually wait for this click's own result.
     const settled = await waitFor(() => {
-      const parsed = FixtureParser.parseFixturesFromDocument(doc, { href: currentHref(doc), capturedAtUtc: now() });
-      return parsed.fixture_row_count > 0 || parsed.empty_state_status === 'CONFIRMED_EMPTY' || !!parsed.breadcrumb_raw;
+      const newTables = currentTables(doc).filter((t) => !tablesBefore.has(t));
+      if (newTables.length > 0) return true;
+      const wholeDoc = FixtureParser.parseFixturesFromDocument(doc, { href: currentHref(doc), capturedAtUtc: now() });
+      return wholeDoc.empty_state_status === 'CONFIRMED_EMPTY' || breadcrumbAgreesWithCompetition(wholeDoc, competitionEntry);
     }, COMPETITION_LOAD_TIMEOUT_MS, POLL_INTERVAL_MS);
 
     const capturedAtUtc = now();
     const href = currentHref(doc);
-    const fixtureResult = FixtureParser.parseFixturesFromDocument(doc, { href, capturedAtUtc });
+    // Breadcrumb/empty-marker are single, correctly-updated elements
+    // (confirmed by the same live run -- every result's breadcrumb-based
+    // validation matched its own actually-clicked competition, even
+    // while fixture tables were accumulating) -- reading them
+    // whole-document is fine. Fixture ROWS are not: only newly-added
+    // tables are trusted for those.
+    const wholeDocResult = FixtureParser.parseFixturesFromDocument(doc, { href, capturedAtUtc });
+    const newTables = currentTables(doc).filter((t) => !tablesBefore.has(t));
+    const scopedResult = FixtureParser.parseFixturesFromTables(doc, newTables, { href, capturedAtUtc });
+    const observedBreadcrumbRaw = wholeDocResult.breadcrumb_raw;
 
     if (!settled) {
       return {
         competition_id: competitionEntry.competition_id,
         competition_label: competitionEntry.label_raw,
         source_url_after_click: href || null,
+        observed_breadcrumb_raw: observedBreadcrumbRaw,
         parse_result: 'invalid_content_mismatch',
         fixtures: [],
         failure_reason: 'COMPETITION_LOAD_TIMEOUT',
       };
     }
 
-    if (!breadcrumbAgreesWithCompetition(fixtureResult, competitionEntry)) {
+    if (!breadcrumbAgreesWithCompetition(wholeDocResult, competitionEntry)) {
       return {
         competition_id: competitionEntry.competition_id,
         competition_label: competitionEntry.label_raw,
         source_url_after_click: href || null,
+        observed_breadcrumb_raw: observedBreadcrumbRaw,
         parse_result: 'invalid_content_mismatch',
         fixtures: [],
         failure_reason: 'BREADCRUMB_DID_NOT_MATCH_REQUESTED_COMPETITION',
-        observed_breadcrumb_raw: fixtureResult.breadcrumb_raw,
       };
+    }
+
+    // Table-level contamination check (see this function's own header
+    // comment for why fixture-id ownership stands in for a heading
+    // check no confirmed selector exists for yet).
+    const contaminatingId = scopedResult.fixtures
+      .map((f) => f.fixture_id)
+      .find((id) => fixtureOwners.has(id) && fixtureOwners.get(id) !== competitionEntry.competition_id);
+    if (contaminatingId) {
+      return {
+        competition_id: competitionEntry.competition_id,
+        competition_label: competitionEntry.label_raw,
+        source_url_after_click: href || null,
+        observed_breadcrumb_raw: observedBreadcrumbRaw,
+        parse_result: 'invalid_content_mismatch',
+        fixtures: [],
+        failure_reason: 'STALE_FIXTURE_ID_REUSED_FROM_EARLIER_COMPETITION',
+      };
+    }
+    for (const fixture of scopedResult.fixtures) {
+      fixtureOwners.set(fixture.fixture_id, competitionEntry.competition_id);
     }
 
     return {
       competition_id: competitionEntry.competition_id,
       competition_label: competitionEntry.label_raw,
       source_url_after_click: href || null,
-      parse_result: classifyParseResult(fixtureResult),
-      fixtures: fixtureResult.fixtures,
+      observed_breadcrumb_raw: observedBreadcrumbRaw,
+      parse_result: classifyParseResult(scopedResult),
+      fixtures: scopedResult.fixtures,
     };
   }
 
@@ -285,9 +452,15 @@
 
     const results = [];
     const failures = [];
+    // Fixture ownership shared across the WHOLE walk -- see
+    // visitCompetition's own comment on why this stands in for a
+    // table-level heading check.
+    const fixtureOwners = new Map();
     let groupsSeen = 0;
     let competitionsSeen = 0;
-    let competitionsVisited = 0;
+    let competitionsAttempted = 0;
+    let competitionsSuccessful = 0;
+    let competitionsFailed = 0;
 
     const expanded = await expandSportAndDiscoverGroups(doc, { sportId, sportSlug });
     if (!expanded.ok) {
@@ -297,7 +470,9 @@
         sport: sportSlug,
         groups_seen: 0,
         competitions_seen: 0,
-        competitions_visited: 0,
+        competitions_attempted: 0,
+        competitions_successful: 0,
+        competitions_failed: 0,
         results,
         failures,
       };
@@ -307,32 +482,48 @@
     groupsSeen = groups.length;
 
     for (const group of groups) {
-      const groupToggle = findGroupToggle(doc, sportId, sportSlug, group.group_id, group.group_slug);
-      if (!groupToggle) {
-        failures.push({ stage: 'OPEN_GROUP', group_id: group.group_id, reason: 'GROUP_TOGGLE_NOT_FOUND' });
+      const opened = await ensureGroupOpen(doc, sportId, sportSlug, group);
+      if (!opened.ok) {
+        failures.push({ stage: 'OPEN_GROUP', group_id: group.group_id, reason: opened.reason });
         continue;
       }
-      groupToggle.click();
-      await waitFor(
-        () => discoverCompetitionLinksForGroup(doc, sportId, sportSlug, group.group_id).length > 0,
-        GROUP_EXPAND_TIMEOUT_MS,
-        POLL_INTERVAL_MS
-      );
 
-      const competitionEntries = discoverCompetitionLinksForGroup(doc, sportId, sportSlug, group.group_id).slice(
-        0,
-        maxCompetitionsPerGroup
-      );
-      if (competitionEntries.length === 0) {
-        failures.push({ stage: 'OPEN_GROUP', group_id: group.group_id, reason: 'GROUP_EXPAND_TIMEOUT_OR_EMPTY' });
-        continue;
-      }
-      competitionsSeen += competitionEntries.length;
+      // Rediscovered fresh on every iteration -- see visitCompetition's
+      // own comment and this function's header note (bug #2, real
+      // evidence: a frozen list taken once, before any clicks, produced
+      // 10/34 COMPETITION_LINK_NOT_FOUND_AT_CLICK_TIME failures in a live
+      // run once the group's own rendered link set had moved on).
+      // `visitedCompetitionIds` tracks progress by stable id, never
+      // array position; `allSeenCompetitionIds` accumulates every id
+      // this group has EVER shown across all rediscoveries, for an
+      // honest `competitions_seen`.
+      const visitedCompetitionIds = new Set();
+      const allSeenCompetitionIds = new Set();
+      let groupBroken = false;
+      // Bounds an otherwise-open while loop against a pathological case
+      // (e.g. a group that never stops offering "new" ids) -- far above
+      // any plausible real competition count per group.
+      const GROUP_SAFETY_CAP = 500;
+      let guard = 0;
 
-      for (const competitionEntry of competitionEntries) {
-        const result = await visitCompetition(doc, { sportId, sportSlug, groupId: group.group_id, competitionEntry, now });
+      while (visitedCompetitionIds.size < maxCompetitionsPerGroup && guard < GROUP_SAFETY_CAP) {
+        guard += 1;
+        const current = discoverCompetitionLinksForGroup(doc, sportId, sportSlug, group.group_id);
+        for (const c of current) allSeenCompetitionIds.add(c.competition_id);
+        const competitionEntry = current.find((c) => !visitedCompetitionIds.has(c.competition_id));
+        if (!competitionEntry) break;
+        visitedCompetitionIds.add(competitionEntry.competition_id);
+
+        const result = await visitCompetition(doc, {
+          sportId,
+          sportSlug,
+          groupId: group.group_id,
+          competitionEntry,
+          now,
+          fixtureOwners,
+        });
         results.push(result);
-        competitionsVisited += 1;
+        competitionsAttempted += 1;
 
         // "Missing competition" and "failed content validation" are both
         // explicit required failure-record types -- recorded here
@@ -340,11 +531,14 @@
         // carries the fuller detail: which of the two happened, and any
         // observed breadcrumb) rather than instead of it.
         if (result.parse_result === 'invalid_content_mismatch') {
+          competitionsFailed += 1;
           failures.push({
             stage: result.failure_reason === 'COMPETITION_LINK_NOT_FOUND_AT_CLICK_TIME' ? 'MISSING_COMPETITION' : 'CONTENT_VALIDATION',
             competition_id: competitionEntry.competition_id,
             reason: result.failure_reason,
           });
+        } else {
+          competitionsSuccessful += 1;
         }
 
         // "Return to / reopen sport and continue" -- the navigation just
@@ -356,17 +550,46 @@
         const reexpanded = await expandSportAndDiscoverGroups(doc, { sportId, sportSlug });
         if (!reexpanded.ok) {
           failures.push({ stage: 'REOPEN_SPORT', reason: reexpanded.reason, after_competition_id: competitionEntry.competition_id });
+          groupBroken = true;
           break;
         }
-        const groupToggleAgain = findGroupToggle(doc, sportId, sportSlug, group.group_id, group.group_slug);
-        if (groupToggleAgain) {
-          groupToggleAgain.click();
-          await waitFor(
-            () => discoverCompetitionLinksForGroup(doc, sportId, sportSlug, group.group_id).length > 0,
-            GROUP_EXPAND_TIMEOUT_MS,
-            POLL_INTERVAL_MS
-          );
+        const reopenedGroup = await ensureGroupOpen(doc, sportId, sportSlug, group);
+        if (!reopenedGroup.ok) {
+          failures.push({
+            stage: 'REOPEN_GROUP',
+            group_id: group.group_id,
+            reason: reopenedGroup.reason,
+            after_competition_id: competitionEntry.competition_id,
+          });
+          groupBroken = true;
+          break;
         }
+      }
+
+      competitionsSeen += allSeenCompetitionIds.size;
+      if (allSeenCompetitionIds.size === 0) {
+        failures.push({ stage: 'OPEN_GROUP', group_id: group.group_id, reason: 'GROUP_EXPAND_TIMEOUT_OR_EMPTY' });
+      }
+      // Re-discovery (see above) means a competition seen in an EARLIER
+      // pass but absent from every later one is simply never attempted
+      // -- correct (no wasted click on something that isn't there
+      // anymore), but silently skipping it would hide real information.
+      // Record it explicitly: it was real evidence at some point in this
+      // walk, then genuinely disappeared before its own turn came up.
+      for (const seenId of allSeenCompetitionIds) {
+        if (!visitedCompetitionIds.has(seenId)) {
+          failures.push({
+            stage: 'MISSING_COMPETITION',
+            group_id: group.group_id,
+            competition_id: seenId,
+            reason: 'COMPETITION_LINK_NOT_FOUND_AT_CLICK_TIME',
+          });
+        }
+      }
+      if (groupBroken) {
+        // A structural failure (sport/group failed to reopen) stops
+        // THIS group -- the outer loop still tries the next one fresh.
+        continue;
       }
     }
 
@@ -375,7 +598,9 @@
       sport: sportSlug,
       groups_seen: groupsSeen,
       competitions_seen: competitionsSeen,
-      competitions_visited: competitionsVisited,
+      competitions_attempted: competitionsAttempted,
+      competitions_successful: competitionsSuccessful,
+      competitions_failed: competitionsFailed,
       results,
       failures,
     };
