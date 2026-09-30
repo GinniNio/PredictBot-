@@ -34,6 +34,47 @@
  * not yet have; callers that need to distinguish "genuinely empty" from
  * "parser found nothing it recognized" should check for that text
  * themselves until then.
+ *
+ * UPDATE (2026-09-30T17:03Z): a "stage2-resolution-evidence" capture
+ * resolved four of the gaps above, each with its own stated confidence
+ * (this is a hand-built structured-evidence JSON, same tier as the
+ * earlier "DOM extraction contract" captures -- not a raw outerHTML
+ * snapshot):
+ *
+ *  - **Date attribution** (`CONFIRMED_ON_POPULATED_WNBA`): each
+ *    `.sports-table` reads its date from its own immediately preceding
+ *    sibling `.sports-head.table`'s `.sports-head__date > span` text
+ *    (e.g. "Thu 1 Oct") -- both are children of the same date-group
+ *    wrapper. Rows inside a `.sports-table` with no such preceding
+ *    sibling get `date_text_raw: null`, never a guessed date. This
+ *    capture's own `row_time_selector` (`.table-f > :first-child`) is
+ *    offered as a FALLBACK behind the already byte-verified
+ *    `.sports-table__time`, since the latter has independent raw-HTML
+ *    confirmation this capture's own selector doesn't yet have.
+ *    Resolving `date_text_raw`/`kickoff_time_raw` to actual UTC is
+ *    explicitly NOT done here -- this capture's own parser_rule says so:
+ *    "Do not resolve UTC until the capture timezone policy is explicitly
+ *    implemented."
+ *  - **Empty-state marker** (`CONFIRMED_FROM_RAW_SNAPSHOT`, WNBA only):
+ *    `.gen__holder .search-results .gen__txt` with the exact text "There
+ *    are no markets available.". Per this capture's own rule, only
+ *    `fixture_row_count === 0` AND that exact marker present counts as
+ *    `CONFIRMED_EMPTY`; zero rows without the marker is `UNKNOWN_EMPTY`,
+ *    never asserted empty on row-count alone. Not yet confirmed for any
+ *    sport besides Basketball/WNBA.
+ *  - **WNBA "3way" market** (`CONFIRMED_ON_POPULATED_WNBA`): a
+ *    `1`/`X`/`2` market whose odds ids append `_event-<id>_odds_market-
+ *    3way_sign-<code>` to the row's own id, with signs literally coded
+ *    `1B`/`XB`/`2B` (not `1`/`X`/`2` directly) -- verified against 3 real
+ *    WNBA rows' exact odds. This sign-code mapping is confirmed ONLY for
+ *    the "3way" market family; it is not assumed to generalize to any
+ *    other market.
+ *  - **Full sidebar sport catalogue**: moved to `catalogue_parser.js`
+ *    (`CONFIRMED_SPORTS`), not duplicated here.
+ *
+ * Still explicitly open (per that capture's own `remaining_unresolved`):
+ * cross-sport confirmation of the empty-state marker, a timezone-to-UTC
+ * policy, and raw fixture-table captures for the newer sidebar sports.
  */
 (function (root) {
   const SCHEMA_VERSION = 'bet9ja-allsports-fixture-capture.v1';
@@ -45,8 +86,19 @@
     home: '.sports-table__home',
     away: '.sports-table__away',
     time: '.sports-table__time',
+    // Fallback only -- see header comment on evidence tier.
+    timeFallback: '.table-f > :first-child',
     breadcrumb: '.sports-view__crumbs',
+    dateGroupHeader: '.sports-head.table',
+    dateText: '.sports-head__date > span',
+    emptyStateMarker: '.gen__holder .search-results .gen__txt',
   };
+
+  const EMPTY_STATE_TEXT_EXACT = 'There are no markets available.';
+
+  // Confirmed only for the WNBA "3way" market (see header comment) --
+  // sign codes are literally suffixed "B", not the bare 1/X/2 they map to.
+  const THREE_WAY_SIGN_MAP = { '1B': '1', XB: 'X', '2B': '2' };
 
   // Bet9ja's own competition URL shape:
   // /competition/{sport-slug}/{country}/{competition}/{ids}
@@ -66,7 +118,50 @@
     return !!el.id && FIXTURE_ROW_ID_PATTERN.test(el.id);
   }
 
-  function parseFixtureRow(rowEl) {
+  function resolveKickoffTime(rowEl) {
+    const primary = text(rowEl.querySelector(SELECTORS.time));
+    if (primary) return primary;
+    return text(rowEl.querySelector(SELECTORS.timeFallback)) || null;
+  }
+
+  /**
+   * Resolves the date-group text for a `.sports-table` from its own
+   * immediately preceding sibling `.sports-head.table` -- both children
+   * of the same date-group wrapper (confirmed real relationship, see
+   * header comment). Returns null (never guessed) if that sibling isn't
+   * present or doesn't carry the confirmed classes.
+   */
+  function resolveDateGroupText(tableEl) {
+    const prev = tableEl.previousElementSibling;
+    if (!prev || !prev.classList.contains('sports-head') || !prev.classList.contains('table')) {
+      return null;
+    }
+    return text(prev.querySelector(SELECTORS.dateText)) || null;
+  }
+
+  /**
+   * Extracts the confirmed WNBA "3way" market for one row, keyed by its
+   * own event id. Returns null if no matching odds items are found --
+   * this market is not present on every fixture, and absence is not
+   * itself an error.
+   */
+  function parseThreeWayOdds(rowEl, fixtureId) {
+    const prefix = `prematch_event-${fixtureId}_event-${fixtureId}_odds_market-3way_sign-`;
+    const items = Array.from(rowEl.querySelectorAll('[id^="prematch_event-"]')).filter((el) =>
+      el.id.startsWith(prefix)
+    );
+    if (items.length === 0) return null;
+    const odds = {};
+    for (const el of items) {
+      const signCode = el.id.slice(prefix.length);
+      const outcome = THREE_WAY_SIGN_MAP[signCode];
+      if (!outcome) continue;
+      odds[outcome] = text(el) || null;
+    }
+    return Object.keys(odds).length > 0 ? odds : null;
+  }
+
+  function parseFixtureRow(rowEl, dateTextRaw) {
     const fixtureId = rowEl.id.match(FIXTURE_ROW_ID_PATTERN)[1];
     const participant1 = text(rowEl.querySelector(SELECTORS.home));
     const participant2 = text(rowEl.querySelector(SELECTORS.away));
@@ -74,7 +169,9 @@
       fixture_id: fixtureId,
       participant_1: participant1 || null,
       participant_2: participant2 || null,
-      kickoff_time_raw: text(rowEl.querySelector(SELECTORS.time)) || null,
+      kickoff_time_raw: resolveKickoffTime(rowEl),
+      date_text_raw: dateTextRaw,
+      three_way_odds: parseThreeWayOdds(rowEl, fixtureId),
       missing_participants: !participant1 || !participant2,
     };
   }
@@ -92,20 +189,47 @@
 
     const breadcrumbRaw = text(documentLike.querySelector(SELECTORS.breadcrumb)) || null;
 
-    // `[id^="prematch_event-"]` also matches descendant odds/dropdown
-    // controls that repeat the parent row's id with a suffix (e.g.
-    // "..._odds_market-1x2_sign-1", "..._dropoption-3") -- filtered out
-    // by requiring an EXACT match against FIXTURE_ROW_ID_PATTERN, per the
-    // confirmed row-counting discipline documented in every contract.
-    const rows = Array.from(documentLike.querySelectorAll('[id^="prematch_event-"]')).filter(isExactFixtureRow);
+    // Rows are attributed to a date via their OWN containing
+    // `.sports-table` group (see resolveDateGroupText) rather than a
+    // single document-wide query, so each row can carry its own
+    // date_text_raw. A row that (unexpectedly) isn't inside any
+    // `.sports-table` is still captured, with date_text_raw: null,
+    // never dropped.
+    const tables = Array.from(documentLike.querySelectorAll('.sports-table'));
+    const rowsInTables = new Set();
+    const fixtures = [];
+    for (const tableEl of tables) {
+      const dateTextRaw = resolveDateGroupText(tableEl);
+      // `[id^="prematch_event-"]` also matches descendant odds/dropdown
+      // controls that repeat the parent row's id with a suffix (e.g.
+      // "..._odds_market-1x2_sign-1", "..._dropoption-3") -- filtered out
+      // by requiring an EXACT match against FIXTURE_ROW_ID_PATTERN, per
+      // the confirmed row-counting discipline documented in every
+      // contract.
+      const rows = Array.from(tableEl.querySelectorAll('[id^="prematch_event-"]')).filter(isExactFixtureRow);
+      for (const rowEl of rows) {
+        rowsInTables.add(rowEl);
+        fixtures.push(parseFixtureRow(rowEl, dateTextRaw));
+      }
+    }
+    const strayRows = Array.from(documentLike.querySelectorAll('[id^="prematch_event-"]'))
+      .filter(isExactFixtureRow)
+      .filter((el) => !rowsInTables.has(el));
+    for (const rowEl of strayRows) {
+      fixtures.push(parseFixtureRow(rowEl, null));
+    }
 
-    const fixtures = rows.map(parseFixtureRow);
     const seenIds = new Set();
     const duplicateFixtureIds = [];
     for (const fixture of fixtures) {
       if (seenIds.has(fixture.fixture_id)) duplicateFixtureIds.push(fixture.fixture_id);
       seenIds.add(fixture.fixture_id);
     }
+
+    const emptyStateMarkerPresent = text(documentLike.querySelector(SELECTORS.emptyStateMarker)) === EMPTY_STATE_TEXT_EXACT;
+    // Confirmed only for Basketball/WNBA so far -- see header comment.
+    // Never asserts CONFIRMED_EMPTY from a zero row count alone.
+    const emptyStateStatus = fixtures.length > 0 ? 'NOT_EMPTY' : emptyStateMarkerPresent ? 'CONFIRMED_EMPTY' : 'UNKNOWN_EMPTY';
 
     return {
       schema_version: SCHEMA_VERSION,
@@ -114,6 +238,7 @@
       sport_slug_from_url: resolveSportSlugFromUrl(href),
       breadcrumb_raw: breadcrumbRaw,
       fixture_row_count: fixtures.length,
+      empty_state_status: emptyStateStatus,
       fixtures,
       duplicate_fixture_ids: duplicateFixtureIds,
     };
@@ -122,7 +247,10 @@
   const api = {
     parseFixturesFromDocument,
     resolveSportSlugFromUrl,
+    parseThreeWayOdds,
     FIXTURE_ROW_ID_PATTERN,
+    THREE_WAY_SIGN_MAP,
+    EMPTY_STATE_TEXT_EXACT,
     SCHEMA_VERSION,
     SELECTORS,
   };

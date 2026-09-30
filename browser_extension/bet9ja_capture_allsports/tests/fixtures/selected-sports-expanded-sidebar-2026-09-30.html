@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bet9ja selected sports sidebar, live DOM export</title>
+  <style>body{font:14px/1.45 system-ui,sans-serif;margin:24px;color:#18212b}code{font-family:ui-monospace,monospace}section{margin:24px 0;border:1px solid #ccd4dd;padding:16px}ul{margin:8px 0 0 20px}.id{color:#075b96}.live{color:#176b3a;font-weight:700}</style>
+</head>
+<body>
+  <h1>Bet9ja selected-sports sidebar, live DOM export</h1>
+  <p class="live">Captured from the rendered Bet9ja sidebar after opening each listed sport. Ice Hockey's A–Z control was opened to its “Show less” state.</p>
+  <p>Source page at capture: <a href="https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871">Bet9ja WNBA</a>.</p>
+
+  <section id="walker-contract">
+    <h2>Observed navigation contract</h2>
+    <ol>
+      <li>Click sport root <code>left_prematch_sport-&lt;sport_id&gt;_&lt;slug&gt;_label-toggle</code>.</li>
+      <li>If present, click <code>left_prematch_sport-&lt;sport_id&gt;_&lt;slug&gt;_buttonmore-toggle</code> while its visible label contains “more”.</li>
+      <li>Click each group <code>..._sg-&lt;group_id&gt;_&lt;slug&gt;_label-toggle</code>.</li>
+      <li>Read resulting competition links matching <code>a[id*="_g-"]</code>. Their DOM <code>href</code> is <code>javascript:;</code>; the click handler performs navigation.</li>
+    </ol>
+  </section>
+
+  <section id="ice-hockey" data-live-expanded="true">
+    <h2>Ice Hockey</h2>
+    <div class="accordion-item accordion-item--open">
+      <div class="accordion-toggle id" id="left_prematch_sport-4_ice_hockey_label-toggle">Ice Hockey</div>
+      <div class="accordion-content">
+        <ul>
+          <li class="id" id="left_prematch_sport-4_ice_hockey_sg-44080_usa_label-toggle">USA</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44088_international_label-toggle">International</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44082_canada_label-toggle">Canada</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44083_russia_label-toggle">Russia</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44090_sweden_label-toggle">Sweden</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44085_norway_label-toggle">Norway</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44089_germany_label-toggle">Germany</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44084_austria_label-toggle">Austria</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44087_belarus_label-toggle">Belarus</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44093_czech_republic_label-toggle">Czech Republic</li>
+          <li class="id" id="left_prematch_sport-4_ice_hockey_buttonmore-toggle">Show less</li>
+          <li class="id" id="left_prematch_sport-4_ice_hockey_sg-44091_denmark_label-toggle">Denmark</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44101_england_label-toggle">England</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44086_finland_label-toggle">Finland</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44094_france_label-toggle">France</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44095_kazakhstan_label-toggle">Kazakhstan</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-45143_latvia_label-toggle">Latvia</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44099_poland_label-toggle">Poland</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44081_slovakia_label-toggle">Slovakia</li><li class="id" id="left_prematch_sport-4_ice_hockey_sg-44092_switzerland_label-toggle">Switzerland</li>
+        </ul>
+      </div>
+    </div>
+    <h3>Verified competition-link DOM after clicking Switzerland</h3>
+    <ul><li><a href="javascript:;" class="id" id="left_prematch_sport-4_ice_hockey_sg-44092_switzerland_g-4715478_national_league">National League</a></li><li><a href="javascript:;" class="id" id="left_prematch_sport-4_ice_hockey_sg-44092_switzerland_g-5527435_swiss_league">Swiss League</a></li></ul>
+  </section>
+
+  <section id="tennis" data-live-expanded="true"><h2>Tennis</h2><div class="id" id="left_prematch_sport-5_tennis_label-toggle">Tennis</div><ul><li class="id" id="left_prematch_sport-5_tennis_sg-43762_atp_label-toggle">ATP</li><li class="id" id="left_prematch_sport-5_tennis_sg-43765_wta_label-toggle">WTA</li><li class="id" id="left_prematch_sport-5_tennis_sg-43784_wta_125k_label-toggle">WTA 125K</li><li class="id" id="left_prematch_sport-5_tennis_sg-43764_challenger_label-toggle">Challenger</li><li class="id" id="left_prematch_sport-5_tennis_sg-43767_simulated_reality_label-toggle">Simulated Reality</li><li class="id" id="left_prematch_sport-5_tennis_sg-43768_simulated_reality_women_label-toggle">Simulated Reality Women</li><li class="id" id="left_prematch_sport-5_tennis_sg-46295_utr_men_label-toggle">UTR Men</li><li class="id" id="left_prematch_sport-5_tennis_sg-46294_utr_women_label-toggle">UTR Women</li></ul></section>
+  <section id="volleyball" data-live-expanded="true"><h2>Volleyball</h2><div class="id" id="left_prematch_sport-23_volleyball_label-toggle">Volleyball</div><ul><li class="id" id="left_prematch_sport-23_volleyball_sg-43894_international_label-toggle">International</li><li class="id" id="left_prematch_sport-23_volleyball_sg-43868_brazil_label-toggle">Brazil</li><li class="id" id="left_prematch_sport-23_volleyball_sg-43900_czech_republic_label-toggle">Czech Republic</li><li class="id" id="left_prematch_sport-23_volleyball_sg-43872_poland_label-toggle">Poland</li><li class="id" id="left_prematch_sport-23_volleyball_sg-43869_russia_label-toggle">Russia</li></ul></section>
+  <section id="handball" data-live-expanded="true"><h2>Handball</h2><div class="id" id="left_prematch_sport-6_handball_label-toggle">Handball</div><ul><li class="id" id="left_prematch_sport-6_handball_sg-45759_international_label-toggle">International</li><li class="id" id="left_prematch_sport-6_handball_sg-45762_austria_label-toggle">Austria</li><li class="id" id="left_prematch_sport-6_handball_sg-45790_croatia_label-toggle">Croatia</li><li class="id" id="left_prematch_sport-6_handball_sg-45767_denmark_label-toggle">Denmark</li><li class="id" id="left_prematch_sport-6_handball_sg-45757_france_label-toggle">France</li><li class="id" id="left_prematch_sport-6_handball_sg-45758_germany_label-toggle">Germany</li><li class="id" id="left_prematch_sport-6_handball_sg-45774_israel_label-toggle">Israel</li><li class="id" id="left_prematch_sport-6_handball_sg-45770_norway_label-toggle">Norway</li><li class="id" id="left_prematch_sport-6_handball_sg-45769_poland_label-toggle">Poland</li><li class="id" id="left_prematch_sport-6_handball_sg-45760_portugal_label-toggle">Portugal</li><li class="id" id="left_prematch_sport-6_handball_buttonmore-toggle">Show 4 A-Z more</li></ul></section>
+  <section id="american-football" data-live-expanded="true"><h2>American Football</h2><div class="id" id="left_prematch_sport-70_american_football_label-toggle">American Football</div><ul><li class="id" id="left_prematch_sport-70_american_football_sg-45438_usa_label-toggle">USA</li><li class="id" id="left_prematch_sport-70_american_football_sg-45439_canada_label-toggle">Canada</li></ul></section>
+</body>
+</html>

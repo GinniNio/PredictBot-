@@ -92,13 +92,24 @@ way the other four sports were. `tests/fixture_parser.test.js` encodes
 every real fixture row from all four 2026-09-30 DOM contracts
 (Handball, Volleyball, Ice Hockey, Tennis) as its own test fixture.
 
-**Not yet built:** date-group attribution (e.g. "Thu 1 Oct") — no
-date-header selector has been captured yet, so `fixture_parser.js`
-returns fixtures without a date field rather than guessing one. A
-confirmed empty-state check (`"There are no markets available."`) is also
-not wired in yet — callers that need to distinguish "genuinely empty"
-from "parser found nothing" should check for that text themselves until
-then.
+**Resolved (2026-09-30T17:03Z stage2-resolution-evidence capture; see
+`fixture_parser.js`'s own header comment for this evidence's tier):**
+
+- **Date attribution**: each `.sports-table`'s fixtures are attributed to
+  the date in its own preceding sibling `.sports-head.table`'s
+  `.sports-head__date > span` — output as `date_text_raw` per fixture,
+  `null` when no such sibling exists. **UTC resolution is deliberately
+  not done** — no capture-timezone policy exists yet, so date/time stay
+  as bare site text (`date_text_raw`/`kickoff_time_raw`) until one is.
+- **Empty-state detection**: `empty_state_status` is one of `NOT_EMPTY`
+  (rows found), `CONFIRMED_EMPTY` (zero rows AND the exact marker text
+  `"There are no markets available."` at `.gen__holder .search-results
+  .gen__txt`), or `UNKNOWN_EMPTY` (zero rows, marker absent) — confirmed
+  only for Basketball/WNBA so far, not asserted for any other sport.
+- **WNBA "3way" market**: `three_way_odds: {"1", "X", "2"}` per fixture
+  when present, decoding the confirmed `1B`/`XB`/`2B` odds-id sign
+  suffixes — confirmed for this one market family only, not assumed to
+  generalize.
 
 ## Stage 2a: competition catalogue (`catalogue_parser.js`)
 
@@ -136,22 +147,42 @@ data and enforced by the parser:
 
 `parseCatalogueFromDocument(documentLike, { sportId, sportSlug })` is the
 DOM-level counterpart for when a real sidebar page (not just a summary)
-is captured — it reads real competition-link `href`s and ids using the
-`left_prematch_sport-<id>_<slug>_sg-<group>_g-<competition>` id pattern
-already confirmed generically on this sidebar elsewhere in this project.
-**This exact id pattern has not been independently byte-verified against
-American Football's or Ice Hockey's own raw markup** — only the two
-summary-level catalogue captures above exist for these two sports so far.
-Treat it as evidenced by analogy, not independently confirmed, until a
-raw sidebar snapshot is supplied for one of them.
+is captured — it reads real competition-link ids using the
+`left_prematch_sport-<id>_<slug>_sg-<group>_g-<competition>` id pattern.
 
-**Not yet built: live navigation.** Actually expanding a sport's
-accordion, clicking Ice Hockey's "show more" toggle, and following each
-discovered competition link is not implemented — this session still has
-no live, authenticated browser access to test that against, the same
-limitation already documented for the existing Soccer walker. The
-catalogue/fixture parsers above are the pure logic a future walker would
-call; the click/navigation orchestration around them is unbuilt.
+**Resolved (2026-09-30T17:03Z live sidebar inspection — see
+`catalogue_parser.js`'s own header comment for this evidence's tier: a
+hand-distilled report, not a raw extension snapshot):**
+
+- **Competition links require `.click()`, not `href`.** Verified against
+  real markup (Ice Hockey → Switzerland → National League/Swiss League):
+  the link's `href` is the literal string `javascript:;`; navigation
+  happens through the click handler. Every entry from
+  `parseCatalogueFromDocument` now carries `requires_click_navigation:
+  true`, and the confirmed read selector is `a[id*="_g-"]`.
+- **Group-level discovery**: `parseGroupsFromDocument(documentLike,
+  {sportId, sportSlug})` enumerates a sport's own country/group toggles
+  (the level *above* competition links) — confirmed real for Ice Hockey
+  (19 groups, exactly reconciling the earlier summary catalogue's
+  country count), Tennis (8), Volleyball (5), Handball (10 + a
+  show-more toggle), American Football (2).
+- **The "show more" toggle's click contract**: `needsMoreClick(labelRaw)`
+  — click only while the toggle's own visible label still contains
+  "more" (Handball: "Show 4 A-Z more" → click; Ice Hockey, already
+  expanded: "Show less" → stop).
+- **Full sidebar sport catalogue**: `CONFIRMED_SPORTS` — all 34 top-level
+  sport roots with real `left_prematch_sport-<id>_<slug>_label-toggle`
+  ids, including Bandy (15) and Field Hockey (321), which previously had
+  no id evidence at all (only a plain-text sidebar paste).
+
+**Still not built: live click/navigation orchestration.** The parsers
+above are the pure logic a walker would call (which selectors to read,
+which toggles to click and when); actually driving a browser through
+that sequence (expand sport → click "more" while needed → expand each
+group → click each competition link → wait for
+`fixture_parser.js`-parseable content) is unbuilt — this session still
+has no live, authenticated browser access to test it against, the same
+limitation already documented for the existing Soccer walker.
 
 ## What's still open
 
@@ -167,11 +198,21 @@ call; the click/navigation orchestration around them is unbuilt.
   than per-sport. A sport whose markup diverges (a different row anchor,
   no home/away split — e.g. Outrights, which has no two-participant
   matchup at all) would need its own handling, not yet built.
-- **Catalogue coverage**: only American Football and Ice Hockey have a
-  real sport-level catalogue capture. Tennis, Basketball, Volleyball, and
-  Handball currently only have single-competition-page evidence
-  (`fixture_parser.js`'s tier) — their own full country/competition
-  catalogues are still unknown.
+- **Catalogue coverage**: American Football and Ice Hockey have full
+  country/competition catalogues; Tennis, Volleyball, and Handball now
+  have real group-level discovery (`parseGroupsFromDocument`) but not a
+  full competition-count catalogue like the first two; Basketball only
+  has single-competition-page (WNBA) evidence. The other 29 sports in
+  `CONFIRMED_SPORTS` have a confirmed root id and nothing else — no
+  group, competition, or fixture evidence at all.
+- **Timezone policy**: `date_text_raw`/`kickoff_time_raw` are bare site
+  text (e.g. "Thu 1 Oct" / "00:00") — no UTC conversion is implemented,
+  by explicit design (see Stage 2's own note), pending a stated capture
+  timezone.
+- **Empty-state marker**: confirmed only for Basketball/WNBA. A future
+  capture confirming (or contradicting) the same marker on another
+  sport's genuinely empty page is the next evidence needed before
+  `UNKNOWN_EMPTY` can safely become `CONFIRMED_EMPTY` elsewhere.
 
 ## Files
 

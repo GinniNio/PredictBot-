@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { JSDOM } = require("jsdom");
-const { parseFixturesFromDocument, resolveSportSlugFromUrl } = require("../fixture_parser.js");
+const { parseFixturesFromDocument, resolveSportSlugFromUrl, parseThreeWayOdds } = require("../fixture_parser.js");
 
 // Builds synthetic markup shaped exactly like the confirmed real
 // structure (`prematch_event-<id>` row anchor, `.sports-table__home` /
@@ -92,6 +92,8 @@ test("parses all 8 real Handball fixture rows with correct ids/participants/time
     participant_1: "SC Magdeburg",
     participant_2: "THW Kiel",
     kickoff_time_raw: "18:00",
+    date_text_raw: null,
+    three_way_odds: null,
     missing_participants: false,
   });
 });
@@ -181,4 +183,131 @@ test("resolveSportSlugFromUrl reads the sport slug from every confirmed competit
     "icehockey"
   );
   assert.equal(resolveSportSlugFromUrl("https://sports.bet9ja.com/Sport/Default/All"), null);
+});
+
+// Real WNBA rows/odds from bet9ja-stage2-resolution-evidence-2026-09-30.json
+// (captured_at_utc 2026-09-30T17:03:00Z), including the confirmed "3way"
+// market's exact odds-id suffix mapping (1B/XB/2B -> 1/X/2).
+const WNBA_ROWS_WITH_THREE_WAY = [
+  {
+    id: "842933379",
+    time: "00:00",
+    p1: "Washington Mystics",
+    p2: "Atlanta Dream",
+    threeWay: { "1B": "2.35", XB: "13.00", "2B": "1.73" },
+  },
+  {
+    id: "842949763",
+    time: "02:00",
+    p1: "Dallas Wings",
+    p2: "Golden State Valkyries",
+    threeWay: { "1B": "2.60", XB: "14.80", "2B": "1.59" },
+  },
+  {
+    id: "843748380",
+    time: "02:00",
+    p1: "Las Vegas Aces",
+    p2: "Indiana Fever",
+    threeWay: { "1B": "1.63", XB: "14.30", "2B": "2.50" },
+  },
+];
+
+function buildWnbaDateGroupedPage() {
+  const rowsHtml = WNBA_ROWS_WITH_THREE_WAY.map(({ id, time, p1, p2, threeWay }) => {
+    const oddsHtml = Object.entries(threeWay)
+      .map(([sign, value]) => `<div id="prematch_event-${id}_event-${id}_odds_market-3way_sign-${sign}">${value}</div>`)
+      .join("\n");
+    return `
+      <div id="prematch_event-${id}">
+        <div class="sports-table__time">${time}</div>
+        <div class="sports-table__home">${p1}</div>
+        <div class="sports-table__away">${p2}</div>
+        ${oddsHtml}
+      </div>`;
+  }).join("\n");
+
+  return `<!DOCTYPE html><html><body>
+    <div class="sports-view__crumbs">Basketball > USA > WNBA</div>
+    <div class="sports-head table"><div class="sports-head__date"><span>Thu 1 Oct</span></div></div>
+    <div class="sports-table">${rowsHtml}</div>
+  </body></html>`;
+}
+
+test("attributes each row's date from its .sports-table's own preceding .sports-head.table sibling", () => {
+  const dom = new JSDOM(buildWnbaDateGroupedPage());
+  const result = parseFixturesFromDocument(dom.window.document, {
+    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
+    capturedAtUtc: "2026-09-30T17:03:00Z",
+  });
+
+  assert.equal(result.fixture_row_count, 3);
+  for (const fixture of result.fixtures) {
+    assert.equal(fixture.date_text_raw, "Thu 1 Oct");
+  }
+});
+
+test("extracts the confirmed WNBA 3way market with real odds, mapping 1B/XB/2B to 1/X/2", () => {
+  const dom = new JSDOM(buildWnbaDateGroupedPage());
+  const result = parseFixturesFromDocument(dom.window.document, {
+    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
+    capturedAtUtc: "2026-09-30T17:03:00Z",
+  });
+
+  assert.deepEqual(result.fixtures[0].three_way_odds, { "1": "2.35", X: "13.00", "2": "1.73" });
+  assert.deepEqual(result.fixtures[1].three_way_odds, { "1": "2.60", X: "14.80", "2": "1.59" });
+  assert.deepEqual(result.fixtures[2].three_way_odds, { "1": "1.63", X: "14.30", "2": "2.50" });
+});
+
+test("parseThreeWayOdds returns null when a row has no 3way market", () => {
+  const dom = new JSDOM(
+    `<!DOCTYPE html><html><body><div id="prematch_event-1"><div class="sports-table__home">A</div></div></body></html>`
+  );
+  const row = dom.window.document.querySelector("#prematch_event-1");
+  assert.equal(parseThreeWayOdds(row, "1"), null);
+});
+
+test("empty_state_status is CONFIRMED_EMPTY only with zero rows AND the exact confirmed marker text", () => {
+  const confirmedEmptyDom = new JSDOM(`<!DOCTYPE html><html><body>
+    <div class="sports-view__crumbs">Basketball > USA > WNBA</div>
+    <div class="gen__holder"><div class="search-results"><div class="gen__txt">There are no markets available.</div></div></div>
+  </body></html>`);
+  const confirmedEmpty = parseFixturesFromDocument(confirmedEmptyDom.window.document, {
+    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
+    capturedAtUtc: "2026-09-30T15:33:17.696Z",
+  });
+  assert.equal(confirmedEmpty.fixture_row_count, 0);
+  assert.equal(confirmedEmpty.empty_state_status, "CONFIRMED_EMPTY");
+
+  const unknownEmptyDom = new JSDOM(`<!DOCTYPE html><html><body>
+    <div class="sports-view__crumbs">Basketball > USA > WNBA</div>
+  </body></html>`);
+  const unknownEmpty = parseFixturesFromDocument(unknownEmptyDom.window.document, {
+    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
+    capturedAtUtc: "2026-09-30T15:33:17.696Z",
+  });
+  assert.equal(unknownEmpty.empty_state_status, "UNKNOWN_EMPTY");
+
+  const notEmptyDom = new JSDOM(buildWnbaDateGroupedPage());
+  const notEmpty = parseFixturesFromDocument(notEmptyDom.window.document, {
+    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
+    capturedAtUtc: "2026-09-30T15:31:43.000Z",
+  });
+  assert.equal(notEmpty.empty_state_status, "NOT_EMPTY");
+});
+
+test("falls back to .table-f > :first-child for kickoff time when .sports-table__time is absent", () => {
+  const dom = new JSDOM(`<!DOCTYPE html><html><body>
+    <div class="sports-table">
+      <div id="prematch_event-1">
+        <div class="table-f"><span>19:00</span></div>
+        <div class="sports-table__home">A</div>
+        <div class="sports-table__away">B</div>
+      </div>
+    </div>
+  </body></html>`);
+  const result = parseFixturesFromDocument(dom.window.document, {
+    href: "https://sports.bet9ja.com/competition/handball/germany/bundesliga/6-1-1",
+    capturedAtUtc: "2026-09-30T17:03:00Z",
+  });
+  assert.equal(result.fixtures[0].kickoff_time_raw, "19:00");
 });

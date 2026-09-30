@@ -1,11 +1,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { JSDOM } = require("jsdom");
 const {
   parseCatalogueSummary,
   parseCatalogueFromDocument,
+  parseGroupsFromDocument,
+  needsMoreClick,
   buildDiscoverySelectors,
   buildNaturalKey,
+  CONFIRMED_SPORTS,
 } = require("../catalogue_parser.js");
 
 // Real capture: bet9ja-american-football-all-competitions-2026-09-30.json
@@ -194,4 +199,68 @@ test("parseCatalogueFromDocument reports a typed failure when the sport's own to
   const result = parseCatalogueFromDocument(dom.window.document, { sportId: 4, sportSlug: "ice_hockey" });
   assert.equal(result.ok, false);
   assert.equal(result.reason, "SPORT_TOGGLE_NOT_FOUND");
+});
+
+// Real live-DOM export: bet9ja-selected-sports-expanded-sidebar-2026-09-30.html
+// (2026-09-30T17:03Z). See catalogue_parser.js's own header comment for
+// this evidence's tier -- ids/structure treated as real, incidental
+// styling (e.g. class="id") is not.
+const LIVE_SIDEBAR_HTML = fs.readFileSync(
+  path.join(__dirname, "fixtures", "selected-sports-expanded-sidebar-2026-09-30.html"),
+  "utf8"
+);
+
+test("parseGroupsFromDocument finds all 19 real Ice Hockey country groups, excluding the show-more toggle", () => {
+  const dom = new JSDOM(LIVE_SIDEBAR_HTML);
+  const groups = parseGroupsFromDocument(dom.window.document, { sportId: 4, sportSlug: "ice_hockey" });
+
+  assert.equal(groups.length, 19);
+  assert.ok(groups.some((g) => g.label_raw === "Switzerland" && g.group_id === "44092"));
+  assert.ok(groups.every((g) => g.sport_id === 4 && g.sport_slug === "ice_hockey"));
+});
+
+test("parseGroupsFromDocument finds the real group counts for Tennis, Volleyball, Handball, American Football", () => {
+  const dom = new JSDOM(LIVE_SIDEBAR_HTML);
+  assert.equal(parseGroupsFromDocument(dom.window.document, { sportId: 5, sportSlug: "tennis" }).length, 8);
+  assert.equal(parseGroupsFromDocument(dom.window.document, { sportId: 23, sportSlug: "volleyball" }).length, 5);
+  assert.equal(parseGroupsFromDocument(dom.window.document, { sportId: 6, sportSlug: "handball" }).length, 10);
+  assert.equal(
+    parseGroupsFromDocument(dom.window.document, { sportId: 70, sportSlug: "american_football" }).length,
+    2
+  );
+});
+
+test("parseCatalogueFromDocument reads the real Switzerland/Ice Hockey competition links, flagging click-required javascript:; hrefs", () => {
+  const dom = new JSDOM(LIVE_SIDEBAR_HTML);
+  const result = parseCatalogueFromDocument(dom.window.document, { sportId: 4, sportSlug: "ice_hockey" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.entries.length, 2);
+  const [nationalLeague, swissLeague] = result.entries;
+  assert.equal(nationalLeague.competition_id, "4715478");
+  assert.equal(nationalLeague.competition_slug, "national_league");
+  assert.equal(nationalLeague.group_slug, "switzerland");
+  assert.equal(nationalLeague.href, "javascript:;");
+  assert.equal(nationalLeague.requires_click_navigation, true);
+  assert.equal(swissLeague.competition_id, "5527435");
+});
+
+test("needsMoreClick matches the real Handball 'more' label but not Ice Hockey's already-expanded 'Show less'", () => {
+  assert.equal(needsMoreClick("Show 4 A-Z more"), true);
+  assert.equal(needsMoreClick("Show less"), false);
+  assert.equal(needsMoreClick(""), false);
+});
+
+test("CONFIRMED_SPORTS lists all 34 real sport roots, including Bandy and Field Hockey", () => {
+  assert.equal(CONFIRMED_SPORTS.length, 34);
+  const bandy = CONFIRMED_SPORTS.find((s) => s.label === "Bandy");
+  assert.equal(bandy.sport_id, 15);
+  assert.equal(bandy.sport_slug, "bandy");
+
+  const fieldHockey = CONFIRMED_SPORTS.find((s) => s.label === "Field Hockey");
+  assert.equal(fieldHockey.sport_id, 321);
+
+  const iceHockey = CONFIRMED_SPORTS.find((s) => s.label === "Ice Hockey");
+  assert.equal(iceHockey.sport_id, 4);
+  assert.equal(iceHockey.toggle_id, "left_prematch_sport-4_ice_hockey_label-toggle");
 });
