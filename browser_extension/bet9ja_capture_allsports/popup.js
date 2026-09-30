@@ -92,8 +92,13 @@ walkButton.addEventListener("click", async () => {
     }
 
     const { sportId, sportSlug } = JSON.parse(sportSelect.value);
-    const maxGroups = maxGroupsInput.value ? Number(maxGroupsInput.value) : undefined;
-    const maxCompetitionsPerGroup = maxCompetitionsInput.value ? Number(maxCompetitionsInput.value) : undefined;
+    // chrome.scripting.executeScript's `args` must be JSON-serializable --
+    // passing `undefined` for an unset cap throws "Value is
+    // unserializable" (a real error hit while testing this against a
+    // live tab). `null` is serializable; the injected function below
+    // converts it back to "no cap".
+    const maxGroups = maxGroupsInput.value ? Number(maxGroupsInput.value) : null;
+    const maxCompetitionsPerGroup = maxCompetitionsInput.value ? Number(maxCompetitionsInput.value) : null;
 
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -106,8 +111,8 @@ walkButton.addEventListener("click", async () => {
         window.Bet9jaAllSportsWalker.walkSport(document, {
           sportId,
           sportSlug,
-          maxGroups,
-          maxCompetitionsPerGroup,
+          maxGroups: maxGroups === null ? undefined : maxGroups,
+          maxCompetitionsPerGroup: maxCompetitionsPerGroup === null ? undefined : maxCompetitionsPerGroup,
           now: () => new Date().toISOString(),
         }),
       args: [sportId, sportSlug, maxGroups, maxCompetitionsPerGroup],
