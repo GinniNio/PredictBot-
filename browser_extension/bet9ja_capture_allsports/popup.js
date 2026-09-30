@@ -52,3 +52,85 @@ button.addEventListener("click", async () => {
     button.disabled = false;
   }
 });
+
+/**
+ * Stage 3 -- sport walker. `catalogue_parser.js` is loaded directly by
+ * popup.html (a normal extension page, no CSP issue) so its
+ * CONFIRMED_SPORTS list is available here to populate the dropdown
+ * without needing to inject anything into the target tab first.
+ */
+const sportSelect = document.getElementById("sport-select");
+const maxGroupsInput = document.getElementById("max-groups");
+const maxCompetitionsInput = document.getElementById("max-competitions");
+const walkButton = document.getElementById("walk-button");
+const walkStatus = document.getElementById("walk-status");
+
+function setWalkStatus(text) {
+  walkStatus.textContent = text;
+}
+
+(function populateSportDropdown() {
+  const sports = (window.Bet9jaAllSportsCatalogueParser && window.Bet9jaAllSportsCatalogueParser.CONFIRMED_SPORTS) || [];
+  const sorted = [...sports].sort((a, b) => a.label.localeCompare(b.label));
+  for (const sport of sorted) {
+    const option = document.createElement("option");
+    option.value = JSON.stringify({ sportId: sport.sport_id, sportSlug: sport.sport_slug });
+    option.textContent = `${sport.label} (id ${sport.sport_id})`;
+    sportSelect.appendChild(option);
+  }
+  const iceHockey = sorted.findIndex((s) => s.label === "Ice Hockey");
+  if (iceHockey >= 0) sportSelect.selectedIndex = iceHockey;
+})();
+
+walkButton.addEventListener("click", async () => {
+  walkButton.disabled = true;
+  setWalkStatus("Walking sport -- this can take a while, one competition at a time...");
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.id) {
+      throw new Error("No active tab found.");
+    }
+
+    const { sportId, sportSlug } = JSON.parse(sportSelect.value);
+    const maxGroups = maxGroupsInput.value ? Number(maxGroupsInput.value) : undefined;
+    const maxCompetitionsPerGroup = maxCompetitionsInput.value ? Number(maxCompetitionsInput.value) : undefined;
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["catalogue_parser.js", "fixture_parser.js", "sport_walker.js"],
+    });
+
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (sportId, sportSlug, maxGroups, maxCompetitionsPerGroup) =>
+        window.Bet9jaAllSportsWalker.walkSport(document, {
+          sportId,
+          sportSlug,
+          maxGroups,
+          maxCompetitionsPerGroup,
+          now: () => new Date().toISOString(),
+        }),
+      args: [sportId, sportSlug, maxGroups, maxCompetitionsPerGroup],
+    });
+
+    const json = JSON.stringify(result, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    await chrome.downloads.download({
+      url,
+      filename: `bet9ja-allsports-walk-${sportSlug}-${stamp}.json`,
+      saveAs: false,
+    });
+
+    setWalkStatus(
+      `Saved. ${result.sport}: ${result.groups_seen} groups, ` +
+        `${result.competitions_seen} competitions seen, ${result.competitions_visited} visited, ` +
+        `${result.failures.length} failures. Please attach the downloaded JSON back.`
+    );
+  } catch (err) {
+    setWalkStatus(`Failed: ${err && err.message ? err.message : String(err)}`);
+  } finally {
+    walkButton.disabled = false;
+  }
+});

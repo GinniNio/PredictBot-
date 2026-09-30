@@ -49,6 +49,21 @@ structure — so there is nothing in it to get wrong.
    `bet9ja-allsports-raw-snapshot-<timestamp>.json`.
 4. Upload that file back into the PredictBot session.
 
+**Stage 3 (experimental): "Walk sport" button.** The same popup now has a
+second section — pick a sport from the dropdown (populated from
+`catalogue_parser.js`'s `CONFIRMED_SPORTS`), optionally set a max-groups/
+max-competitions-per-group cap for a small first test, and click "Walk
+sport". It injects `catalogue_parser.js` + `fixture_parser.js` +
+`sport_walker.js` into the active tab, runs `walkSport()` against the
+live `document`, and downloads the resulting summary as
+`bet9ja-allsports-walk-<sport>-<timestamp>.json`. **This has never been
+run against a real Bet9ja session** — every timeout in `sport_walker.js`
+is an unverified placeholder (see Stage 3 below), so the honest first use
+is a small, capped test run (e.g. `maxGroups: 1`, `maxCompetitions: 2`),
+with the resulting JSON (and any error it shows) fed back so the walker
+can be corrected against real behavior, the same evidence loop the rest
+of this tool was built on.
+
 Repeat per sport/page you want covered. The most useful first captures,
 in order: (a) the all-sports/all-fixtures listing itself, since that's
 the literal target ("all fixtures and sports"); (b) one fixture page per
