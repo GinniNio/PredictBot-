@@ -111,6 +111,75 @@ every real fixture row from all four 2026-09-30 DOM contracts
   suffixes — confirmed for this one market family only, not assumed to
   generalize.
 
+**Correction (2026-09-30T16:23–16:26Z, two real raw `outerHTML`
+snapshots — Basketball/WNBA and Ice Hockey/Russia/KHL): a fixture row is
+not the `prematch_event-<id>` element by itself.** That id lives on the
+`.sports-table__matchup` cell only; `.sports-table__time` and every odds
+cell (including the 3way ones above) are its **siblings**, all children
+of one shared `.table-f` row wrapper — not descendants of the matchup
+cell. Querying them as descendants of the id'd element (this module's own
+earlier code) silently returned `null`/empty in production despite
+passing tests, because the tests' own synthetic markup wrongly nested
+everything inside the row div. Fixed via `resolveRowContainer`
+(`rowEl.closest('.table-f')`); independently confirmed on a second real
+sport/competition (Ice Hockey/KHL, not just WNBA). Also corrected: the
+earlier claim of a `#marketsmenu_market_dropdown` toggle for selecting
+the "3way" market does not hold up against either real snapshot — it's a
+plain market-category tab, not a dropdown, and is not implemented here.
+
+## Stage 3: sport walker (`sport_walker.js`)
+
+Drives a sport's own sidebar through every competition it discovers and
+runs `fixture_parser.js` on each one — kept explicitly separate from the
+pure parsers per the operator's own instruction. Sequence: expand sport →
+click "show more" while its label contains "more" → enumerate groups →
+open one group → enumerate its competition links → click one competition
+→ wait for the resulting breadcrumb/fixture-table/empty-marker → parse →
+reopen the sport (and the same group) → continue to the next competition.
+
+Output shape:
+
+```
+{
+  sport, groups_seen, competitions_seen, competitions_visited,
+  results: [{ competition_id, competition_label, source_url_after_click,
+              parse_result, fixtures }],
+  failures,
+}
+```
+
+`parse_result` is one of `populated` / `confirmed_empty` / `unknown_empty`
+/ `invalid_content_mismatch`.
+
+**Validation is fail-closed.** After every click, the resulting page's own
+breadcrumb must agree with the competition actually requested (normalized
+substring match); a page with no resolvable breadcrumb at all is treated
+as a mismatch too, never assumed correct. A mismatch is recorded as
+`invalid_content_mismatch` and its fixtures are **never** ingested into
+`results[]`. Confirmed real evidence backing the design (2026-09-30): a
+real Ice Hockey capture (16:25:09Z) showed the sport expanded with its
+"show more" control and 10 groups visible, but zero competition links —
+because no group had been opened yet, exactly matching this module's own
+"open one group" step before competition links exist.
+
+**Every element is re-queried fresh, never cached across a click** — a
+navigation can replace the DOM entirely (per the operator's own rule),
+and competitions are tracked by their own stable `competition_id`, never
+array position, matching this project's established resume discipline
+elsewhere (`bet9ja_capture/soccer_walker.js`).
+
+**What's still unconfirmed (no live browser access to test against):**
+exact accordion open/closed state selectors (this sidebar has no
+confirmed "is-open" class the way the retired Soccer accordion did); real
+click-to-render timing: every timeout/poll interval in `sport_walker.js`
+is an explicitly labeled `[UNVERIFIED]` placeholder, not an evidence-based
+constant, pending a real timed run. Tests exercise the full sequence
+(expand → show-more → group → competition → reopen → next competition)
+against a simulated site with a delegated click listener, including a
+deliberately mismatched competition and a confirmed-empty one — but a
+simulated DOM is not a live Bet9ja session, and timing/exact toggle
+behavior can only be corrected against one.
+
 ## Stage 2a: competition catalogue (`catalogue_parser.js`)
 
 **Correction (2026-09-30): a single competition page (e.g. NFL, NHL) is
@@ -175,14 +244,8 @@ hand-distilled report, not a raw extension snapshot):**
   ids, including Bandy (15) and Field Hockey (321), which previously had
   no id evidence at all (only a plain-text sidebar paste).
 
-**Still not built: live click/navigation orchestration.** The parsers
-above are the pure logic a walker would call (which selectors to read,
-which toggles to click and when); actually driving a browser through
-that sequence (expand sport → click "more" while needed → expand each
-group → click each competition link → wait for
-`fixture_parser.js`-parseable content) is unbuilt — this session still
-has no live, authenticated browser access to test it against, the same
-limitation already documented for the existing Soccer walker.
+Live click/navigation orchestration itself is now built as `sport_walker.js`
+— see Stage 3 below.
 
 ## What's still open
 
@@ -213,6 +276,11 @@ limitation already documented for the existing Soccer walker.
   capture confirming (or contradicting) the same marker on another
   sport's genuinely empty page is the next evidence needed before
   `UNKNOWN_EMPTY` can safely become `CONFIRMED_EMPTY` elsewhere.
+- **`sport_walker.js` is untested against a live session.** Its tests
+  exercise the full sequence against a simulated site, not real Bet9ja —
+  toggle open/closed state, click-to-render timing, and whether a click
+  truly never reloads the page (vs. an in-place SPA swap) all need a real
+  timed run to confirm or correct.
 
 ## Files
 
@@ -224,7 +292,8 @@ limitation already documented for the existing Soccer walker.
 | `popup.html` / `popup.js` | UI: injects `snapshot.js` + `content.js`, runs the capture, downloads the JSON. |
 | `fixture_parser.js` | Stage 2 — parses one competition page's own fixture rows. |
 | `catalogue_parser.js` | Stage 2a — enumerates a sport's competitions from its left-menu catalogue. |
-| `tests/snapshot.test.js`, `tests/fixture_parser.test.js`, `tests/catalogue_parser.test.js` | `node --test` + jsdom, mirroring the existing extension's own test convention. |
+| `sport_walker.js` | Stage 3 — drives a sport's sidebar through every competition and calls `fixture_parser.js` on each. |
+| `tests/snapshot.test.js`, `tests/fixture_parser.test.js`, `tests/catalogue_parser.test.js`, `tests/sport_walker.test.js` | `node --test` + jsdom, mirroring the existing extension's own test convention. |
 
 ## Explicit boundaries
 

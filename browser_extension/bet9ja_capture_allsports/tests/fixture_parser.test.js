@@ -212,17 +212,26 @@ const WNBA_ROWS_WITH_THREE_WAY = [
   },
 ];
 
+// Real nesting (see buildRealNestedRowPage's own comment below): the row
+// id lives on `.sports-table__matchup`, a SIBLING of `.sports-table__time`
+// and the odds cell, all under one `.table-f` wrapper -- not a parent
+// containing them.
 function buildWnbaDateGroupedPage() {
   const rowsHtml = WNBA_ROWS_WITH_THREE_WAY.map(({ id, time, p1, p2, threeWay }) => {
     const oddsHtml = Object.entries(threeWay)
-      .map(([sign, value]) => `<div id="prematch_event-${id}_event-${id}_odds_market-3way_sign-${sign}">${value}</div>`)
+      .map(
+        ([sign, value]) =>
+          `<li id="prematch_event-${id}_event-${id}_odds_market-3way_sign-${sign}">${value}</li>`
+      )
       .join("\n");
     return `
-      <div id="prematch_event-${id}">
-        <div class="sports-table__time">${time}</div>
-        <div class="sports-table__home">${p1}</div>
-        <div class="sports-table__away">${p2}</div>
-        ${oddsHtml}
+      <div class="table-f">
+        <div class="sports-table__td sports-table__time txt-c"><span>${time}</span></div>
+        <div class="sports-table__td sports-table__matchup pr10" id="prematch_event-${id}">
+          <div class="sports-table__home">${p1}</div>
+          <div class="sports-table__away">${p2}</div>
+        </div>
+        <div class="sports-table__td sports-table__odds txt-c"><ul>${oddsHtml}</ul></div>
       </div>`;
   }).join("\n");
 
@@ -310,4 +319,84 @@ test("falls back to .table-f > :first-child for kickoff time when .sports-table_
     capturedAtUtc: "2026-09-30T17:03:00Z",
   });
   assert.equal(result.fixtures[0].kickoff_time_raw, "19:00");
+});
+
+// Real row markup, byte-verified from two real raw `outerHTML` snapshots
+// (Basketball/WNBA 2026-09-30T16:23:42Z and Ice Hockey/Russia/KHL
+// 2026-09-30T16:26:27Z): the `prematch_event-<id>` id is on the
+// `.sports-table__matchup` CELL, a SIBLING of `.sports-table__time` and
+// every odds cell -- not their parent. All are children of one shared
+// `.table-f` row wrapper. This is what `resolveRowContainer` in
+// fixture_parser.js exists to handle; earlier tests in this file used an
+// (incorrect) flat nesting that masked this because of the module's own
+// same-element fallback -- this test uses the REAL nesting instead, so
+// it actually exercises the `.closest('.table-f')` path.
+function buildRealNestedRowPage({ breadcrumb, dateText, fixtureId, time, p1, p2, threeWay }) {
+  const oddsHtml = threeWay
+    ? Object.entries(threeWay)
+        .map(
+          ([sign, value]) =>
+            `<li class="sports-table__odds-item dib pt10" id="prematch_event-${fixtureId}_event-${fixtureId}_odds_market-3way_sign-${sign}">${value}</li>`
+        )
+        .join("")
+    : "";
+
+  return `<!DOCTYPE html><html><body>
+    <div class="sports-view__crumbs">${breadcrumb}</div>
+    <div class="sports-head table"><div class="sports-head__date table-cell pl15"><span>${dateText}</span></div></div>
+    <div class="sports-table">
+      <div class="table-f">
+        <div class="sports-table__td sports-table__time txt-c"><span>${time}</span></div>
+        <div class="sports-table__td sports-table__matchup pr10" id="prematch_event-${fixtureId}">
+          <div class="sports-table__home txt-cut">${p1}</div>
+          <div class="sports-table__away txt-cut">${p2}</div>
+        </div>
+        <div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0">${oddsHtml}</ul></div>
+      </div>
+    </div>
+  </body></html>`;
+}
+
+test("resolves kickoff time and date across the real .table-f sibling structure (real Ice Hockey/KHL row: HC Sochi vs Salavat Yulaev UFA)", () => {
+  const dom = new JSDOM(
+    buildRealNestedRowPage({
+      breadcrumb: "Ice Hockey>Russia>KHL",
+      dateText: "Wed 30 Sep",
+      fixtureId: "842493730",
+      time: "17:30",
+      p1: "HC Sochi",
+      p2: "Salavat Yulaev UFA",
+    })
+  );
+  const result = parseFixturesFromDocument(dom.window.document, {
+    href: "https://sports.bet9ja.com/competition/icehockey/russia/khl/4-44083-4714776",
+    capturedAtUtc: "2026-09-30T16:26:27.020Z",
+  });
+
+  assert.equal(result.fixture_row_count, 1);
+  assert.equal(result.fixtures[0].kickoff_time_raw, "17:30");
+  assert.equal(result.fixtures[0].date_text_raw, "Wed 30 Sep");
+  assert.equal(result.fixtures[0].participant_1, "HC Sochi");
+  assert.equal(result.fixtures[0].participant_2, "Salavat Yulaev UFA");
+});
+
+test("resolves the 3way market across the real .table-f sibling structure (real WNBA row: Washington Mystics vs Atlanta Dream)", () => {
+  const dom = new JSDOM(
+    buildRealNestedRowPage({
+      breadcrumb: "Basketball>USA>WNBA",
+      dateText: "Thu 1 Oct",
+      fixtureId: "842933379",
+      time: "00:00",
+      p1: "Washington Mystics",
+      p2: "Atlanta Dream",
+      threeWay: { "1B": "2.35", XB: "13.00", "2B": "1.73" },
+    })
+  );
+  const result = parseFixturesFromDocument(dom.window.document, {
+    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
+    capturedAtUtc: "2026-09-30T16:23:42.845Z",
+  });
+
+  assert.equal(result.fixtures[0].kickoff_time_raw, "00:00");
+  assert.deepEqual(result.fixtures[0].three_way_odds, { "1": "2.35", X: "13.00", "2": "1.73" });
 });
