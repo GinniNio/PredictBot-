@@ -100,6 +100,59 @@ not wired in yet — callers that need to distinguish "genuinely empty"
 from "parser found nothing" should check for that text themselves until
 then.
 
+## Stage 2a: competition catalogue (`catalogue_parser.js`)
+
+**Correction (2026-09-30): a single competition page (e.g. NFL, NHL) is
+not a sport's crawl scope — it's one leaf of it.** The real scope is the
+left-menu sport catalogue: every country/group exposed under a sport's
+own accordion, and every competition link beneath each group.
+`fixture_parser.js` still parses one competition page's own fixtures once
+visited; `catalogue_parser.js` is the layer above it that enumerates
+*which* competition pages exist to visit, from the sport-level catalogue.
+
+Backed by two real "left-menu sport catalogue" captures
+(2026-09-30T15:50:00Z):
+
+| Sport | sport_id | Countries | Competitions |
+|---|---|---|---|
+| American Football | 70 | 2 (USA, Canada) | 3 (NFL, NCAA Regular Season, CFL) |
+| Ice Hockey | 4 | 19 | 34 |
+
+`parseCatalogueSummary(catalogue)` normalizes that JSON into a flat list
+of `{country_raw, competition_raw, natural_key}` entries, tested directly
+against both real captures, unchanged. Two things confirmed by this real
+data and enforced by the parser:
+
+- **A country group can have zero competitions.** Ice Hockey's own
+  capture exposed Russia as a country group with no competition link at
+  all — kept in `countries_with_zero_competitions`, never dropped.
+- **Competition names repeat across countries** ("Extraliga" under Czech
+  Republic, Belarus, *and* Slovakia) — the natural key is always
+  `sport::country::competition`, never competition name alone, per the
+  capture's own note. `parseCatalogueSummary` also reconciles the
+  catalogue's own declared `competition_count` against the sum of its
+  group lists (both real captures reconcile exactly: 3 and 34) and flags
+  disagreement rather than trusting either number blindly.
+
+`parseCatalogueFromDocument(documentLike, { sportId, sportSlug })` is the
+DOM-level counterpart for when a real sidebar page (not just a summary)
+is captured — it reads real competition-link `href`s and ids using the
+`left_prematch_sport-<id>_<slug>_sg-<group>_g-<competition>` id pattern
+already confirmed generically on this sidebar elsewhere in this project.
+**This exact id pattern has not been independently byte-verified against
+American Football's or Ice Hockey's own raw markup** — only the two
+summary-level catalogue captures above exist for these two sports so far.
+Treat it as evidenced by analogy, not independently confirmed, until a
+raw sidebar snapshot is supplied for one of them.
+
+**Not yet built: live navigation.** Actually expanding a sport's
+accordion, clicking Ice Hockey's "show more" toggle, and following each
+discovered competition link is not implemented — this session still has
+no live, authenticated browser access to test that against, the same
+limitation already documented for the existing Soccer walker. The
+catalogue/fixture parsers above are the pure logic a future walker would
+call; the click/navigation orchestration around them is unbuilt.
+
 ## What's still open
 
 - **Scope per sport**: soccer's `1X2` market is the only market this
@@ -109,11 +162,16 @@ then.
   engine and research queue (market-quality screening, EV calculation)
   exactly like Soccer's abstentions already do today — it does **not**
   produce a forecast for that sport until a matching adapter is built.
-- **One parser vs. several**: every sport evidenced so far shares one row
-  shape, so `fixture_parser.js` is deliberately generic rather than
-  per-sport. A sport whose markup diverges (a different row anchor, no
-  home/away split — e.g. Outrights, which has no two-participant matchup
-  at all) would need its own handling, not yet built.
+- **One fixture parser vs. several**: every sport evidenced so far shares
+  one row shape, so `fixture_parser.js` is deliberately generic rather
+  than per-sport. A sport whose markup diverges (a different row anchor,
+  no home/away split — e.g. Outrights, which has no two-participant
+  matchup at all) would need its own handling, not yet built.
+- **Catalogue coverage**: only American Football and Ice Hockey have a
+  real sport-level catalogue capture. Tennis, Basketball, Volleyball, and
+  Handball currently only have single-competition-page evidence
+  (`fixture_parser.js`'s tier) — their own full country/competition
+  catalogues are still unknown.
 
 ## Files
 
@@ -123,7 +181,9 @@ then.
 | `snapshot.js` | Pure snapshot builder (`buildSnapshot`) — no `chrome.*` calls, tested directly in Node via jsdom. |
 | `content.js` | The one place that touches the real `document`/`location` — calls `buildSnapshot`. |
 | `popup.html` / `popup.js` | UI: injects `snapshot.js` + `content.js`, runs the capture, downloads the JSON. |
-| `tests/snapshot.test.js` | `node --test` + jsdom, mirrors the existing extension's own test convention. |
+| `fixture_parser.js` | Stage 2 — parses one competition page's own fixture rows. |
+| `catalogue_parser.js` | Stage 2a — enumerates a sport's competitions from its left-menu catalogue. |
+| `tests/snapshot.test.js`, `tests/fixture_parser.test.js`, `tests/catalogue_parser.test.js` | `node --test` + jsdom, mirroring the existing extension's own test convention. |
 
 ## Explicit boundaries
 
