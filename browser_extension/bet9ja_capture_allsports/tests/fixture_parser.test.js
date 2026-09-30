@@ -1,27 +1,153 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { JSDOM } = require("jsdom");
 const { parseFixturesFromDocument, resolveSportSlugFromUrl, parseThreeWayOdds } = require("../fixture_parser.js");
 
-// Builds synthetic markup shaped exactly like the confirmed real
-// structure (`prematch_event-<id>` row anchor, `.sports-table__home` /
-// `.sports-table__away` / `.sports-table__time` descendants,
-// `.sports-view__crumbs` breadcrumb) -- the same selectors already
-// confirmed for Soccer in bet9ja_capture/parser.js, and reported
-// identically by all four 2026-09-30 DOM contracts (Handball,
-// Volleyball, Ice Hockey, Tennis).
-function buildPage({ breadcrumb, rows, withDescendantOddsNoise }) {
+function loadFixture(name) {
+  return fs.readFileSync(path.join(__dirname, "fixtures", name), "utf8");
+}
+
+// Real, byte-extracted fragments -- each file's own comment in
+// tests/fixtures/ names the raw snapshot it was cut from via jsdom's own
+// `outerHTML` (not hand-typed), covering: real breadcrumb text, the
+// `.sports-head.table` date header, and one or more `.table-f` row
+// wrappers with `.sports-table__time` / the `prematch_event-<id>`
+// matchup cell / 2-way / handicap / 3-way odds as TRUE siblings --
+// exactly the structure `resolveRowContainer` exists to handle.
+const WNBA_POPULATED_HTML = loadFixture("wnba-populated-2026-09-30T16-23-42.html");
+const WNBA_EMPTY_HTML = loadFixture("wnba-empty-2026-09-30T15-33-17.html");
+const KHL_POPULATED_HTML = loadFixture("khl-populated-2026-09-30T16-26-27.html");
+
+test("real WNBA fragment (2026-09-30T16:23:42Z): all 3 fixtures, correct date/time/participants/3way odds", () => {
+  const dom = new JSDOM(WNBA_POPULATED_HTML);
+  const result = parseFixturesFromDocument(dom.window.document, {
+    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
+    capturedAtUtc: "2026-09-30T16:23:42.845Z",
+  });
+
+  assert.equal(result.fixture_row_count, 3);
+  assert.equal(result.breadcrumb_raw, "Basketball>USA>WNBA");
+  assert.equal(result.sport_slug_from_url, "basketball");
+  assert.equal(result.empty_state_status, "NOT_EMPTY");
+  assert.deepEqual(result.duplicate_fixture_ids, []);
+
+  assert.deepEqual(result.fixtures[0], {
+    fixture_id: "842933379",
+    participant_1: "Washington Mystics",
+    participant_2: "Atlanta Dream",
+    kickoff_time_raw: "00:00",
+    date_text_raw: "Thu 1 Oct",
+    three_way_odds: { "1": "2.35", X: "13.00", "2": "1.73" },
+    missing_participants: false,
+  });
+  assert.deepEqual(result.fixtures[1], {
+    fixture_id: "842949763",
+    participant_1: "Dallas Wings",
+    participant_2: "Golden State Valkyries",
+    kickoff_time_raw: "02:00",
+    date_text_raw: "Thu 1 Oct",
+    three_way_odds: { "1": "2.60", X: "14.80", "2": "1.59" },
+    missing_participants: false,
+  });
+  assert.deepEqual(result.fixtures[2], {
+    fixture_id: "843748380",
+    participant_1: "Las Vegas Aces",
+    participant_2: "Indiana Fever",
+    kickoff_time_raw: "02:00",
+    date_text_raw: "Fri 2 Oct",
+    three_way_odds: { "1": "1.63", X: "14.30", "2": "2.50" },
+    missing_participants: false,
+  });
+});
+
+test("real WNBA fragment (2026-09-30T15:33:17Z): CONFIRMED_EMPTY via the exact real marker", () => {
+  const dom = new JSDOM(WNBA_EMPTY_HTML);
+  const result = parseFixturesFromDocument(dom.window.document, {
+    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
+    capturedAtUtc: "2026-09-30T15:33:17.696Z",
+  });
+
+  assert.equal(result.fixture_row_count, 0);
+  assert.deepEqual(result.fixtures, []);
+  assert.equal(result.empty_state_status, "CONFIRMED_EMPTY");
+});
+
+test("real Ice Hockey/KHL fragment (2026-09-30T16:26:27Z, a different sport from WNBA): all 4 fixtures, no 3way market", () => {
+  const dom = new JSDOM(KHL_POPULATED_HTML);
+  const result = parseFixturesFromDocument(dom.window.document, {
+    href: "https://sports.bet9ja.com/competition/icehockey/russia/khl/4-44083-4714776",
+    capturedAtUtc: "2026-09-30T16:26:27.020Z",
+  });
+
+  assert.equal(result.fixture_row_count, 4);
+  assert.equal(result.breadcrumb_raw, "Ice Hockey>Russia>KHL");
+  assert.equal(result.sport_slug_from_url, "icehockey");
+  assert.deepEqual(result.duplicate_fixture_ids, []);
+
+  assert.deepEqual(result.fixtures[0], {
+    fixture_id: "842493730",
+    participant_1: "HC Sochi",
+    participant_2: "Salavat Yulaev UFA",
+    kickoff_time_raw: "17:30",
+    date_text_raw: "Wed 30 Sep",
+    three_way_odds: null,
+    missing_participants: false,
+  });
+  // Every KHL fixture in this fragment shares the same date group and
+  // has no 3way market (confirmed real: Ice Hockey doesn't carry it).
+  for (const fixture of result.fixtures) {
+    assert.equal(fixture.date_text_raw, "Wed 30 Sep");
+    assert.equal(fixture.three_way_odds, null);
+  }
+});
+
+test("parseThreeWayOdds returns null when a fixture element has no .table-f ancestor at all (fail-closed, no fallback)", () => {
+  const dom = new JSDOM(
+    `<!DOCTYPE html><html><body><div id="prematch_event-1"><div class="sports-table__home">A</div></div></body></html>`
+  );
+  const fixtureEl = dom.window.document.querySelector("#prematch_event-1");
+  assert.equal(parseThreeWayOdds(fixtureEl, "1"), null);
+});
+
+test("resolveSportSlugFromUrl reads the sport slug from every confirmed competition URL shape", () => {
+  assert.equal(
+    resolveSportSlugFromUrl("https://sports.bet9ja.com/competition/tennis/wta/x/5-1-1"),
+    "tennis"
+  );
+  assert.equal(
+    resolveSportSlugFromUrl("https://sports.bet9ja.com/competition/icehockey/usa/nhl/4-1-1"),
+    "icehockey"
+  );
+  assert.equal(resolveSportSlugFromUrl("https://sports.bet9ja.com/Sport/Default/All"), null);
+});
+
+// ---------------------------------------------------------------------
+// The four sports below have no raw HTML at all -- only a "DOM
+// extraction contract" (a structured live-inspection summary, not raw
+// bytes; see fixture_parser.js's own header comment on this evidence
+// tier). `buildContractPage` renders their real row data through the
+// confirmed REAL sibling structure (`.table-f` wrapping
+// `.sports-table__time` and the `prematch_event-<id>` matchup cell as
+// siblings) rather than a flat/incorrect nesting, since that structure
+// is independently byte-confirmed by the WNBA/KHL fragments above --
+// only the row DATA here (ids/times/names) comes from the contract tier.
+// ---------------------------------------------------------------------
+function buildContractPage({ breadcrumb, rows, withDescendantOddsNoise }) {
   const rowsHtml = rows
     .map(([id, time, p1, p2]) => {
       const noise = withDescendantOddsNoise
-        ? `<div id="${id}_odds_market-1x2_sign-1">1.50</div>`
+        ? `<li id="${id}_event-${id.replace('prematch_event-', '')}_odds_market-1x2_sign-1">1.50</li>`
         : "";
       return `
-        <div id="${id}">
-          <div class="sports-table__time">${time}</div>
-          <div class="sports-table__home">${p1}</div>
-          <div class="sports-table__away">${p2}</div>
-          ${noise}
+        <div class="table-f">
+          <div class="sports-table__td sports-table__time txt-c"><span>${time}</span></div>
+          <div class="sports-table__td sports-table__matchup pr10" id="${id}">
+            <div class="sports-table__home txt-cut">${p1}</div>
+            <div class="sports-table__away txt-cut">${p2}</div>
+          </div>
+          <div class="sports-table__td sports-table__odds txt-c"><ul>${noise}</ul></div>
         </div>`;
     })
     .join("\n");
@@ -54,7 +180,7 @@ const VOLLEYBALL_ROWS = [
 
 // Real row data from bet9ja-hockey-dom-contract-2026-09-30.json
 // (fnv1a_32 6e560fbe).
-const ICE_HOCKEY_ROWS = [
+const ICE_HOCKEY_NHL_ROWS = [
   ["prematch_event-807237625", "00:30", "Philadelphia Flyers", "Pittsburgh Penguins"],
   ["prematch_event-841175751", "00:30", "Toronto Maple Leafs", "New York Islanders"],
   ["prematch_event-807237842", "03:00", "Colorado Avalanche", "Los Angeles Kings"],
@@ -77,7 +203,7 @@ const TENNIS_ROWS = [
 ];
 
 test("parses all 8 real Handball fixture rows with correct ids/participants/times", () => {
-  const dom = new JSDOM(buildPage({ breadcrumb: "Handball > Germany > Bundesliga", rows: HANDBALL_ROWS }));
+  const dom = new JSDOM(buildContractPage({ breadcrumb: "Handball > Germany > Bundesliga", rows: HANDBALL_ROWS }));
   const result = parseFixturesFromDocument(dom.window.document, {
     href: "https://sports.bet9ja.com/competition/handball/germany/bundesliga/6-45758-5804912",
     capturedAtUtc: "2026-09-30T15:46:06.394Z",
@@ -99,7 +225,7 @@ test("parses all 8 real Handball fixture rows with correct ids/participants/time
 });
 
 test("parses both real Volleyball fixture rows", () => {
-  const dom = new JSDOM(buildPage({ breadcrumb: "Volleyball > Poland > 1. Liga", rows: VOLLEYBALL_ROWS }));
+  const dom = new JSDOM(buildContractPage({ breadcrumb: "Volleyball > Poland > 1. Liga", rows: VOLLEYBALL_ROWS }));
   const result = parseFixturesFromDocument(dom.window.document, {
     href: "https://sports.bet9ja.com/competition/volleyball/poland/1.liga/23-43872-4547150",
     capturedAtUtc: "2026-09-30T15:45:27.304Z",
@@ -112,7 +238,7 @@ test("parses both real Volleyball fixture rows", () => {
 });
 
 test("parses all 9 real Ice Hockey/NHL fixture rows, including a repeated participant name across rows", () => {
-  const dom = new JSDOM(buildPage({ breadcrumb: "Ice Hockey > USA > NHL", rows: ICE_HOCKEY_ROWS }));
+  const dom = new JSDOM(buildContractPage({ breadcrumb: "Ice Hockey > USA > NHL", rows: ICE_HOCKEY_NHL_ROWS }));
   const result = parseFixturesFromDocument(dom.window.document, {
     href: "https://sports.bet9ja.com/competition/icehockey/usa/nhl/4-44080-4714779",
     capturedAtUtc: "2026-09-30T15:46:23.937Z",
@@ -132,7 +258,7 @@ test("parses all 9 real Ice Hockey/NHL fixture rows, including a repeated partic
 
 test("parses Tennis fixture rows under the participant_1/participant_2 model via the same home/away selectors", () => {
   const dom = new JSDOM(
-    buildPage({ breadcrumb: "Tennis > WTA > WTA Beijing, China Women Singles", rows: TENNIS_ROWS })
+    buildContractPage({ breadcrumb: "Tennis > WTA > WTA Beijing, China Women Singles", rows: TENNIS_ROWS })
   );
   const result = parseFixturesFromDocument(dom.window.document, {
     href: "https://sports.bet9ja.com/competition/tennis/wta/wtabeijingchinawomensingles/5-43765-5603249",
@@ -147,7 +273,7 @@ test("parses Tennis fixture rows under the participant_1/participant_2 model via
 
 test("excludes descendant odds/dropdown ids that repeat the parent row id with a suffix", () => {
   const dom = new JSDOM(
-    buildPage({ breadcrumb: "Handball > Germany > Bundesliga", rows: [HANDBALL_ROWS[0]], withDescendantOddsNoise: true })
+    buildContractPage({ breadcrumb: "Handball > Germany > Bundesliga", rows: [HANDBALL_ROWS[0]], withDescendantOddsNoise: true })
   );
   const result = parseFixturesFromDocument(dom.window.document, {
     href: "https://sports.bet9ja.com/competition/handball/germany/bundesliga/6-45758-5804912",
@@ -156,14 +282,14 @@ test("excludes descendant odds/dropdown ids that repeat the parent row id with a
 
   // Without the exact-match filter this would count 2:
   // "prematch_event-843197066" and
-  // "prematch_event-843197066_odds_market-1x2_sign-1" both match the
-  // broader `[id^="prematch_event-"]` selector.
+  // "prematch_event-843197066_event-843197066_odds_market-1x2_sign-1"
+  // both match the broader `[id^="prematch_event-"]` selector.
   assert.equal(result.fixture_row_count, 1);
   assert.equal(result.fixtures[0].fixture_id, "843197066");
 });
 
-test("reports a genuinely empty page honestly, without guessing an empty-state marker", () => {
-  const dom = new JSDOM(buildPage({ breadcrumb: "Basketball > USA > WNBA", rows: [] }));
+test("reports a genuinely empty page honestly when no marker is present (UNKNOWN_EMPTY, not guessed CONFIRMED_EMPTY)", () => {
+  const dom = new JSDOM(buildContractPage({ breadcrumb: "Basketball > USA > WNBA", rows: [] }));
   const result = parseFixturesFromDocument(dom.window.document, {
     href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
     capturedAtUtc: "2026-09-30T15:33:17.000Z",
@@ -171,232 +297,5 @@ test("reports a genuinely empty page honestly, without guessing an empty-state m
 
   assert.equal(result.fixture_row_count, 0);
   assert.deepEqual(result.fixtures, []);
-});
-
-test("resolveSportSlugFromUrl reads the sport slug from every confirmed competition URL shape", () => {
-  assert.equal(
-    resolveSportSlugFromUrl("https://sports.bet9ja.com/competition/tennis/wta/x/5-1-1"),
-    "tennis"
-  );
-  assert.equal(
-    resolveSportSlugFromUrl("https://sports.bet9ja.com/competition/icehockey/usa/nhl/4-1-1"),
-    "icehockey"
-  );
-  assert.equal(resolveSportSlugFromUrl("https://sports.bet9ja.com/Sport/Default/All"), null);
-});
-
-// Real WNBA rows/odds from bet9ja-stage2-resolution-evidence-2026-09-30.json
-// (captured_at_utc 2026-09-30T17:03:00Z), including the confirmed "3way"
-// market's exact odds-id suffix mapping (1B/XB/2B -> 1/X/2).
-const WNBA_ROWS_WITH_THREE_WAY = [
-  {
-    id: "842933379",
-    time: "00:00",
-    p1: "Washington Mystics",
-    p2: "Atlanta Dream",
-    threeWay: { "1B": "2.35", XB: "13.00", "2B": "1.73" },
-  },
-  {
-    id: "842949763",
-    time: "02:00",
-    p1: "Dallas Wings",
-    p2: "Golden State Valkyries",
-    threeWay: { "1B": "2.60", XB: "14.80", "2B": "1.59" },
-  },
-  {
-    id: "843748380",
-    time: "02:00",
-    p1: "Las Vegas Aces",
-    p2: "Indiana Fever",
-    threeWay: { "1B": "1.63", XB: "14.30", "2B": "2.50" },
-  },
-];
-
-// Real nesting (see buildRealNestedRowPage's own comment below): the row
-// id lives on `.sports-table__matchup`, a SIBLING of `.sports-table__time`
-// and the odds cell, all under one `.table-f` wrapper -- not a parent
-// containing them.
-function buildWnbaDateGroupedPage() {
-  const rowsHtml = WNBA_ROWS_WITH_THREE_WAY.map(({ id, time, p1, p2, threeWay }) => {
-    const oddsHtml = Object.entries(threeWay)
-      .map(
-        ([sign, value]) =>
-          `<li id="prematch_event-${id}_event-${id}_odds_market-3way_sign-${sign}">${value}</li>`
-      )
-      .join("\n");
-    return `
-      <div class="table-f">
-        <div class="sports-table__td sports-table__time txt-c"><span>${time}</span></div>
-        <div class="sports-table__td sports-table__matchup pr10" id="prematch_event-${id}">
-          <div class="sports-table__home">${p1}</div>
-          <div class="sports-table__away">${p2}</div>
-        </div>
-        <div class="sports-table__td sports-table__odds txt-c"><ul>${oddsHtml}</ul></div>
-      </div>`;
-  }).join("\n");
-
-  return `<!DOCTYPE html><html><body>
-    <div class="sports-view__crumbs">Basketball > USA > WNBA</div>
-    <div class="sports-head table"><div class="sports-head__date"><span>Thu 1 Oct</span></div></div>
-    <div class="sports-table">${rowsHtml}</div>
-  </body></html>`;
-}
-
-test("attributes each row's date from its .sports-table's own preceding .sports-head.table sibling", () => {
-  const dom = new JSDOM(buildWnbaDateGroupedPage());
-  const result = parseFixturesFromDocument(dom.window.document, {
-    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
-    capturedAtUtc: "2026-09-30T17:03:00Z",
-  });
-
-  assert.equal(result.fixture_row_count, 3);
-  for (const fixture of result.fixtures) {
-    assert.equal(fixture.date_text_raw, "Thu 1 Oct");
-  }
-});
-
-test("extracts the confirmed WNBA 3way market with real odds, mapping 1B/XB/2B to 1/X/2", () => {
-  const dom = new JSDOM(buildWnbaDateGroupedPage());
-  const result = parseFixturesFromDocument(dom.window.document, {
-    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
-    capturedAtUtc: "2026-09-30T17:03:00Z",
-  });
-
-  assert.deepEqual(result.fixtures[0].three_way_odds, { "1": "2.35", X: "13.00", "2": "1.73" });
-  assert.deepEqual(result.fixtures[1].three_way_odds, { "1": "2.60", X: "14.80", "2": "1.59" });
-  assert.deepEqual(result.fixtures[2].three_way_odds, { "1": "1.63", X: "14.30", "2": "2.50" });
-});
-
-test("parseThreeWayOdds returns null when a row has no 3way market", () => {
-  const dom = new JSDOM(
-    `<!DOCTYPE html><html><body><div id="prematch_event-1"><div class="sports-table__home">A</div></div></body></html>`
-  );
-  const row = dom.window.document.querySelector("#prematch_event-1");
-  assert.equal(parseThreeWayOdds(row, "1"), null);
-});
-
-test("empty_state_status is CONFIRMED_EMPTY only with zero rows AND the exact confirmed marker text", () => {
-  const confirmedEmptyDom = new JSDOM(`<!DOCTYPE html><html><body>
-    <div class="sports-view__crumbs">Basketball > USA > WNBA</div>
-    <div class="gen__holder"><div class="search-results"><div class="gen__txt">There are no markets available.</div></div></div>
-  </body></html>`);
-  const confirmedEmpty = parseFixturesFromDocument(confirmedEmptyDom.window.document, {
-    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
-    capturedAtUtc: "2026-09-30T15:33:17.696Z",
-  });
-  assert.equal(confirmedEmpty.fixture_row_count, 0);
-  assert.equal(confirmedEmpty.empty_state_status, "CONFIRMED_EMPTY");
-
-  const unknownEmptyDom = new JSDOM(`<!DOCTYPE html><html><body>
-    <div class="sports-view__crumbs">Basketball > USA > WNBA</div>
-  </body></html>`);
-  const unknownEmpty = parseFixturesFromDocument(unknownEmptyDom.window.document, {
-    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
-    capturedAtUtc: "2026-09-30T15:33:17.696Z",
-  });
-  assert.equal(unknownEmpty.empty_state_status, "UNKNOWN_EMPTY");
-
-  const notEmptyDom = new JSDOM(buildWnbaDateGroupedPage());
-  const notEmpty = parseFixturesFromDocument(notEmptyDom.window.document, {
-    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
-    capturedAtUtc: "2026-09-30T15:31:43.000Z",
-  });
-  assert.equal(notEmpty.empty_state_status, "NOT_EMPTY");
-});
-
-test("falls back to .table-f > :first-child for kickoff time when .sports-table__time is absent", () => {
-  const dom = new JSDOM(`<!DOCTYPE html><html><body>
-    <div class="sports-table">
-      <div id="prematch_event-1">
-        <div class="table-f"><span>19:00</span></div>
-        <div class="sports-table__home">A</div>
-        <div class="sports-table__away">B</div>
-      </div>
-    </div>
-  </body></html>`);
-  const result = parseFixturesFromDocument(dom.window.document, {
-    href: "https://sports.bet9ja.com/competition/handball/germany/bundesliga/6-1-1",
-    capturedAtUtc: "2026-09-30T17:03:00Z",
-  });
-  assert.equal(result.fixtures[0].kickoff_time_raw, "19:00");
-});
-
-// Real row markup, byte-verified from two real raw `outerHTML` snapshots
-// (Basketball/WNBA 2026-09-30T16:23:42Z and Ice Hockey/Russia/KHL
-// 2026-09-30T16:26:27Z): the `prematch_event-<id>` id is on the
-// `.sports-table__matchup` CELL, a SIBLING of `.sports-table__time` and
-// every odds cell -- not their parent. All are children of one shared
-// `.table-f` row wrapper. This is what `resolveRowContainer` in
-// fixture_parser.js exists to handle; earlier tests in this file used an
-// (incorrect) flat nesting that masked this because of the module's own
-// same-element fallback -- this test uses the REAL nesting instead, so
-// it actually exercises the `.closest('.table-f')` path.
-function buildRealNestedRowPage({ breadcrumb, dateText, fixtureId, time, p1, p2, threeWay }) {
-  const oddsHtml = threeWay
-    ? Object.entries(threeWay)
-        .map(
-          ([sign, value]) =>
-            `<li class="sports-table__odds-item dib pt10" id="prematch_event-${fixtureId}_event-${fixtureId}_odds_market-3way_sign-${sign}">${value}</li>`
-        )
-        .join("")
-    : "";
-
-  return `<!DOCTYPE html><html><body>
-    <div class="sports-view__crumbs">${breadcrumb}</div>
-    <div class="sports-head table"><div class="sports-head__date table-cell pl15"><span>${dateText}</span></div></div>
-    <div class="sports-table">
-      <div class="table-f">
-        <div class="sports-table__td sports-table__time txt-c"><span>${time}</span></div>
-        <div class="sports-table__td sports-table__matchup pr10" id="prematch_event-${fixtureId}">
-          <div class="sports-table__home txt-cut">${p1}</div>
-          <div class="sports-table__away txt-cut">${p2}</div>
-        </div>
-        <div class="sports-table__td sports-table__odds txt-c"><ul class="sports-table__odds-list f0">${oddsHtml}</ul></div>
-      </div>
-    </div>
-  </body></html>`;
-}
-
-test("resolves kickoff time and date across the real .table-f sibling structure (real Ice Hockey/KHL row: HC Sochi vs Salavat Yulaev UFA)", () => {
-  const dom = new JSDOM(
-    buildRealNestedRowPage({
-      breadcrumb: "Ice Hockey>Russia>KHL",
-      dateText: "Wed 30 Sep",
-      fixtureId: "842493730",
-      time: "17:30",
-      p1: "HC Sochi",
-      p2: "Salavat Yulaev UFA",
-    })
-  );
-  const result = parseFixturesFromDocument(dom.window.document, {
-    href: "https://sports.bet9ja.com/competition/icehockey/russia/khl/4-44083-4714776",
-    capturedAtUtc: "2026-09-30T16:26:27.020Z",
-  });
-
-  assert.equal(result.fixture_row_count, 1);
-  assert.equal(result.fixtures[0].kickoff_time_raw, "17:30");
-  assert.equal(result.fixtures[0].date_text_raw, "Wed 30 Sep");
-  assert.equal(result.fixtures[0].participant_1, "HC Sochi");
-  assert.equal(result.fixtures[0].participant_2, "Salavat Yulaev UFA");
-});
-
-test("resolves the 3way market across the real .table-f sibling structure (real WNBA row: Washington Mystics vs Atlanta Dream)", () => {
-  const dom = new JSDOM(
-    buildRealNestedRowPage({
-      breadcrumb: "Basketball>USA>WNBA",
-      dateText: "Thu 1 Oct",
-      fixtureId: "842933379",
-      time: "00:00",
-      p1: "Washington Mystics",
-      p2: "Atlanta Dream",
-      threeWay: { "1B": "2.35", XB: "13.00", "2B": "1.73" },
-    })
-  );
-  const result = parseFixturesFromDocument(dom.window.document, {
-    href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871",
-    capturedAtUtc: "2026-09-30T16:23:42.845Z",
-  });
-
-  assert.equal(result.fixtures[0].kickoff_time_raw, "00:00");
-  assert.deepEqual(result.fixtures[0].three_way_odds, { "1": "2.35", X: "13.00", "2": "1.73" });
+  assert.equal(result.empty_state_status, "UNKNOWN_EMPTY");
 });

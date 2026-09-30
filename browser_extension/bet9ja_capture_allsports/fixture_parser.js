@@ -46,14 +46,14 @@
  *    sibling `.sports-head.table`'s `.sports-head__date > span` text
  *    (e.g. "Thu 1 Oct") -- both are children of the same date-group
  *    wrapper. Rows inside a `.sports-table` with no such preceding
- *    sibling get `date_text_raw: null`, never a guessed date. This
- *    capture's own `row_time_selector` (`.table-f > :first-child`) is
- *    offered as a FALLBACK behind the already byte-verified
- *    `.sports-table__time`, since the latter has independent raw-HTML
- *    confirmation this capture's own selector doesn't yet have.
- *    Resolving `date_text_raw`/`kickoff_time_raw` to actual UTC is
- *    explicitly NOT done here -- this capture's own parser_rule says so:
- *    "Do not resolve UTC until the capture timezone policy is explicitly
+ *    sibling get `date_text_raw: null`, never a guessed date. (An
+ *    earlier claimed `.table-f > :first-child` fallback for kickoff time
+ *    was retired once real bytes showed `.sports-table__time` is simply
+ *    the row's own `.table-f`'s first child -- see the CORRECTION note
+ *    below; there is no separate fallback path.) Resolving
+ *    `date_text_raw`/`kickoff_time_raw` to actual UTC is explicitly NOT
+ *    done here -- this capture's own parser_rule says so: "Do not
+ *    resolve UTC until the capture timezone policy is explicitly
  *    implemented."
  *  - **Empty-state marker** (`CONFIRMED_FROM_RAW_SNAPSHOT`, WNBA only):
  *    `.gen__holder .search-results .gen__txt` with the exact text "There
@@ -96,12 +96,20 @@
  * Querying time/odds as descendants of the id'd element (this module's
  * own earlier code) silently returned null/empty in production despite
  * passing tests -- the tests' own synthetic markup wrongly nested time
- * inside the row div. Fixed via `resolveRowContainer` (`rowEl.closest(
- * '.table-f')`, falling back to `rowEl` itself if absent) shared by
+ * inside the row div. Fixed via `resolveRowContainer` (`fixtureEl.closest(
+ * '.table-f')`, no fallback -- see its own comment) shared by
  * `resolveKickoffTime` and `parseThreeWayOdds`; `.sports-table__home`/
  * `__away` needed no fix -- those genuinely are children of the matchup
  * cell. Independently confirmed on a second, different sport/competition
- * (Ice Hockey/KHL, 4 real rows) -- not a WNBA-specific quirk.
+ * (Ice Hockey/KHL, 4 real rows in the byte-verified
+ * `2026-09-30T16:26:27.020Z` raw snapshot, source_url
+ * `.../competition/icehockey/russia/khl/4-44083-4714776`) -- not a
+ * WNBA-specific quirk. `tests/fixture_parser.test.js` now loads REAL
+ * fragments cut (via jsdom's own `outerHTML`, not hand-typed) from three
+ * raw snapshots -- WNBA populated (16:23:42Z), WNBA confirmed-empty
+ * (15:33:17Z), and Ice Hockey/KHL populated (16:26:27Z) -- in
+ * `tests/fixtures/`, replacing the synthetic markup that originally
+ * masked this bug.
  *
  * Also corrected: the WNBA-3way capture's claimed
  * `#marketsmenu_market_dropdown` toggle is NOT present in either real
@@ -160,25 +168,21 @@
 
   /**
    * The fixture row's own `.table-f` wrapper -- see ROW STRUCTURE header
-   * note. `rowEl` (the `prematch_event-<id>` element) is the MATCHUP
+   * note. `fixtureEl` (the `prematch_event-<id>` element) is the MATCHUP
    * cell only, a SIBLING of the time/odds cells, not their parent; time
    * and odds must be looked up in this shared container, never as
-   * descendants of `rowEl` itself. Falls back to `rowEl` if no
-   * `.table-f` ancestor is found (so a differently-structured sport
-   * still gets a best-effort lookup rather than a hard failure).
+   * descendants of `fixtureEl` itself. No fallback if `.table-f` isn't
+   * found -- byte-verified real evidence (WNBA and Ice Hockey/KHL) shows
+   * this wrapper on every real row seen so far; a sport that genuinely
+   * lacks it needs its own evidenced handling, not a guessed substitute.
    */
-  function resolveRowContainer(rowEl) {
-    return (typeof rowEl.closest === 'function' && rowEl.closest(SELECTORS.rowContainer)) || rowEl;
+  function resolveRowContainer(fixtureEl) {
+    return fixtureEl.closest(SELECTORS.rowContainer);
   }
 
-  function resolveKickoffTime(rowContainer) {
-    const primary = text(rowContainer.querySelector(SELECTORS.time));
-    if (primary) return primary;
-    // `rowContainer` is itself the `.table-f` row wrapper (see
-    // resolveRowContainer), so the fallback is simply its own first
-    // element child -- byte-verified (2026-09-30T16:23Z) to be the same
-    // node `.sports-table__time` resolves to on a real WNBA page.
-    return text(rowContainer.firstElementChild) || null;
+  function resolveKickoffTime(fixtureEl) {
+    const row = resolveRowContainer(fixtureEl);
+    return text(row && row.querySelector(SELECTORS.time)) || null;
   }
 
   /**
@@ -198,24 +202,22 @@
 
   /**
    * Extracts the confirmed WNBA "3way" market for one row, keyed by its
-   * own event id. Odds items are looked up in `rowContainer` (the row's
-   * `.table-f` wrapper -- see ROW STRUCTURE header note), NOT as
-   * descendants of the matchup element itself; they are siblings of it.
-   * Returns null if no matching odds items are found -- this market is
-   * not present on every fixture, and absence is not itself an error.
+   * own event id. Odds items are looked up in the row's `.table-f`
+   * wrapper (see ROW STRUCTURE header note), NOT as descendants of the
+   * matchup element itself; they are siblings of it. Returns null if no
+   * matching odds items are found -- this market is not present on every
+   * fixture, and absence is not itself an error.
    */
-  function parseThreeWayOdds(rowContainer, fixtureId) {
+  function parseThreeWayOdds(fixtureEl, fixtureId) {
+    const row = resolveRowContainer(fixtureEl);
+    if (!row) return null;
+
     const prefix = `prematch_event-${fixtureId}_event-${fixtureId}_odds_market-3way_sign-`;
-    const items = Array.from(rowContainer.querySelectorAll('[id^="prematch_event-"]')).filter((el) =>
-      el.id.startsWith(prefix)
-    );
-    if (items.length === 0) return null;
     const odds = {};
-    for (const el of items) {
+    for (const el of row.querySelectorAll(`[id^="${prefix}"]`)) {
       const signCode = el.id.slice(prefix.length);
       const outcome = THREE_WAY_SIGN_MAP[signCode];
-      if (!outcome) continue;
-      odds[outcome] = text(el) || null;
+      if (outcome) odds[outcome] = text(el);
     }
     return Object.keys(odds).length > 0 ? odds : null;
   }
@@ -224,14 +226,13 @@
     const fixtureId = rowEl.id.match(FIXTURE_ROW_ID_PATTERN)[1];
     const participant1 = text(rowEl.querySelector(SELECTORS.home));
     const participant2 = text(rowEl.querySelector(SELECTORS.away));
-    const rowContainer = resolveRowContainer(rowEl);
     return {
       fixture_id: fixtureId,
       participant_1: participant1 || null,
       participant_2: participant2 || null,
-      kickoff_time_raw: resolveKickoffTime(rowContainer),
+      kickoff_time_raw: resolveKickoffTime(rowEl),
       date_text_raw: dateTextRaw,
-      three_way_odds: parseThreeWayOdds(rowContainer, fixtureId),
+      three_way_odds: parseThreeWayOdds(rowEl, fixtureId),
       missing_participants: !participant1 || !participant2,
     };
   }

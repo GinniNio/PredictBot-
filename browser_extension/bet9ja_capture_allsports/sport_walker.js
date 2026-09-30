@@ -334,6 +334,19 @@
         results.push(result);
         competitionsVisited += 1;
 
+        // "Missing competition" and "failed content validation" are both
+        // explicit required failure-record types -- recorded here
+        // alongside the per-competition `results[]` entry (which already
+        // carries the fuller detail: which of the two happened, and any
+        // observed breadcrumb) rather than instead of it.
+        if (result.parse_result === 'invalid_content_mismatch') {
+          failures.push({
+            stage: result.failure_reason === 'COMPETITION_LINK_NOT_FOUND_AT_CLICK_TIME' ? 'MISSING_COMPETITION' : 'CONTENT_VALIDATION',
+            competition_id: competitionEntry.competition_id,
+            reason: result.failure_reason,
+          });
+        }
+
         // "Return to / reopen sport and continue" -- the navigation just
         // taken may have replaced the DOM entirely (rule 2), so both the
         // sport and this same group are re-expanded fresh before the

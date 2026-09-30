@@ -136,11 +136,22 @@ cell. Querying them as descendants of the id'd element (this module's own
 earlier code) silently returned `null`/empty in production despite
 passing tests, because the tests' own synthetic markup wrongly nested
 everything inside the row div. Fixed via `resolveRowContainer`
-(`rowEl.closest('.table-f')`); independently confirmed on a second real
-sport/competition (Ice Hockey/KHL, not just WNBA). Also corrected: the
-earlier claim of a `#marketsmenu_market_dropdown` toggle for selecting
-the "3way" market does not hold up against either real snapshot — it's a
-plain market-category tab, not a dropdown, and is not implemented here.
+(`fixtureEl.closest('.table-f')`, no fallback — a sport genuinely lacking
+this wrapper needs its own evidenced handling, not a guess); independently
+confirmed on a second real sport/competition (Ice Hockey/KHL, not just
+WNBA — byte-verified from the raw `2026-09-30T16:26:27.020Z` snapshot,
+`source_url` `.../icehockey/russia/khl/4-44083-4714776`). Also corrected:
+an earlier claim of a `#marketsmenu_market_dropdown` toggle for selecting
+the "3way" market does not hold up against either real WNBA snapshot —
+`3way` is a plain `.sports-view__bar-markets` category label; its odds
+are read from sibling `.sports-table__odds-item` cells by id
+(`..._odds_market-3way_sign-1B|XB|2B`), never from a dropdown control id
+or type. `tests/fixture_parser.test.js` now loads real fragments cut
+directly from three raw snapshots via jsdom's own `outerHTML` (not
+hand-typed) — WNBA populated (16:23:42Z), WNBA confirmed-empty
+(15:33:17Z), Ice Hockey/KHL populated (16:26:27Z) — under
+`tests/fixtures/`, replacing the synthetic markup that originally masked
+this bug.
 
 ## Stage 3: sport walker (`sport_walker.js`)
 
@@ -182,6 +193,18 @@ navigation can replace the DOM entirely (per the operator's own rule),
 and competitions are tracked by their own stable `competition_id`, never
 array position, matching this project's established resume discipline
 elsewhere (`bet9ja_capture/soccer_walker.js`).
+
+**`failures[]` covers every required record type**: `EXPAND_SPORT`
+(sport root missing or never expands), `OPEN_GROUP` (a group's own
+toggle missing, or its competitions never render), `REOPEN_SPORT` (the
+sport fails to re-expand after a navigation), `MISSING_COMPETITION` (a
+competition's own link isn't found at the moment it's clicked — e.g. it
+didn't survive a reopen), and `CONTENT_VALIDATION` (the click timed out,
+or its resulting breadcrumb didn't match). The last two are recorded
+here *in addition to* their own `results[]` entry (`invalid_content_
+mismatch`, with `failure_reason` for detail) — `failures[]` is the flat
+list of everything that went wrong; `results[]` is the full per-
+competition record.
 
 **What's still unconfirmed (no live browser access to test against):**
 exact accordion open/closed state selectors (this sidebar has no
