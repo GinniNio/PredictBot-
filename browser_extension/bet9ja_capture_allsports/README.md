@@ -59,13 +59,48 @@ those are the sports already showing up in the real settled-ticket data
 this session has seen (ATP Challenger tennis, KHL/DEL 2/F-Liiga hockey,
 Liga ACB basketball).
 
-## What happens after that
+## Stage 2: fixture parser (`fixture_parser.js`)
 
-Once real snapshots exist, stage 2 builds the actual per-sport fixture
-parser(s) against them — modeled on `bet9ja_capture/soccer_walker.js`'s
-own checkpointed-session design, but for whichever sports the snapshots
-cover. Two things worth deciding once real evidence is in hand, not
-before:
+`parseFixturesFromDocument(documentLike, { href, capturedAtUtc })` extracts
+fixture rows from a single competition page's DOM. It reuses, unchanged,
+the row-anchor and participant selectors already confirmed for Soccer in
+`bet9ja_capture/parser.js`:
+
+- Row anchor: an element `id` matching exactly `prematch_event-<digits>`
+  (`[id^="prematch_event-"]` also matches descendant odds/dropdown
+  controls that repeat the same id with a suffix — e.g.
+  `..._odds_market-1x2_sign-1` — so an exact-match filter excludes them).
+- Participants: `.sports-table__home` / `.sports-table__away`.
+- Kickoff time: `.sports-table__time`.
+- Breadcrumb: `.sports-view__crumbs`.
+- Sport identification: parsed from the page's own URL
+  (`/competition/{sport-slug}/...`), same as the existing Soccer parser's
+  fallback.
+
+**Evidence backing this, by tier (2026-09-30):**
+
+| Sport | Evidence tier |
+|---|---|
+| Tennis, Basketball/WNBA, Ice Hockey/NHL, American Football/NFL | Byte-verified against real raw page `outerHTML` (stage-1 snapshot tool) |
+| Volleyball, Handball | "DOM extraction contract" — a structured live-inspection summary reporting the identical selectors, not raw HTML bytes |
+
+Both tiers report the exact same `fixture_row_selector` and
+`participant_model`, so `fixture_parser.js` does not branch on tier — but
+the distinction is kept here rather than glossed over, since the contract
+tier for Volleyball/Handball has not been independently byte-verified the
+way the other four sports were. `tests/fixture_parser.test.js` encodes
+every real fixture row from all four 2026-09-30 DOM contracts
+(Handball, Volleyball, Ice Hockey, Tennis) as its own test fixture.
+
+**Not yet built:** date-group attribution (e.g. "Thu 1 Oct") — no
+date-header selector has been captured yet, so `fixture_parser.js`
+returns fixtures without a date field rather than guessing one. A
+confirmed empty-state check (`"There are no markets available."`) is also
+not wired in yet — callers that need to distinguish "genuinely empty"
+from "parser found nothing" should check for that text themselves until
+then.
+
+## What's still open
 
 - **Scope per sport**: soccer's `1X2` market is the only market this
   project's forecasting adapter (`soccer_1x2_elo_v1`) currently
@@ -74,11 +109,11 @@ before:
   engine and research queue (market-quality screening, EV calculation)
   exactly like Soccer's abstentions already do today — it does **not**
   produce a forecast for that sport until a matching adapter is built.
-  Worth being explicit about that gap now rather than after the capture
-  tool exists.
-- **One extension vs. several**: Bet9ja may render Tennis/Basketball/Ice
-  Hockey/etc. similarly enough to share one walker, or different enough
-  to need separate ones per sport family — real snapshots will show which.
+- **One parser vs. several**: every sport evidenced so far shares one row
+  shape, so `fixture_parser.js` is deliberately generic rather than
+  per-sport. A sport whose markup diverges (a different row anchor, no
+  home/away split — e.g. Outrights, which has no two-participant matchup
+  at all) would need its own handling, not yet built.
 
 ## Files
 
