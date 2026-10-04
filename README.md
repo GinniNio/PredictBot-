@@ -6,16 +6,10 @@
 python app.py
 ```
 
-This opens http://localhost:8000. Drop Bet9ja capture JSON files from the browser extension onto the page. Uploaded files are saved unchanged to `my_captures/`, which is gitignored. The app also reads `captures/`. It needs Python 3.10+, nothing to install, and never writes to the ledgers.
+This opens http://localhost:8000. It reads every Bet9ja capture in your Downloads folder, `captures/` and `my_captures/` (gitignored). Capture with the extension, then refresh the page. It needs Python 3.10+ and nothing else installed, and it never writes to the ledgers.
 
-- **Fixtures**: the newest `bet9ja-soccer-all-*` capture. Each row shows the odds, the market's fair probabilities with the margin removed, and the Elo model's probabilities with an edge figure for leagues the model covers.
-- **My bets**: every ticket from open and settled bet captures, using the newest capture of each ticket, with stake and won/lost totals.
-
-A deterministic, host-neutral statistical calculation package for sports betting analysis: a universal market-pricing engine, a registered per-sport forecasting adapter, and a decision layer that gates real-money staking behind evidence.
-
-Zero runtime dependencies. Pure Python stdlib throughout (`pyproject.toml`: `dependencies = []`).
-
----
+- **My record**: money staked and returned, and profit or loss. Bet9ja doesn't show payouts for settled system tickets, so returns are calculated from leg results and stake buckets. Picks are broken down by sport, odds band, market and competition, along with results by ticket size and by day.
+- **Fixtures**: the newest `bet9ja-soccer-all-*` capture with fair probabilities (margin removed), and the Elo model where it covers the league.
 
 ## What PredictBot currently does
 
