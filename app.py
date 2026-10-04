@@ -1,10 +1,12 @@
 """PredictBot local web app.
 
-    python app.py            -> opens http://localhost:8000
+    python app.py                         -> opens http://localhost:8000
+    python app.py C:/Users/hp/Downloads D:/Bet9ja   -> also read these folders
 
 Drop Bet9ja capture JSON files (from the browser extension) onto the page,
 or put them in my_captures/ yourself. The app reads every capture in
-captures/ and my_captures/ and shows:
+captures/, my_captures/ and any folders given on the command line
+(subfolders included) and shows:
 
   Fixtures  - latest odds capture: bookmaker odds, the market's fair
               probabilities (margin removed), and the Elo model's
@@ -40,11 +42,14 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
 # ---------------------------------------------------------------- loading
 
 def load_captures() -> list[tuple[Path, dict]]:
-    found = []
+    found, seen = [], set()
     for base in SCAN_DIRS:
         if not base.exists():
             continue
         for path in sorted(base.rglob("*.json")):
+            if not path.name.startswith(("bet9ja-", "PredictBot_")) or path.resolve() in seen:
+                continue
+            seen.add(path.resolve())
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -356,8 +361,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    for arg in sys.argv[1:]:
+        folder = Path(arg).expanduser().resolve()
+        if not folder.is_dir():
+            sys.exit(f"Not a folder: {folder}")
+        SCAN_DIRS.append(folder)
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://localhost:{PORT}"
+    print("Reading captures from:", *SCAN_DIRS, sep="\n  ")
     print(f"PredictBot running at {url}  (Ctrl+C to stop)")
     webbrowser.open(url)
     try:
