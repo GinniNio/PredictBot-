@@ -6,7 +6,10 @@
       key: 'oddsportal', label: 'OddsPortal', hosts: ['oddsportal.com', 'www.oddsportal.com'],
       // Live fixture links use /<sport>/h2h/<participant>-<token>/
       // <participant>-<token>/; the final eight-character hash is optional.
-      isEventUrl: (url) => /^\/[a-z-]+\/h2h\/[^/]+-[A-Za-z0-9]{8}\/[^/]+-[A-Za-z0-9]{8}(?:\/[^/]+)?\/?$/.test(url.pathname),
+      // In-play tabs (/inplay-odds/) are not pre-match prices and are skipped.
+      isEventUrl: (url) => /^\/[a-z-]+\/h2h\/[^/]+-[A-Za-z0-9]{8}\/[^/]+-[A-Za-z0-9]{8}(?:\/[^/]+)?\/?$/.test(url.pathname)
+        && !url.pathname.includes('/inplay-odds'),
+      settleMs: 5000,   // [UNVERIFIED] wait for the bookmaker table to render
       discoveryStatus: 'READY',
     },
     {

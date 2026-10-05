@@ -316,6 +316,36 @@ class PolymarketSoccer(unittest.TestCase):
         self.assertEqual(odds_sources.match_quote(cand, [q])[1], [2, 1, 0])
 
 
+class OddsPortal(unittest.TestCase):
+    def page(self, rows, url="https://www.oddsportal.com/football/h2h/belgium-GbB957na/france-QkGeVG1n/#EmmmJQ3L"):
+        body = "".join(f"<div>{n}</div><span>claim bonus</span><p>{a}</p><p>{x}</p><p>{b}</p><p>{pay}%</p>"
+                       for n, a, x, b, pay in rows)
+        html = ("<html><body><div>Today,</div><div>05 Oct 2026,</div><div>22:45</div><div>Bookmakers</div><div>1</div>"
+                "<div>X</div><div>2</div><div>Payout</div>" + body + "<div>My coupon</div>"
+                "<div>Betting Exchanges</div><div>Betfair Exchange</div><p>1.51</p></body></html>")
+        return {"source_key": "oddsportal", "browser_utc_offset_minutes": 240,
+                "captures": [{"role": "event", "capture_status": "CAPTURE_OK", "captured_at_utc": "2026-10-05T16:47:00Z",
+                              "source_url": url, "page_title": "France - Belgium Odds, Predictions & H2H | OddsPortal",
+                              "html": html}]}
+
+    def test_average_of_bookmakers(self):
+        import odds_sources
+        rows = [("1xBet", 1.50, 4.75, 6.50, 97.0), ("bet365", 1.48, 4.50, 6.00, 93.9), ("Betsson", 1.48, 4.30, 6.30, 93.7),
+                ("22Bet", 1.47, 4.64, 6.35, 94.9), ("Stake.com", 1.46, 4.70, 6.00, 94.0)]
+        q = odds_sources.quotes_from_walk(self.page(rows))[0]
+        self.assertEqual((q["outcomes"], q["odds"], q["bookmakers"], q["start_utc"], q["sport"]),
+                         (["France", "Draw", "Belgium"], [1.478, 4.578, 6.23], 5, "2026-10-05T18:45Z", "soccer"))
+        self.assertIsNone(odds_sources.quote_problem(q))
+        self.assertTrue(odds_sources.quote_problem(odds_sources.quotes_from_walk(self.page(rows[:4]))[0])
+                        .startswith("only 4 bookmakers"))
+
+    def test_inplay_tab_ignored(self):
+        import odds_sources
+        rows = [("b%d" % i, 1.5, 4.5, 6.0, 94.0) for i in range(6)]
+        run = self.page(rows, url="https://www.oddsportal.com/football/h2h/a-AAAAAAAA/b-BBBBBBBB/inplay-odds/#x")
+        self.assertEqual(odds_sources.quotes_from_walk(run), [])
+
+
 class EndToEnd(unittest.TestCase):
     """Walker capture -> pack -> chat reply -> validated records -> bet ->
     settlement -> CLV and performance."""

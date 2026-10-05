@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PredictBot Public Odds Capture Walker",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Captures public, user-opened odds pages and follows only validated public event links. It does not log in, place bets, submit forms, or call private APIs.",
   "action": { "default_popup": "popup.html" },
   "background": { "service_worker": "background.js" },

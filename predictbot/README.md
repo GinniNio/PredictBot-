@@ -30,6 +30,8 @@ Each time a page loads, the app copies new `bet9ja-*.json` files from your Downl
 
 A price is compared with the **same market, same settlement, same day** from one source, in this order: Pinnacle, then the oddsportal average, then oddschecker's best prices, then **Polymarket**. The operator added Polymarket as a fourth source on 2026-10-05, a change to PCBF Mini v1.3.
 
+**OddsPortal from captured pages.** Run the extension on an OddsPortal sport page such as `/football/`. Match pages are read for their bookmaker table, and the benchmark is the **average** of all bookmaker rows (exchanges excluded, at least 5 bookmakers). That's the rulebook's "oddsportal average". In-play tabs are skipped. Kickoff times on the page are in the browser's local time, which the extension records (0.2.2+).
+
 **Polymarket from captured pages.** Use the `public-odds-capture-walker` extension on a **pre-match** Polymarket sports page (e.g. `/sports/atp`, not `/sports/live`). On the Candidates page, click **Benchmark from captured odds pages**. Two-way fixtures are matched by sport, both surnames and a kickoff within 3h. They're priced from Polymarket's mid prices without a chat. A quote isn't used if it was captured after the event's `gameStartTime` (in-play). It's logged as RESEARCH if its moneyline traded under $5,000 or its bid/ask spread is wider than 0.04. Edge = Bet9ja price × fair probability − 1. The fair probability is the more cautious of the proportional and power de-vigs, using the rulebook's code verbatim (`pcbf.py`).
 
 ## Tiers

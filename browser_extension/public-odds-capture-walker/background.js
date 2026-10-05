@@ -55,6 +55,10 @@ async function walk(tabId, maxEvents, scope) {
     schema_version: 'public-odds-capture-walk.v1', capture_status: 'RUNNING',
     source_key: source.key, started_at_utc: new Date().toISOString(), seed_url: startUrl,
     discovered_links: [], captures: [], failures: [],
+    // Pages show kickoff in the browser's local time; record the offset so
+    // the app can convert it to UTC.
+    browser_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    browser_utc_offset_minutes: -new Date().getTimezoneOffset(),
   };
   await injectPageTools(tabId);
   const seed = await callPage(tabId, 'capture');
@@ -89,6 +93,9 @@ async function walk(tabId, maxEvents, scope) {
     try {
       await chrome.tabs.update(tabId, { url: target.url });
       if (!await waitForTabComplete(tabId)) throw new Error('PAGE_LOAD_TIMEOUT');
+      // Odds tables render after load (OddsPortal: 4 of 55 match pages had
+      // their table when captured immediately on 2026-10-05).
+      if (source.settleMs) await sleep(source.settleMs);
       await injectPageTools(tabId);
       const captured = await callPage(tabId, source.excerptPattern ? 'capture-excerpt' : 'capture');
       run.captures.push({ role: 'event', discovered_label_raw: target.label_raw, ...captured });

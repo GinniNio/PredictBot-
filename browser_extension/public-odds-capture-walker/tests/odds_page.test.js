@@ -110,3 +110,10 @@ test('Polymarket event capture keeps only the embedded market JSON', () => {
   assert.ok(r.html.includes(market));
   assert.ok(r.html.length < 13000 && r.html_length > 100000);
 });
+
+test('OddsPortal in-play tabs are not followed', () => {
+  const dom = new JSDOM('<a href="/football/h2h/cyprus-fumziNU3/latvia-WC2jLpW4/inplay-odds/#CKQADDDr">live</a>' +
+    '<a href="/football/h2h/belgium-GbB957na/france-QkGeVG1n/#EmmmJQ3L">pre</a>');
+  const r = discoverEventLinks(dom.window.document, 'https://www.oddsportal.com/football/');
+  assert.deepEqual(r.links.map((l) => l.label_raw), ['pre']);
+});

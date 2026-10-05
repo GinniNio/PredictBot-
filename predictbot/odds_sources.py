@@ -87,13 +87,69 @@ def polymarket_quotes(capture: dict) -> list[dict]:
     return []
 
 
-def quotes_from_walk(run: dict) -> list[dict]:
-    if run.get("source_key") != "polymarket":
+# ------------------------------------------------------------------ oddsportal
+
+MIN_ODDSPORTAL_BOOKMAKERS = 5
+OP_SPORT = {"football": "soccer", "tennis": "tennis", "basketball": "basketball", "hockey": "ice_hockey",
+            "baseball": "baseball", "handball": "handball", "volleyball": "volleyball", "darts": "darts",
+            "table-tennis": "table_tennis", "futsal": "futsal", "cricket": "cricket", "american-football": "american_football"}
+MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def _visible_text(html: str) -> str:
+    body = html[html.find("<body"):] if "<body" in html else html
+    t = re.sub(r"<script.*?</script>|<style.*?</style>|<svg.*?</svg>", "", body, flags=re.S)
+    t = re.sub(r"<[^>]+>", "|", t)
+    t = t.replace("&amp;", "&").replace("&nbsp;", " ").replace("&#x27;", "'")
+    return re.sub(r"\s*\|[\s|]*", "|", t)
+
+
+def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
+    """OddsPortal match page: the 'Bookmakers | 1 | X | 2 | Payout' table.
+    The benchmark is the average of every bookmaker row (betting exchanges
+    excluded), i.e. the 'oddsportal average' of the rulebook."""
+    url = (capture.get("source_url") or "").split("#")[0]
+    if "/h2h/" not in url or "inplay-odds" in url:
         return []
+    text = _visible_text(capture.get("html") or "")
+    head = re.search(r"\|Bookmakers\|((?:[12X]\|){2,3})Payout\|", text)
+    title = re.match(r"(.+?) - (.+?) Odds, Predictions", capture.get("page_title") or "")
+    if not head or not title:
+        return []
+    n = head.group(1).count("|")
+    table = text[head.end(): min(i for i in (text.find("|My coupon", head.end()), text.find("Betting Exchanges", head.end()),
+                                                len(text)) if i >= 0)]
+    row = re.compile(r"([^|]+)\|(?:claim bonus\|)?" + r"(\d+\.\d+)\|" * n + r"([\d.]+)%")
+    rows = [(m.group(1), [float(m.group(k)) for k in range(2, 2 + n)]) for m in row.finditer(table)]
+    if not rows:
+        return []
+    avg = [sum(r[1][k] for r in rows) / len(rows) for k in range(n)]
+    kick = None
+    km = re.search(r"\|(\d{2}) ([A-Za-z]{3}) (\d{4}),\|(\d{2}):(\d{2})\|", text)
+    if km and utc_offset_minutes is not None:
+        from datetime import datetime, timezone, timedelta
+        local = datetime(int(km.group(3)), MONTHS[km.group(2).lower()], int(km.group(1)), int(km.group(4)), int(km.group(5)))
+        kick = (local - timedelta(minutes=utc_offset_minutes)).replace(tzinfo=timezone.utc)
+    sm = re.search(r"oddsportal\.[a-z.]+/([a-z-]+)/", url)
+    home, away = title.group(1).strip(), title.group(2).strip()
+    outcomes = [home, "Draw", away] if n == 3 else [home, away]
+    probs = [1 / o for o in avg]
+    return [{"source": "oddsportal", "url": url, "league": "", "sport": OP_SPORT.get(sm.group(1) if sm else "", None),
+             "captured_at_utc": utc(parse_time(capture.get("captured_at_utc"))), "start_utc": utc(kick),
+             "outcomes": outcomes, "probs": probs, "odds": [round(o, 3) for o in avg], "bookmakers": len(rows),
+             "volume": None, "spread": None, "closed": False}]
+
+
+def quotes_from_walk(run: dict) -> list[dict]:
+    key = run.get("source_key")
     quotes = []
     for cap in run.get("captures") or []:
-        if cap.get("role") == "event" and cap.get("capture_status") == "CAPTURE_OK":
+        if cap.get("capture_status") != "CAPTURE_OK":
+            continue
+        if key == "polymarket" and cap.get("role") == "event":
             quotes.extend(polymarket_quotes(cap))
+        elif key == "oddsportal":
+            quotes.extend(oddsportal_quotes(cap, run.get("browser_utc_offset_minutes")))
     return quotes
 
 
@@ -104,6 +160,10 @@ def quote_problem(q: dict) -> str | None:
         return "market closed"
     if start and taken and taken >= start:
         return "captured after the event started (in-play price)"
+    if q["source"] == "oddsportal":
+        if q["bookmakers"] < MIN_ODDSPORTAL_BOOKMAKERS:
+            return f"only {q['bookmakers']} bookmakers listed (< {MIN_ODDSPORTAL_BOOKMAKERS})"
+        return None
     if q["volume"] < MIN_POLYMARKET_VOLUME:
         return f"thin market: ${q['volume']:,.0f} traded < ${MIN_POLYMARKET_VOLUME:,.0f}"
     if q["spread"] is not None and q["spread"] > MAX_POLYMARKET_SPREAD:
@@ -155,6 +215,8 @@ def match_quote(candidate: dict, quotes: list[dict]) -> tuple[dict, list[int]] |
         start = parse_time(q["start_utc"])
         if kick and start and abs(kick - start) > KICKOFF_TOLERANCE:
             continue
+        if kick and not start and q["captured_at_utc"][:10] not in (utc(kick)[:10], utc(kick - timedelta(days=1))[:10]):
+            continue   # no page kickoff time: require the capture to be on (or the day before) Bet9ja's date
         if len(q["outcomes"]) != n:
             continue
         a, b = q["outcomes"][0], q["outcomes"][-1]
@@ -169,6 +231,10 @@ def reply_fields(q: dict, order: list[int]) -> list[str]:
     """The same fields a chat reply line carries, so the core validates a
     captured quote exactly as it validates chat research."""
     prices = [1 / q["probs"][i] for i in order]
+    if q["source"] == "oddsportal":
+        note = "oddsportal average of %d bookmakers%s" % (q["bookmakers"], "" if q["start_utc"] else
+                                                           "; kickoff time not on page in UTC, matched by names + date")
+        return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices), note]
     mids = " / ".join("%.3f" % q["probs"][i] for i in order)
     spread = "" if q["spread"] is None else ", spread %.3f" % q["spread"]
     note = "polymarket mid %s, volume $%s%s" % (mids, format(round(q["volume"]), ","), spread)
