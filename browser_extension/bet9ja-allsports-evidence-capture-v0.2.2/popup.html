@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bet9ja All-Sports Evidence Capture</title>
+    <style>
+      body {
+        width: 340px;
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 12px;
+        color: #1a1a1a;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 8px;
+      }
+      p {
+        font-size: 12px;
+        color: #444;
+        margin: 0 0 10px;
+      }
+      button {
+        width: 100%;
+        padding: 10px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.6;
+      }
+      #status {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #444;
+        white-space: pre-wrap;
+      }
+      hr {
+        margin: 14px 0;
+        border: none;
+        border-top: 1px solid #ddd;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        margin: 8px 0 3px;
+      }
+      select,
+      input[type="number"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px;
+        font-size: 12px;
+      }
+      .warn {
+        background: #fff4e5;
+        border: 1px solid #f0c36d;
+        padding: 8px;
+        font-size: 11px;
+        border-radius: 4px;
+        margin-bottom: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Bet9ja All-Sports Evidence Capture</h1>
+    <p>
+      Stage 1: saves the raw, unparsed page source of whatever Bet9ja page
+      is currently open so a real fixture parser can be built against it.
+      Captures nothing about fixtures, odds, or your account -- just the
+      page's own HTML.
+    </p>
+    <button id="capture-button">Capture page snapshot</button>
+    <div id="status"></div>
+
+    <hr />
+    <h1>Stage 3: sport walker (experimental)</h1>
+    <div class="warn">
+      Untested against a real Bet9ja session -- every click-to-render
+      timeout in <code>sport_walker.js</code> is an unverified placeholder.
+      Start on a page with the left sidebar visible (any prematch or
+      competition page). This clicks through every group/competition for
+      the sport you pick; leave the caps below empty to visit everything,
+      or set them for a small first test.
+    </div>
+    <label for="sport-select">Sport</label>
+    <select id="sport-select"></select>
+    <label for="max-groups">Max groups (optional)</label>
+    <input type="number" id="max-groups" min="1" placeholder="no cap" />
+    <label for="max-competitions">Max competitions per group (optional)</label>
+    <input type="number" id="max-competitions" min="1" placeholder="no cap" />
+    <button id="walk-button" style="margin-top: 10px">Walk sport</button>
+    <div id="walk-status"></div>
+
+    <script src="catalogue_parser.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "PredictBot Bet9ja All-Sports Evidence Capture",
+  "version": "0.2.2",
+  "description": "Stage 1 of a separate, all-sports/all-fixtures Bet9ja capture tool (distinct from the existing Soccer-only bet9ja_capture extension): captures a raw, unparsed DOM snapshot of an already-open, already-authenticated Bet9ja page for building real per-sport fixture parsers against, rather than guessed selectors. No network requests, no account data, no bet placement, no cashout, no fixture parsing yet.",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "scripting", "downloads"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
