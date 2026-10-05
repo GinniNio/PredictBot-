@@ -163,6 +163,9 @@ class WalkerCapture(unittest.TestCase):
         self.assertEqual(pcbf.screen({**base, "home": "Real Madrid B"}, now), "youth / reserve / amateur")
         self.assertEqual(pcbf.screen({**base, "competition": "Zoom Soccer"}, now), "virtual / simulated event")
         self.assertEqual(pcbf.screen({**base, "kickoff_utc": ""}, now), "kickoff unknown")
+        self.assertEqual(pcbf.screen({**base, "home": "Odds BK 2", "away": "Viking FK 2"}, now), "youth / reserve / amateur")
+        self.assertEqual(pcbf.screen({**base, "kickoff_utc": "2026-10-03T10:45Z"}, now),
+                         "kicks off within 60 min (too soon to research)")
 
 
 def walker(sport, markets, home="A", away="B", fid="1", comp="League", url="https://sports.bet9ja.com/competition/x/germany/l/1"):
@@ -237,10 +240,10 @@ class EndToEnd(unittest.TestCase):
 
     def test_loop(self):
         pack = workflow.create_pack(self.df, self.now)
-        # Manzanares (14:30) onwards are in; the 14:30 game is the first code
-        self.assertEqual(len(pack["entries"]), 8)
+        # 8 futsal games; Manzanares (14:30) is within 60 min of 14:10, so 7 go out
+        self.assertEqual(len(pack["entries"]), 7)
         self.assertIn("Inter FS v Murcia FS", pack["text"])
-        self.assertEqual(len(self.df.read("capture")), 24)
+        self.assertEqual(len(self.df.read("capture")), 21)   # 7 games x 3 outcomes
         inter, benfica = self.code_for(pack, "Inter FS"), self.code_for(pack, "SL Benfica")
         parrulo, petrarca = self.code_for(pack, "O Parrulo"), self.code_for(pack, "Petrarca")
         reply = "\n".join([
@@ -318,7 +321,7 @@ class Batching(unittest.TestCase):
             p1 = workflow.create_pack(df, now, limit=5)
             p2 = workflow.create_pack(df, at("2026-10-03T14:11:00Z"), limit=5)
             ev = lambda p: {e["captures"][0]["event_id"] for e in p["entries"].values()}
-            self.assertEqual((len(p1["entries"]), len(p2["entries"]), p2["remaining"]), (5, 3, 0))
+            self.assertEqual((len(p1["entries"]), len(p2["entries"]), p2["remaining"]), (5, 2, 0))
             self.assertFalse(ev(p1) & ev(p2))
         finally:
             shutil.rmtree(tmp)

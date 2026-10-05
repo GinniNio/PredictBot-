@@ -19,6 +19,7 @@ NOTIONAL_STAKE = 25                   # PCBF Mini step 5, NGN
 GATE_PICKS = 200                      # PCBF Mini step 5
 MAX_CAPTURE_BENCHMARK_GAP = timedelta(hours=6)
 CLOCK_SKEW = timedelta(minutes=10)
+MIN_LEAD = timedelta(minutes=60)      # too close to kickoff to research and benchmark
 BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker")
 
 # ------------------------------------------------------------------ markets
@@ -75,7 +76,7 @@ BANNED_COMPETITION_COUNTRIES = {"turkey", "turkiye", "bulgaria", "united arab em
                                 "russia", "belarus", "iran"}
 YOUTH = re.compile(r"\b(u\s?-?\d{2}|under[\s-]?\d{2}|youth|juniors?|reserves?|amateur|"
                    r"semi[\s-]?pro|academy|primavera)\b", re.I)
-YOUTH_SUFFIX = re.compile(r"\s(b|ii|iii|u\d{2})$", re.I)
+YOUTH_SUFFIX = re.compile(r"\s(b|ii|iii|2|u\d{2})$", re.I)
 VIRTUAL = re.compile(r"zoom|virtual|simulated|\bsrl\b|e-?soccer|cyber|esports?", re.I)
 
 
@@ -312,6 +313,8 @@ def screen(c: dict, now: datetime) -> str | None:
         return "kickoff unknown"
     if kickoff <= now:
         return "already started"
+    if kickoff - now < MIN_LEAD:
+        return "kicks off within 60 min (too soon to research)"
     return None
 
 
