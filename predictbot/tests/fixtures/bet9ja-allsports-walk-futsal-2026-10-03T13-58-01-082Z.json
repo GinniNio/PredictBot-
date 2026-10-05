@@ -1,0 +1,625 @@
+{
+  "browser_timezone": "Asia/Dubai",
+  "browser_utc_offset_minutes": 240,
+  "capture_status": "COMPLETE",
+  "captured_at_utc": "2026-10-03T13:58:01.079Z",
+  "competitions_attempted": 5,
+  "competitions_failed": 0,
+  "competitions_seen": 5,
+  "competitions_successful": 5,
+  "competitions_validated": 5,
+  "failures": [],
+  "groups_discovered": 4,
+  "groups_failed": 0,
+  "groups_seen": 4,
+  "odds_fixtures_priced": 8,
+  "odds_fixtures_total": 8,
+  "odds_status": "ODDS_COMPLETE",
+  "results": [
+    {
+      "attempted_click": true,
+      "captured_at_utc": "2026-10-03T13:57:52.757Z",
+      "competition_id": "9011747",
+      "competition_label": "Liga Nacional",
+      "fixtures": [
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "845328280",
+          "kickoff_time_raw": "23:30",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T22:30:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1x2",
+              "selection_count": 3,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.36,
+                  "odds_raw": "1.36",
+                  "sign_raw": "1",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 5.5,
+                  "odds_raw": "5.50",
+                  "sign_raw": "X",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 5.45,
+                  "odds_raw": "5.45",
+                  "sign_raw": "2",
+                  "state": "open"
+                }
+              ]
+            },
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": "5.5",
+              "market_key": "over_under",
+              "selection_count": 2,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 2.2,
+                  "odds_raw": "2.20",
+                  "sign_raw": "O",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.56,
+                  "odds_raw": "1.56",
+                  "sign_raw": "U",
+                  "state": "open"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "Carlos Barbosa",
+          "participant_2": "Umuarama Futsal PR",
+          "priced_market_count": 2,
+          "three_way_odds": null
+        }
+      ],
+      "observed_competition_heading_raw": "Liga Nacional",
+      "observed_source_url_raw": "https://sports.bet9ja.com/competition/futsal/brazil/liganacional/180-49063-9011747",
+      "odds_coverage": {
+        "fixtures_total": 1,
+        "fixtures_with_priced_market": 1,
+        "status": "ODDS_COMPLETE"
+      },
+      "odds_wait_result": "NOT_NEEDED",
+      "parse_result": "populated",
+      "source_url_after_click": "https://sports.bet9ja.com/competition/futsal/brazil/liganacional/180-49063-9011747"
+    },
+    {
+      "attempted_click": true,
+      "captured_at_utc": "2026-10-03T13:57:54.822Z",
+      "competition_id": "8716704",
+      "competition_label": "Serie A",
+      "fixtures": [
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "830784877",
+          "kickoff_time_raw": "17:45",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T16:45:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1x2",
+              "selection_count": 3,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 5.4,
+                  "odds_raw": "5.40",
+                  "sign_raw": "1",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 5.9,
+                  "odds_raw": "5.90",
+                  "sign_raw": "X",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.34,
+                  "odds_raw": "1.34",
+                  "sign_raw": "2",
+                  "state": "open"
+                }
+              ]
+            },
+            {
+              "complete_market": true,
+              "fully_priced": false,
+              "line_raw": null,
+              "market_key": "over_under",
+              "selection_count": 2,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10 locked",
+                  "odds": null,
+                  "odds_raw": null,
+                  "sign_raw": "O",
+                  "state": "locked"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10 locked",
+                  "odds": null,
+                  "odds_raw": null,
+                  "sign_raw": "U",
+                  "state": "locked"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "Petrarca Calcio A Cinque",
+          "participant_2": "Came Treviso C5",
+          "priced_market_count": 1,
+          "three_way_odds": null
+        },
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "830784894",
+          "kickoff_time_raw": "18:00",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T17:00:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1x2",
+              "selection_count": 3,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.51,
+                  "odds_raw": "1.51",
+                  "sign_raw": "1",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 5.05,
+                  "odds_raw": "5.05",
+                  "sign_raw": "X",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 4.15,
+                  "odds_raw": "4.15",
+                  "sign_raw": "2",
+                  "state": "open"
+                }
+              ]
+            },
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": "5.5",
+              "market_key": "over_under",
+              "selection_count": 2,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.99,
+                  "odds_raw": "1.99",
+                  "sign_raw": "O",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.68,
+                  "odds_raw": "1.68",
+                  "sign_raw": "U",
+                  "state": "open"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "Fortitudo Pomezia",
+          "participant_2": "Calcio A 5 Giovinazzo",
+          "priced_market_count": 2,
+          "three_way_odds": null
+        }
+      ],
+      "observed_competition_heading_raw": "Serie A",
+      "observed_source_url_raw": "https://sports.bet9ja.com/competition/futsal/italy/seriea/180-48994-8716704",
+      "odds_coverage": {
+        "fixtures_total": 2,
+        "fixtures_with_priced_market": 2,
+        "status": "ODDS_COMPLETE"
+      },
+      "odds_wait_result": "NOT_NEEDED",
+      "parse_result": "populated",
+      "source_url_after_click": "https://sports.bet9ja.com/competition/futsal/italy/seriea/180-48994-8716704"
+    },
+    {
+      "attempted_click": true,
+      "captured_at_utc": "2026-10-03T13:57:56.803Z",
+      "competition_id": "8782384",
+      "competition_label": "1a Divisao",
+      "fixtures": [
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "845319109",
+          "kickoff_time_raw": "21:15",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T20:15:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1x2",
+              "selection_count": 3,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.18,
+                  "odds_raw": "1.18",
+                  "sign_raw": "1",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 8.25,
+                  "odds_raw": "8.25",
+                  "sign_raw": "X",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 7.55,
+                  "odds_raw": "7.55",
+                  "sign_raw": "2",
+                  "state": "open"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "SL Benfica",
+          "participant_2": "Leoes Porto Salvo",
+          "priced_market_count": 1,
+          "three_way_odds": null
+        }
+      ],
+      "observed_competition_heading_raw": "1a Divisao",
+      "observed_source_url_raw": "https://sports.bet9ja.com/competition/futsal/portugal/1adivisao/180-49047-8782384",
+      "odds_coverage": {
+        "fixtures_total": 1,
+        "fixtures_with_priced_market": 1,
+        "status": "ODDS_COMPLETE"
+      },
+      "odds_wait_result": "NOT_NEEDED",
+      "parse_result": "populated",
+      "source_url_after_click": "https://sports.bet9ja.com/competition/futsal/portugal/1adivisao/180-49047-8782384"
+    },
+    {
+      "attempted_click": true,
+      "captured_at_utc": "2026-10-03T13:57:59.022Z",
+      "competition_id": "8718031",
+      "competition_label": "Primera Division",
+      "fixtures": [
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "831278255",
+          "kickoff_time_raw": "15:30",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T14:30:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1x2",
+              "selection_count": 3,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 2.2,
+                  "odds_raw": "2.20",
+                  "sign_raw": "1",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 4.1,
+                  "odds_raw": "4.10",
+                  "sign_raw": "X",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 2.5,
+                  "odds_raw": "2.50",
+                  "sign_raw": "2",
+                  "state": "open"
+                }
+              ]
+            },
+            {
+              "complete_market": true,
+              "fully_priced": false,
+              "line_raw": null,
+              "market_key": "over_under",
+              "selection_count": 2,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10 locked",
+                  "odds": null,
+                  "odds_raw": null,
+                  "sign_raw": "O",
+                  "state": "locked"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10 locked",
+                  "odds": null,
+                  "odds_raw": null,
+                  "sign_raw": "U",
+                  "state": "locked"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "Manzanares FS",
+          "participant_2": "Cartagena FS",
+          "priced_market_count": 1,
+          "three_way_odds": null
+        },
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "831277889",
+          "kickoff_time_raw": "17:30",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T16:30:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1x2",
+              "selection_count": 3,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 2.2,
+                  "odds_raw": "2.20",
+                  "sign_raw": "1",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 4.55,
+                  "odds_raw": "4.55",
+                  "sign_raw": "X",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 2.35,
+                  "odds_raw": "2.35",
+                  "sign_raw": "2",
+                  "state": "open"
+                }
+              ]
+            },
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": "6.5",
+              "market_key": "over_under",
+              "selection_count": 2,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.95,
+                  "odds_raw": "1.95",
+                  "sign_raw": "O",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.7,
+                  "odds_raw": "1.70",
+                  "sign_raw": "U",
+                  "state": "open"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "Inter FS",
+          "participant_2": "Murcia FS",
+          "priced_market_count": 2,
+          "three_way_odds": null
+        },
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "831279199",
+          "kickoff_time_raw": "19:30",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T18:30:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1x2",
+              "selection_count": 3,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.85,
+                  "odds_raw": "1.85",
+                  "sign_raw": "1",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 4.65,
+                  "odds_raw": "4.65",
+                  "sign_raw": "X",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 2.9,
+                  "odds_raw": "2.90",
+                  "sign_raw": "2",
+                  "state": "open"
+                }
+              ]
+            },
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": "6.5",
+              "market_key": "over_under",
+              "selection_count": 2,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 2.05,
+                  "odds_raw": "2.05",
+                  "sign_raw": "O",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.63,
+                  "odds_raw": "1.63",
+                  "sign_raw": "U",
+                  "state": "open"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "O Parrulo Ferrol",
+          "participant_2": "FS Valdepenas",
+          "priced_market_count": 2,
+          "three_way_odds": null
+        }
+      ],
+      "observed_competition_heading_raw": "Primera Division",
+      "observed_source_url_raw": "https://sports.bet9ja.com/competition/futsal/spain/primeradivision/180-48960-8718031",
+      "odds_coverage": {
+        "fixtures_total": 3,
+        "fixtures_with_priced_market": 3,
+        "status": "ODDS_COMPLETE"
+      },
+      "odds_wait_result": "NOT_NEEDED",
+      "parse_result": "populated",
+      "source_url_after_click": "https://sports.bet9ja.com/competition/futsal/spain/primeradivision/180-48960-8718031"
+    },
+    {
+      "attempted_click": true,
+      "captured_at_utc": "2026-10-03T13:58:01.078Z",
+      "competition_id": "8659161",
+      "competition_label": "Segunda Division",
+      "fixtures": [
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "826021932",
+          "kickoff_time_raw": "18:00",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T17:00:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1x2",
+              "selection_count": 3,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.55,
+                  "odds_raw": "1.55",
+                  "sign_raw": "1",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 5.15,
+                  "odds_raw": "5.15",
+                  "sign_raw": "X",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 3.85,
+                  "odds_raw": "3.85",
+                  "sign_raw": "2",
+                  "state": "open"
+                }
+              ]
+            },
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": "5.5",
+              "market_key": "over_under",
+              "selection_count": 2,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.89,
+                  "odds_raw": "1.89",
+                  "sign_raw": "O",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.76,
+                  "odds_raw": "1.76",
+                  "sign_raw": "U",
+                  "state": "open"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "Colo Colo Zaragoza",
+          "participant_2": "CD Melistar FS",
+          "priced_market_count": 2,
+          "three_way_odds": null
+        }
+      ],
+      "observed_competition_heading_raw": "Segunda Division",
+      "observed_source_url_raw": "https://sports.bet9ja.com/competition/futsal/spain/segundadivision/180-48960-8659161",
+      "odds_coverage": {
+        "fixtures_total": 1,
+        "fixtures_with_priced_market": 1,
+        "status": "ODDS_COMPLETE"
+      },
+      "odds_wait_result": "NOT_NEEDED",
+      "parse_result": "populated",
+      "source_url_after_click": "https://sports.bet9ja.com/competition/futsal/spain/segundadivision/180-48960-8659161"
+    }
+  ],
+  "schema_version": "bet9ja-allsports-sport-walk.v2.1",
+  "sport": "futsal"
+}

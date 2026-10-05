@@ -1,0 +1,132 @@
+{
+  "browser_timezone": "Asia/Dubai",
+  "browser_utc_offset_minutes": 240,
+  "capture_status": "COMPLETE",
+  "captured_at_utc": "2026-10-03T13:53:02.262Z",
+  "competitions_attempted": 2,
+  "competitions_failed": 0,
+  "competitions_seen": 2,
+  "competitions_successful": 2,
+  "competitions_validated": 2,
+  "failures": [],
+  "groups_discovered": 2,
+  "groups_failed": 0,
+  "groups_seen": 2,
+  "odds_fixtures_priced": 2,
+  "odds_fixtures_total": 2,
+  "odds_status": "ODDS_COMPLETE",
+  "results": [
+    {
+      "attempted_click": true,
+      "captured_at_utc": "2026-10-03T13:52:59.838Z",
+      "competition_id": "5390412",
+      "competition_label": "ICC Cricket World Cup League Two",
+      "fixtures": [
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "843977396",
+          "kickoff_time_raw": "16:00",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T15:00:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1_-_2",
+              "selection_count": 2,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 2.33,
+                  "odds_raw": "2.33",
+                  "sign_raw": "1HH",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.58,
+                  "odds_raw": "1.58",
+                  "sign_raw": "2HH",
+                  "state": "open"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "United Arab Emirates",
+          "participant_2": "Namibia",
+          "priced_market_count": 1,
+          "three_way_odds": null
+        }
+      ],
+      "observed_competition_heading_raw": "ICC Cricket World Cup League Two",
+      "observed_source_url_raw": "https://sports.bet9ja.com/competition/cricket/international/icccricketworldcupleaguetwo/181-10993-5390412",
+      "odds_coverage": {
+        "fixtures_total": 1,
+        "fixtures_with_priced_market": 1,
+        "status": "ODDS_COMPLETE"
+      },
+      "odds_wait_result": "NOT_NEEDED",
+      "parse_result": "populated",
+      "source_url_after_click": "https://sports.bet9ja.com/competition/cricket/international/icccricketworldcupleaguetwo/181-10993-5390412"
+    },
+    {
+      "attempted_click": true,
+      "captured_at_utc": "2026-10-03T13:53:02.261Z",
+      "competition_id": "10211468",
+      "competition_label": "Canada Super 60",
+      "fixtures": [
+        {
+          "date_text_raw": "Sat 3 Oct",
+          "fixture_id": "845320500",
+          "kickoff_time_raw": "21:30",
+          "kickoff_utc_basis": "DERIVED_ASSUMED_WAT_UTC+1",
+          "kickoff_utc_derived": "2026-10-03T20:30:00.000Z",
+          "markets": [
+            {
+              "complete_market": true,
+              "fully_priced": true,
+              "line_raw": null,
+              "market_key": "1_-_2",
+              "selection_count": 2,
+              "selections": [
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 2.38,
+                  "odds_raw": "2.38",
+                  "sign_raw": "1HH",
+                  "state": "open"
+                },
+                {
+                  "class_raw": "sports-table__odds-item dib pt10",
+                  "odds": 1.47,
+                  "odds_raw": "1.47",
+                  "sign_raw": "2HH",
+                  "state": "open"
+                }
+              ]
+            }
+          ],
+          "missing_participants": false,
+          "participant_1": "White Rock Warriors",
+          "participant_2": "Vancouver Anchors",
+          "priced_market_count": 1,
+          "three_way_odds": null
+        }
+      ],
+      "observed_competition_heading_raw": "Canada Super 60",
+      "observed_source_url_raw": "https://sports.bet9ja.com/competition/cricket/canada/canadasuper60/181-50055-10211468",
+      "odds_coverage": {
+        "fixtures_total": 1,
+        "fixtures_with_priced_market": 1,
+        "status": "ODDS_COMPLETE"
+      },
+      "odds_wait_result": "NOT_NEEDED",
+      "parse_result": "populated",
+      "source_url_after_click": "https://sports.bet9ja.com/competition/cricket/canada/canadasuper60/181-50055-10211468"
+    }
+  ],
+  "schema_version": "bet9ja-allsports-sport-walk.v2.1",
+  "sport": "cricket"
+}

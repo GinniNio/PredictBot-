@@ -1,0 +1,157 @@
+{
+ "schema_version": "bet9ja-soccer-session.v1",
+ "capture_session_id": "soccer-2026-10-03T04-45-07Z",
+ "capture_scope": "SOCCER_ALL_PREMATCH_COMPETITIONS",
+ "captured_at_utc": "2026-10-03T04:52:09.364Z",
+ "inventory_fingerprint": "invfp_8e54ff6d8ae466b1",
+ "summary": {
+  "total": 297,
+  "completed": 206,
+  "confirmed_empty": 0,
+  "failed": 91,
+  "pending": 0
+ },
+ "fixtures": [
+  {
+   "captured_at_utc": "2026-10-03T04:45:07.923Z",
+   "competition": "LaLiga 2",
+   "date_heading_raw": "Sat 3 Oct",
+   "duplicate_status": "NEW",
+   "fixture_id": "bxf_b809482a94f5e73e",
+   "kickoff_raw": "13:00",
+   "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+   "kickoff_utc": null,
+   "market_family": "1X2",
+   "market_line": "",
+   "offered_odds": {
+    "A": 2.42,
+    "D": 3.4,
+    "H": 2.83
+   },
+   "outcomes": [
+    {
+     "label": "H",
+     "price": 2.83
+    },
+    {
+     "label": "D",
+     "price": 3.4
+    },
+    {
+     "label": "A",
+     "price": 2.42
+    }
+   ],
+   "parser_version": "bet9ja-capture-parser@1.0.0",
+   "participants": {
+    "away": "Eibar",
+    "home": "Albacete"
+   },
+   "region": "Spain",
+   "resolved_source_competition_id": "180929",
+   "source_batch_index": 33,
+   "source_competition_ids_in_batch": [
+    "180929"
+   ],
+   "source_competitions_raw_in_batch": [
+    "LaLiga 2"
+   ],
+   "sport": "SOCCER",
+   "status": "PRE_MATCH"
+  },
+  {
+   "captured_at_utc": "2026-10-03T04:45:07.923Z",
+   "competition": "LaLiga 2",
+   "date_heading_raw": "Sat 3 Oct",
+   "duplicate_status": "NEW",
+   "fixture_id": "bxf_e6e4a3c710643aa3",
+   "kickoff_raw": "15:15",
+   "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+   "kickoff_utc": null,
+   "market_family": "1X2",
+   "market_line": "",
+   "offered_odds": {
+    "A": 5.4,
+    "D": 4.1,
+    "H": 1.58
+   },
+   "outcomes": [
+    {
+     "label": "H",
+     "price": 1.58
+    },
+    {
+     "label": "D",
+     "price": 4.1
+    },
+    {
+     "label": "A",
+     "price": 5.4
+    }
+   ],
+   "parser_version": "bet9ja-capture-parser@1.0.0",
+   "participants": {
+    "away": "Burgos CF",
+    "home": "Almeria"
+   },
+   "region": "Spain",
+   "resolved_source_competition_id": "180929",
+   "source_batch_index": 33,
+   "source_competition_ids_in_batch": [
+    "180929"
+   ],
+   "source_competitions_raw_in_batch": [
+    "LaLiga 2"
+   ],
+   "sport": "SOCCER",
+   "status": "PRE_MATCH"
+  },
+  {
+   "captured_at_utc": "2026-10-03T04:45:07.923Z",
+   "competition": "Summer SRL Friendlies",
+   "date_heading_raw": "Sat 3 Oct",
+   "duplicate_status": "NEW",
+   "fixture_id": "bxf_d95ba48d2571fe09",
+   "kickoff_raw": "08:00",
+   "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+   "kickoff_utc": null,
+   "market_family": "1X2",
+   "market_line": "",
+   "offered_odds": {
+    "A": 2.7,
+    "D": 3.2,
+    "H": 2.5
+   },
+   "outcomes": [
+    {
+     "label": "H",
+     "price": 2.5
+    },
+    {
+     "label": "D",
+     "price": 3.2
+    },
+    {
+     "label": "A",
+     "price": 2.7
+    }
+   ],
+   "parser_version": "bet9ja-capture-parser@1.0.0",
+   "participants": {
+    "away": "Toulouse FC SRL",
+    "home": "CFR Cluj Srl"
+   },
+   "region": "Simulated Reality League",
+   "resolved_source_competition_id": "1584407",
+   "source_batch_index": 82,
+   "source_competition_ids_in_batch": [
+    "1584407"
+   ],
+   "source_competitions_raw_in_batch": [
+    "Summer SRL Friendlies"
+   ],
+   "sport": "SOCCER",
+   "status": "PRE_MATCH"
+  }
+ ]
+}

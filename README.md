@@ -1,15 +1,8 @@
 # PredictBot
 
-## Local web app
+## Start here: `predictbot/`
 
-```
-python app.py
-```
-
-This opens http://localhost:8000. It reads every Bet9ja capture in your Downloads folder, `captures/` and `my_captures/` (gitignored). Capture with the extension, then refresh the page. It needs Python 3.10+ and nothing else installed, and it never writes to the ledgers.
-
-- **My record**: money staked and returned, and profit or loss. Bet9ja doesn't show payouts for settled system tickets, so returns are calculated from leg results and stake buckets. Picks are broken down by sport, odds band, market and competition, along with results by ticket size and by day.
-- **Fixtures**: the newest `bet9ja-soccer-all-*` capture with fair probabilities (margin removed), and the Elo model where it covers the league.
+The current app is in [`predictbot/`](predictbot/README.md): `python predictbot/app.py "<synced data folder>"`. Everything below this section describes the legacy pipeline, kept read-only until the migration in [`predictbot/MIGRATION.md`](predictbot/MIGRATION.md) is complete.
 
 ## What PredictBot currently does
 
