@@ -158,6 +158,8 @@ def quote_problem(q: dict) -> str | None:
     start, taken = parse_time(q["start_utc"]), parse_time(q["captured_at_utc"])
     if q["closed"]:
         return "market closed"
+    if q["source"] == "polymarket" and not start:
+        return "event start time not readable: cannot rule out an in-play price"
     if start and taken and taken >= start:
         return "captured after the event started (in-play price)"
     if q["source"] == "oddsportal":

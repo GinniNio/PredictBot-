@@ -160,6 +160,8 @@ def parse_time(text) -> datetime | None:
     t = str(text).strip().replace(" ", "T")
     if t.endswith("Z"):
         t = t[:-1] + "+00:00"
+    t = re.sub(r"([+-]\d{2})$", r"\1:00", t)          # '+00' -> '+00:00' (Python 3.10 needs minutes)
+    t = re.sub(r"\.(\d{1,6})\d*(?=[+-]\d{2}:\d{2}$|$)", lambda m: "." + m.group(1).ljust(6, "0"), t)
     try:
         dt = datetime.fromisoformat(t)
     except ValueError:

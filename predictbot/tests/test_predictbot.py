@@ -51,6 +51,11 @@ class RulebookMath(unittest.TestCase):
         self.assertEqual(pcbf.tier_for(-0.2, []), "WATCH")
         self.assertEqual(pcbf.tier_for(0.10, ["STALE: benchmark not from today"]), "WATCH")
 
+    def test_time_formats_on_every_python(self):
+        for text in ("2026-10-05 11:15:00+00", "2026-10-05T11:15:00Z", "2026-10-05T11:15:00.5Z",
+                     "2026-10-05T13:56:55.311Z", "2026-10-05T11:15Z", "2026-10-05T15:15:00+04:00"):
+            self.assertEqual(pcbf.utc(pcbf.parse_time(text))[:13], "2026-10-05T11" if "13:56" not in text else "2026-10-05T13", text)
+
     def test_prices(self):
         self.assertEqual(pcbf.parse_price("13/15"), 1 + 13 / 15)
         self.assertIsNone(pcbf.parse_price("1.00"))
