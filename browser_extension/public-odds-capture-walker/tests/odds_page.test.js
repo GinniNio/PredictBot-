@@ -74,11 +74,12 @@ test('background passes no undefined args to executeScript', () => {
 test('regional and mobile hosts are recognised', () => {
   const { findSource } = require('../source_registry.js');
   for (const u of ['https://www.oddsportal.com/tennis/', 'https://m.oddsportal.com/', 'https://oddsportal.ng/football/',
-                   'https://www.flashscore.co.uk/', 'https://www.oddsportal1.com/football/']) {
+                   'https://www.flashscore.co.uk/']) {
     assert.ok(findSource(u), u);
   }
   assert.equal(findSource('https://notoddsportal.example.com/'), null);
   assert.equal(findSource('https://oddsportalx.com/'), null);
+  assert.equal(findSource('https://www.oddsportal1.com/football/'), null);   // not a verified mirror
 });
 
 const { discoverListingLinks, withinDays } = require('../odds_page.js');

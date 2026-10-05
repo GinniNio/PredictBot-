@@ -61,14 +61,15 @@
   ];
 
   // A host matches its listed name, any subdomain of it (m., www., en.),
-  // a regional domain with the same name (oddsportal.ng, flashscore.co.uk),
-  // or a numbered mirror the site redirects to (oddsportal1.com).
+  // or a regional domain with the same name (oddsportal.ng, flashscore.co.uk).
+  // Numbered look-alikes (oddsportal1.com) are NOT accepted: a 2026-10-05 DOM
+  // audit found a different site structure, so it is not a verified mirror.
   function hostMatches(source, hostname) {
     const host = hostname.toLowerCase();
     return source.hosts.some((h) => {
       const base = h.replace(/^www\./, '');
       const name = base.split('.')[0];
-      return host === base || host.endsWith('.' + base) || host.split('.').some((label) => new RegExp(`^${name}\\d*$`).test(label));
+      return host === base || host.endsWith('.' + base) || host.split('.').includes(name);
     });
   }
 
