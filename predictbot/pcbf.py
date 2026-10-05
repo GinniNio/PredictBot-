@@ -352,12 +352,16 @@ You are the research step of PCBF Mini v1.3. The app does all arithmetic: do NOT
 For each fixture, find the SAME market TODAY from ONE source, in this order: Pinnacle (direct or via a comparison site); else oddsportal average; else oddschecker best prices.
 Same settlement as stated on the line. A page dated a previous day is stale: you may give it, but say so in the note.
 Match prices by team/player NAME, never by position (US sites often list the away side first). Give prices in the SAME ORDER as the line.
-Reply NONE for any fixture, league or participant with a named integrity concern. Add a short news note (injury, manager change, big price move) where relevant.
+Use only these three sources; any other site (Betmonitor, Oddsator, Matchstat, etc.) = NONE. Reply NONE for any fixture, league or participant with a named integrity concern. Add a short news note (injury, manager change, big price move) where relevant.
 Never invent prices, URLs, times or news. Unknown = NONE.
 
 Reply with ONLY these lines, one per fixture:
-<code> | <source: pinnacle / oddsportal / oddschecker> | <page URL> | <time you read it, UTC, YYYY-MM-DDTHH:MMZ> | <prices in line order, decimal, separated by " / "> | <note or ->
-<code> | NONE | <reason>"""
+[code] | [source: pinnacle / oddsportal / oddschecker] | [page URL] | [time you read it, UTC, YYYY-MM-DDTHH:MMZ] | [prices in line order, decimal, separated by " / "] | [note or -]
+[code] | NONE | [reason]
+
+Example:
+F1 | pinnacle | https://www.pinnacle.com/en/... | 2026-10-05T10:20Z | 2.25 / 1.66 | no news
+F2 | NONE | no same-day market found"""
 
 
 def build_pack(candidates: list[dict], now: datetime) -> dict:
@@ -526,8 +530,8 @@ def build_settle_pack(selections: list[dict], settled_ids: set, now: datetime,
             "same market from the same source, read as close to kickoff as possible. Never invent results or prices. "
             "Unknown = NONE.\nResult = the winning position in the line's order (1, X or 2), or VOID.\n\n"
             "Reply with ONLY these lines:\n"
-            "<code> | <result> | <closing source> | <page URL> | <closing time UTC, YYYY-MM-DDTHH:MMZ> | <closing prices in order, separated by \" / \">\n"
-            "<code> | <result> | NONE\n<code> | NONE | <reason>\n\nFIXTURES\n" + "\n".join(lines))
+            "[code] | [result] | [closing source] | [page URL] | [closing time UTC, YYYY-MM-DDTHH:MMZ] | [closing prices in order, separated by \" / \"]\n"
+            "[code] | [result] | NONE\n[code] | NONE | [reason]\n\nFIXTURES\n" + "\n".join(lines))
     return {"pack_id": pack_id, "kind": "settle", "created_utc": utc(now), "entries": entries, "text": text}
 
 
