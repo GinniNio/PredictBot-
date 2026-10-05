@@ -3,8 +3,8 @@
 body{width:350px;margin:0;padding:12px;font:13px system-ui;color:#111}h1{font-size:15px;margin:0 0 8px}p,.note{color:#444;line-height:1.4}button,input{width:100%;box-sizing:border-box;padding:9px;margin-top:8px}.note{background:#fff4e5;border:1px solid #edc56e;padding:8px;border-radius:4px;font-size:12px}#status{white-space:pre-wrap;margin-top:8px}
 </style></head><body>
 <h1>Public Odds Capture Walker</h1>
-<p>Open a public pre-match listing on a supported source, then start. The walker follows only validated event URLs on that same source.</p>
-<label>Maximum event pages <input id="max-events" type="number" min="1" max="100" value="10"></label>
+<p>Open a public pre-match page on a supported source, then start. On Polymarket, start at polymarket.com/sports: the walker visits every sport listing in its menu, then today's and tomorrow's matches.</p>
+<label>Maximum event pages <input id="max-events" type="number" min="1" max="300" value="100"></label>
 <label><input id="include-nonsports" type="checkbox"> Include Polymarket non-sports markets</label>
 <button id="walk">Capture current page and walk events</button>
 <button id="download">Download last run</button>

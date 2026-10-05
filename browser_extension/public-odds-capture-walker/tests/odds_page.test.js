@@ -80,3 +80,32 @@ test('regional and mobile hosts are recognised', () => {
   assert.equal(findSource('https://notoddsportal.example.com/'), null);
   assert.equal(findSource('https://oddsportalx.com/'), null);
 });
+
+const { discoverListingLinks, withinDays } = require('../odds_page.js');
+
+test('Polymarket catalogue: listing pages from the Sports menu, not props/live/futures', () => {
+  const dom = new JSDOM('<a href="/sports/atp/games">ATP</a><a href="/sports/modus/games">Darts</a>' +
+    '<a href="/sports/pga/props">Golf</a><a href="/sports/live">Live</a><a href="/sports/futures">Futures</a>' +
+    '<a href="/sports/atp/games?x=1">dup</a><a href="/sports/atp/atp-djokovi-medvede-2026-10-05">Match</a>');
+  const r = discoverListingLinks(dom.window.document, 'https://polymarket.com/sports/live');
+  assert.deepEqual(r.links.map((l) => l.url), ['https://polymarket.com/sports/atp/games', 'https://polymarket.com/sports/modus/games']);
+});
+
+test('event dates: yesterday to tomorrow kept, futures dropped, undated kept', () => {
+  const today = '2026-10-05T09:00:00.000Z';
+  assert.ok(withinDays('https://polymarket.com/sports/atp/atp-a-b-2026-10-05', today, 1));
+  assert.ok(withinDays('https://polymarket.com/sports/modus/modus-a-b-2026-10-06-75214640', today, 1));
+  assert.ok(!withinDays('https://polymarket.com/sports/nfl/nfl-a-b-2026-10-12', today, 1));
+  assert.ok(withinDays('https://polymarket.com/sports/ufc/some-event', today, 1));
+});
+
+test('Polymarket event capture keeps only the embedded market JSON', () => {
+  const big = 'x'.repeat(50000);
+  const market = '{"outcomes":["A B","C D"],"outcomePrices":["0.4","0.6"],"volume":"9000"}';
+  const dom = new JSDOM(`<!doctype html><title>t</title><body>${big}<script>${market}</script>${big}</body>`);
+  const r = captureCurrentPage(dom.window.document,
+    { href: 'https://polymarket.com/sports/atp/atp-a-c-2026-10-05', title: 't', capturedAtUtc: '2026-10-05T09:00:00Z' }, 'excerpt');
+  assert.equal(r.html_mode, 'EXCERPT_outcomePrices');
+  assert.ok(r.html.includes(market));
+  assert.ok(r.html.length < 13000 && r.html_length > 100000);
+});

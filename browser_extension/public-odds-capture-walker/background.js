@@ -1,7 +1,11 @@
-importScripts('source_registry.js');
+importScripts('source_registry.js', 'odds_page.js');
 
 const RUN_KEY = 'publicOddsCaptureRun';
-const MAX_CAPTURES = 100;
+const MAX_CAPTURES = 300;
+const MAX_LISTINGS = 40;
+const LISTING_SETTLE_MS = 3000;   // [UNVERIFIED] time for client-rendered cards to appear
+const DAYS_AHEAD = 1;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function waitForTabComplete(tabId, timeoutMs = 20000) {
   return new Promise((resolve) => {
@@ -27,9 +31,9 @@ async function callPage(tabId, action, scope = 'sports') {
     target: { tabId },
     func: (actionName, scopeName) => {
       const context = { href: location.href, title: document.title, capturedAtUtc: new Date().toISOString() };
-      return actionName === 'discover'
-        ? window.PublicOddsPage.discoverEventLinks(document, context.href, scopeName)
-        : window.PublicOddsPage.captureCurrentPage(document, context);
+      if (actionName === 'discover') return window.PublicOddsPage.discoverEventLinks(document, context.href, scopeName);
+      if (actionName === 'listings') return window.PublicOddsPage.discoverListingLinks(document, context.href);
+      return window.PublicOddsPage.captureCurrentPage(document, context, actionName === 'capture-excerpt' ? 'excerpt' : 'full');
     },
     // chrome.scripting rejects undefined in args ("Value is unserializable"),
     // so every argument must be a concrete JSON value.
@@ -57,14 +61,36 @@ async function walk(tabId, maxEvents, scope) {
   run.captures.push({ role: 'seed', ...seed });
   const discovery = await callPage(tabId, 'discover', scope);
   run.discovery_status = discovery.discovery_status || null;
-  run.discovered_links = discovery.links || [];
+  const found = new Map((discovery.links || []).map((l) => [l.url, l]));
+  // Catalogue stage (Polymarket): visit every sport listing linked from the
+  // seed's navigation and collect its event links too.
+  if (source.isListingUrl) {
+    const listings = ((await callPage(tabId, 'listings')).links || []).slice(0, MAX_LISTINGS);
+    run.listings = [];
+    for (const listing of listings) {
+      try {
+        await chrome.tabs.update(tabId, { url: listing.url });
+        if (!await waitForTabComplete(tabId)) throw new Error('PAGE_LOAD_TIMEOUT');
+        await sleep(LISTING_SETTLE_MS);
+        await injectPageTools(tabId);
+        const d = await callPage(tabId, 'discover', scope);
+        const links = d.links || [];
+        links.forEach((l) => { if (!found.has(l.url)) found.set(l.url, l); });
+        run.listings.push({ url: listing.url, event_links: links.length });
+      } catch (err) {
+        run.failures.push({ url: listing.url, stage: 'listing', reason: err && err.message ? err.message : String(err) });
+      }
+    }
+  }
+  const today = new Date().toISOString();
+  run.discovered_links = [...found.values()].filter((l) => PublicOddsPage.withinDays(l.url, today, DAYS_AHEAD));
   const targets = run.discovered_links.slice(0, Math.min(Number(maxEvents) || 10, MAX_CAPTURES));
   for (const target of targets) {
     try {
       await chrome.tabs.update(tabId, { url: target.url });
       if (!await waitForTabComplete(tabId)) throw new Error('PAGE_LOAD_TIMEOUT');
       await injectPageTools(tabId);
-      const captured = await callPage(tabId, 'capture');
+      const captured = await callPage(tabId, source.excerptPattern ? 'capture-excerpt' : 'capture');
       run.captures.push({ role: 'event', discovered_label_raw: target.label_raw, ...captured });
       await saveRun(run);
     } catch (err) {

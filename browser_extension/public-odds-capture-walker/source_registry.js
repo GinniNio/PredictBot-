@@ -48,6 +48,14 @@
       // admissible only in explicit all-markets runs.
       isEventUrl: (url) => /^\/sports\/[a-z0-9-]+\/(?!games\/?$|props\/?$)[a-z0-9-]+\/?$/.test(url.pathname) || /^\/(?:[a-z]{2}\/)?event\/[^/]+/.test(url.pathname),
       isSportsEvent: (url) => /^\/sports\/[a-z0-9-]+\/(?!games\/?$|props\/?$)[a-z0-9-]+\/?$/.test(url.pathname),
+      // Catalogue stage: the rendered Sports navigation links each sport's
+      // match listing as /sports/<league>/games (26 seen in the 2026-10-05
+      // /sports/live capture). /props, /live and /futures are not listings
+      // of head-to-head matches and are never visited.
+      isListingUrl: (url) => /^\/sports\/[a-z0-9-]+\/games\/?$/.test(url.pathname),
+      // Event pages are large (~800 KB); only the embedded market JSON is
+      // kept, so a 100-event walk stays small enough to save.
+      excerptPattern: 'outcomePrices',
       discoveryStatus: 'READY',
     },
   ];
