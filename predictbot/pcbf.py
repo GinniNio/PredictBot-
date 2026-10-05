@@ -31,20 +31,44 @@ MARKETS = {
     "MONEYLINE_INC_EXTRA_INNINGS": {"outcomes": 2, "settlement": "winner incl. extra innings"},
     "MATCH_WINNER": {"outcomes": 2, "settlement": "match winner"},
 }
+# Two-way main markets, by sport.
 MARKET_MAP = {
-    ("soccer", "1x2"): THREE_WAY,
-    ("ice_hockey", "1x2"): THREE_WAY, ("ice_hockey", "3way"): THREE_WAY,
-    ("futsal", "1x2"): THREE_WAY, ("floorball", "1x2"): THREE_WAY, ("handball", "1x2"): THREE_WAY,
     ("basketball", "2_way"): "MONEYLINE_INC_OT",
     ("american_football", "1_-_2"): "MONEYLINE_INC_OT",
+    ("ice_hockey", "2_way"): "MONEYLINE_INC_OT",
     ("baseball", "1-2_(inc__extra_inning)"): "MONEYLINE_INC_EXTRA_INNINGS",
     ("tennis", "match_winner"): "MATCH_WINNER", ("tennis", "2_way"): "MATCH_WINNER",
+    ("table_tennis", "2_way"): "MATCH_WINNER", ("table_tennis", "match_winner"): "MATCH_WINNER",
     ("volleyball", "2_way"): "MATCH_WINNER",
     ("cricket", "1_-_2"): "MATCH_WINNER", ("mma", "1_-_2"): "MATCH_WINNER",
     ("darts", "1-2"): "MATCH_WINNER", ("darts", "1_-_2"): "MATCH_WINNER",
 }
-# Preference order when a fixture carries several known main markets.
-MAIN_KEYS = ["1x2", "3way", "2_way", "1_-_2", "1-2", "match_winner", "1-2_(inc__extra_inning)"]
+# Sports whose main market is the regulation-time 1X2 (PCBF: hockey 1X2 =
+# regulation time). Bet9ja labels it 1x2, 3way, or match_winner with 1/X/2.
+THREE_WAY_SPORTS = {"soccer", "ice_hockey", "handball", "futsal", "floorball"}
+THREE_WAY_KEYS = ("1x2", "3way", "match_winner")
+INDIVIDUAL_SPORTS = {"tennis", "table_tennis", "darts", "mma", "boxing", "snooker", "badminton", "squash"}
+MAIN_KEYS = ["1x2", "3way", "match_winner", "2_way", "1_-_2", "1-2", "1-2_(inc__extra_inning)"]
+
+
+def market_for(sport: str, key: str, n_selections: int) -> str | None:
+    """Canonical market for a Bet9ja market key, or None if unsupported."""
+    if sport in THREE_WAY_SPORTS and key in THREE_WAY_KEYS and n_selections == 3:
+        return THREE_WAY
+    m = MARKET_MAP.get((sport, key))
+    return m if m and n_selections == MARKETS[m]["outcomes"] else None
+
+
+def choose_market(sport: str, markets: dict) -> tuple[str | None, str | None]:
+    """Pick the main market: the regulation 1X2 for three-way sports,
+    otherwise the sport's two-way winner market."""
+    options = [(k, market_for(sport, k, len(m.get("selections") or []))) for k, m in markets.items()]
+    options = [(k, c) for k, c in options if c]
+    if not options:
+        return None, None
+    options.sort(key=lambda kc: (kc[1] != THREE_WAY if sport in THREE_WAY_SPORTS else kc[1] == THREE_WAY,
+                                 MAIN_KEYS.index(kc[0]) if kc[0] in MAIN_KEYS else 99))
+    return options[0]
 
 BANNED_WORDS = re.compile(r"\b(russia|russian|belarus|iran)\b", re.I)
 BANNED_COMPETITION_COUNTRIES = {"turkey", "turkiye", "bulgaria", "united arab emirates", "uae",
@@ -188,7 +212,7 @@ def candidates_from_capture(data: dict, raw_hash: str, file_name: str = "") -> l
             url = res.get("observed_source_url_raw") or res.get("source_url_after_click") or ""
             for fx in res.get("fixtures") or []:
                 markets = {m.get("market_key"): m for m in fx.get("markets") or []}
-                key = next((k for k in MAIN_KEYS if k in markets and (sport, k) in MARKET_MAP), None)
+                key, market = choose_market(sport, markets)
                 c = {"sport": sport, "competition": res.get("competition_label") or "",
                      "country": _country_from_url(url), "source_url": url,
                      "event_id": f"bet9ja:{fx.get('fixture_id')}",
@@ -197,10 +221,12 @@ def candidates_from_capture(data: dict, raw_hash: str, file_name: str = "") -> l
                      "kickoff_basis": fx.get("kickoff_utc_basis") or "",
                      "captured_at_utc": utc(parse_time(res.get("captured_at_utc") or data.get("captured_at_utc"))),
                      "raw_payload_hash": raw_hash, "capture_file": file_name,
-                     "market_key": key, "market": MARKET_MAP.get((sport, key)), "outcomes": [], "odds": [],
+                     "market_key": key, "market": market, "outcomes": [], "odds": [],
                      "problem": None}
                 if not fx.get("fixture_id"):
                     c["problem"] = "no fixture_id"
+                elif sport.startswith("specials") or "zoom" in sport:
+                    c["problem"] = "specials / bet-builder / zoom: excluded by rulebook"
                 elif not key:
                     found = ", ".join(sorted(k for k in markets if k)) or "none"
                     c["problem"] = f"unsupported or missing main market (found: {found})"
@@ -241,18 +267,30 @@ def candidates_from_capture(data: dict, raw_hash: str, file_name: str = "") -> l
     return out
 
 
+def natural_key(c: dict) -> tuple:
+    """Same game seen by two extensions has two Bet9ja ID schemes; match it
+    by sport, participants and kickoff instead."""
+    n = lambda x: re.sub(r"[^a-z0-9]", "", str(x).lower())
+    return (c.get("sport"), n(c.get("home")), n(c.get("away")), c.get("kickoff_utc"))
+
+
 def merge_candidates(lists) -> tuple[dict, int]:
-    """Union by event_id across captures; the newest capture of an event wins.
-    Returns (event_id -> candidate, number of duplicates seen)."""
-    merged, dups = {}, 0
+    """Union across captures. A game seen more than once (same event_id, or
+    same sport + participants + kickoff from another extension) is kept once:
+    the newest capture wins. Returns (event_id -> candidate, duplicates)."""
+    merged, by_natural, dups = {}, {}, 0
     for lst in lists:
         for c in lst:
-            prev = merged.get(c["event_id"])
-            if prev is not None:
+            nk = natural_key(c) if c.get("kickoff_utc") and c.get("home") else None
+            prev_id = c["event_id"] if c["event_id"] in merged else by_natural.get(nk) if nk else None
+            if prev_id is not None:
                 dups += 1
-                if prev["captured_at_utc"] >= c["captured_at_utc"]:
+                if merged[prev_id]["captured_at_utc"] >= c["captured_at_utc"]:
                     continue
+                del merged[prev_id]
             merged[c["event_id"]] = c
+            if nk:
+                by_natural[nk] = c["event_id"]
     return merged, dups
 
 
@@ -266,7 +304,8 @@ def screen(c: dict, now: datetime) -> str | None:
         return "virtual / simulated event"
     if BANNED_WORDS.search(text) or c.get("country", "").lower() in BANNED_COMPETITION_COUNTRIES:
         return "excluded country or competition"
-    if YOUTH.search(f"{text} {c.get('country', '')}") or YOUTH_SUFFIX.search(c["home"]) or YOUTH_SUFFIX.search(c["away"]):
+    team_suffix = c.get("sport") not in INDIVIDUAL_SPORTS and (YOUTH_SUFFIX.search(c["home"]) or YOUTH_SUFFIX.search(c["away"]))
+    if YOUTH.search(f"{text} {c.get('country', '')}") or team_suffix:
         return "youth / reserve / amateur"
     kickoff = parse_time(c.get("kickoff_utc"))
     if kickoff is None:

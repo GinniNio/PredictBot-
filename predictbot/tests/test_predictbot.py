@@ -165,6 +165,60 @@ class WalkerCapture(unittest.TestCase):
         self.assertEqual(pcbf.screen({**base, "kickoff_utc": ""}, now), "kickoff unknown")
 
 
+def walker(sport, markets, home="A", away="B", fid="1", comp="League", url="https://sports.bet9ja.com/competition/x/germany/l/1"):
+    return {"schema_version": "bet9ja-allsports-sport-walk.v2.1", "sport": sport, "captured_at_utc": "2026-10-05T08:50:00.000Z",
+            "results": [{"competition_label": comp, "observed_source_url_raw": url, "captured_at_utc": "2026-10-05T08:50:00.000Z",
+                         "fixtures": [{"fixture_id": fid, "participant_1": home, "participant_2": away,
+                                       "kickoff_utc_derived": "2026-10-05T18:00:00.000Z",
+                                       "markets": [{"market_key": k, "selections": [{"odds": o, "state": "open"} for o in odds]}
+                                                   for k, odds in markets]}]}]}
+
+
+class RealMarketKeys(unittest.TestCase):
+    """Market keys seen in the 5 Oct 2026 captures."""
+    now = at("2026-10-05T09:00:00Z")
+
+    def one(self, data):
+        c = pcbf.candidates_from_capture(data, "h")[0]
+        return c, pcbf.screen(c, self.now)
+
+    def test_hockey_match_winner_is_regulation_1x2(self):
+        c, r = self.one(walker("ice_hockey", [("draw_no_bet", [1.5, 2.5]), ("match_winner", [2.1, 4.0, 2.9]),
+                                              ("handicap_rt", [1.9, 1.9])]))
+        self.assertEqual((c["market"], c["market_key"], r), ("1X2_REGULATION", "match_winner", None))
+
+    def test_hockey_prefers_regulation_over_moneyline(self):
+        c, _ = self.one(walker("ice_hockey", [("2_way", [1.8, 2.0]), ("match_winner", [2.1, 4.0, 2.9])]))
+        self.assertEqual(c["market"], "1X2_REGULATION")
+
+    def test_handball_3way_and_table_tennis(self):
+        self.assertEqual(self.one(walker("handball", [("3way", [1.5, 9.0, 3.2]), ("handicap", [1.9, 1.9])]))[0]["market"],
+                         "1X2_REGULATION")
+        self.assertEqual(self.one(walker("table_tennis", [("2_way", [1.6, 2.2])]))[0]["market"], "MATCH_WINNER")
+
+    def test_specials_excluded(self):
+        _, r = self.one(walker("specials_combo", [("to_happen", [1.5, 2.5])]))
+        self.assertEqual(r, "specials / bet-builder / zoom: excluded by rulebook")
+
+    def test_doubles_initial_is_not_a_b_team(self):
+        _, r = self.one(walker("tennis", [("match_winner", [1.7, 2.1])], home="Rossi M / Bianchi L",
+                               away="Cossu M / de la Pena B"))
+        self.assertIsNone(r)
+
+    def test_same_game_from_two_extensions_kept_once(self):
+        a = pcbf.candidates_from_capture(walker("soccer", [("1x2", [1.9, 3.1, 4.55])], home="Deportivo Riestra",
+                                                away="Central Cordoba SdE", fid="845"), "h1")
+        session = {"schema_version": "bet9ja-soccer-session.v1", "fixtures": [{
+            "fixture_id": "bxf_abc", "participants": {"home": "Deportivo Riestra", "away": "Central Cordoba SdE"},
+            "offered_odds": {"H": 1.9, "D": 3.1, "A": 4.55}, "kickoff_utc": "2026-10-05T18:00:00Z",
+            "captured_at_utc": "2026-10-05T08:55:35Z", "market_family": "1X2", "status": "PRE_MATCH",
+            "competition": "Primera LPF", "region": "Argentina"}]}
+        b = pcbf.candidates_from_capture(session, "h2")
+        merged, dups = pcbf.merge_candidates([b, a])
+        self.assertEqual((len(merged), dups), (1, 1))
+        self.assertEqual(list(merged), ["bet9ja:bxf_abc"])   # 08:55 session capture is newer than the 08:50 walk
+
+
 class EndToEnd(unittest.TestCase):
     """Walker capture -> pack -> chat reply -> validated records -> bet ->
     settlement -> CLV and performance."""
