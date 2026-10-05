@@ -346,7 +346,9 @@ def selection_name(c: dict, i: int) -> str:
 
 # ------------------------------------------------------------ research pack
 
-PACK_RULES = """You are the research step of PCBF Mini v1.3. The app does all arithmetic: do NOT calculate edges or fair odds.
+PACK_RULES = """TASK, START NOW WITHOUT ASKING QUESTIONS: use web search to find a benchmark price for every fixture listed below, then reply with ONLY the lines in the format at the end. No summary, no edges, no questions.
+
+You are the research step of PCBF Mini v1.3. The app does all arithmetic: do NOT calculate edges or fair odds.
 For each fixture, find the SAME market TODAY from ONE source, in this order: Pinnacle (direct or via a comparison site); else oddsportal average; else oddschecker best prices.
 Same settlement as stated on the line. A page dated a previous day is stale: you may give it, but say so in the note.
 Match prices by team/player NAME, never by position (US sites often list the away side first). Give prices in the SAME ORDER as the line.
