@@ -280,6 +280,42 @@ class Polymarket(unittest.TestCase):
         self.assertIsNone(odds_sources.match_quote(self.cand, qs))
 
 
+def poly_soccer(home, away, yes, vols, start, taken):
+    qs = [f"Will {home} win on 2026-10-05?", f"Will {home} vs. {away} end in a draw?", f"Will {away} win on 2026-10-05?"]
+    parts = []
+    for q, p, v in zip(qs, yes, vols):
+        parts.append('{"question":"%s","outcomes":["Yes","No"],"outcomePrices":["%s","%s"],"volume":"%s",'
+                     '"active":true,"closed":false,"sportsMarketType":"moneyline","bestBid":%.3f,"bestAsk":%.3f,'
+                     '"gameStartTime":"%s"}' % (q, p, round(1 - p, 3), v, p - 0.005, p + 0.005, start))
+    html = "<script>" + ",".join(parts).replace('"', '\\"') + "</script>"
+    return {"source_key": "polymarket", "captures": [{"role": "event", "capture_status": "CAPTURE_OK",
+            "captured_at_utc": taken, "source_url": "https://polymarket.com/sports/unl/unl-ita-tur-2026-10-05", "html": html}]}
+
+
+class PolymarketSoccer(unittest.TestCase):
+    def test_three_yes_no_markets_make_a_1x2(self):
+        import odds_sources
+        q = odds_sources.quotes_from_walk(poly_soccer("Italy", "Türkiye", [0.705, 0.185, 0.115], [187595, 5211, 17948],
+                                                      "2026-10-05 18:45:00+00", "2026-10-05T13:56:00Z"))[0]
+        self.assertEqual((q["outcomes"], q["probs"], q["volume"], q["sport"]),
+                         (["Italy", "Draw", "Türkiye"], [0.705, 0.185, 0.115], 5211.0, "soccer"))
+        cand = pcbf.candidates_from_capture(walker("soccer", [("1x2", [1.43, 4.9, 6.8])], home="Italy", away="Turkiye"), "h")[0]
+        cand["kickoff_utc"] = "2026-10-05T18:45Z"
+        q2, order = odds_sources.match_quote(cand, [q])
+        self.assertEqual(order, [0, 1, 2])
+        out = pcbf.price_benchmark(pcbf.capture_records(cand), odds_sources.reply_fields(q2, order), at("2026-10-05T14:00:00Z"))
+        self.assertEqual([(r["tier"], r["fair_odds"], r["edge_pct"]) for r in out],
+                         [("WATCH", "1.426", "0.0031"), ("WATCH", "5.463", "-0.1030"), ("WATCH", "8.814", "-0.2285")])
+
+    def test_reversed_fixture_maps_outcomes(self):
+        import odds_sources
+        q = odds_sources.quotes_from_walk(poly_soccer("Sri Lanka", "Mauritius", [0.245, 0.21, 0.535], [9000, 9000, 9000],
+                                                      "2026-10-05 15:00:00+00", "2026-10-05T13:56:00Z"))[0]
+        cand = pcbf.candidates_from_capture(walker("soccer", [("1x2", [1.9, 3.6, 3.75])], home="Mauritius", away="Sri Lanka"), "h")[0]
+        cand["kickoff_utc"] = "2026-10-05T15:00Z"
+        self.assertEqual(odds_sources.match_quote(cand, [q])[1], [2, 1, 0])
+
+
 class EndToEnd(unittest.TestCase):
     """Walker capture -> pack -> chat reply -> validated records -> bet ->
     settlement -> CLV and performance."""

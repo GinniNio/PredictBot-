@@ -18,7 +18,8 @@ MIN_POLYMARKET_VOLUME = 5000.0     # USD traded on the moneyline; thinner = RESE
 MAX_POLYMARKET_SPREAD = 0.04       # best ask - best bid; wider = RESEARCH
 KICKOFF_TOLERANCE = timedelta(hours=3)
 
-LEAGUE_SPORT = {"atp": "tennis", "wta": "tennis", "itf": "tennis", "challenger": "tennis",
+LEAGUE_SPORT = {"soccer": "soccer", "unl": "soccer", "ucl": "soccer", "uel": "soccer", "fifa": "soccer",
+                "epl": "soccer", "es2": "soccer", "nor": "soccer","atp": "tennis", "wta": "tennis", "itf": "tennis", "challenger": "tennis",
                 "modus": "darts", "pdc": "darts", "darts": "darts", "table-tennis": "table_tennis",
                 "mlb": "baseball", "nba": "basketball", "nhl": "ice_hockey", "nfl": "american_football"}
 
@@ -30,36 +31,60 @@ def _field(ctx: str, name: str):
     return m.group(1) if m else None
 
 
+def _markets(html: str) -> list[dict]:
+    """Every market object on the page. A market's own fields (bid/ask,
+    type, start time) follow its outcome prices; its question precedes them."""
+    found = list(MARKET_RE.finditer(html))
+    out = []
+    for k, m in enumerate(found):
+        fwd = html[m.end(): found[k + 1].start() if k + 1 < len(found) else len(html)]
+        back = html[found[k - 1].end() if k else 0: m.start()]
+        try:
+            probs = [float(x) for x in re.findall(r'"([^"]+)"', m.group(2))]
+        except ValueError:
+            continue
+        questions = re.findall(r'"question":"([^"]+)"', back)
+        bid, ask = _field(fwd, "bestBid"), _field(fwd, "bestAsk")
+        out.append({"outcomes": re.findall(r'"([^"]+)"', m.group(1)), "probs": probs, "volume": float(m.group(3)),
+                    "type": _field(fwd, "sportsMarketType"), "start": _field(fwd, "gameStartTime"),
+                    "closed": _field(fwd, "closed") == "true", "question": questions[-1] if questions else "",
+                    "spread": (float(ask) - float(bid)) if bid and ask else None})
+    return out
+
+
+WIN_Q = re.compile(r"^Will (.+?) win(?: on \d{4}-\d{2}-\d{2})?\?$")
+DRAW_Q = re.compile(r"^Will (.+?) vs\.? (.+?) end in a draw\?$")
+
+
 def polymarket_quotes(capture: dict) -> list[dict]:
-    """Moneyline quotes from one captured Polymarket event page."""
+    """The event's moneyline from one captured Polymarket page: a two-way
+    market (players as outcomes) or, for soccer, three Yes/No markets
+    ('Will A win?', 'Will A vs. B end in a draw?', 'Will B win?') combined
+    into home / draw / away using their Yes prices."""
     html = (capture.get("html") or "").replace('\\"', '"')
     url = capture.get("source_url") or ""
     m = re.search(r"/sports/([a-z0-9-]+)/", url)
     league = m.group(1) if m else ""
     sport = next((s for k, s in LEAGUE_SPORT.items() if league.startswith(k)), None)
-    out = []
-    for mm in MARKET_RE.finditer(html):
-        ctx = html[max(0, mm.start() - 4000): mm.end() + 4000]
-        if _field(ctx, "sportsMarketType") != "moneyline":
-            continue
-        names = re.findall(r'"([^"]+)"', mm.group(1))
-        try:
-            probs = [float(x) for x in re.findall(r'"([^"]+)"', mm.group(2))]
-        except ValueError:
-            continue
-        if len(names) != len(probs) or len(names) != 2:
-            continue
-        bid, ask = _field(ctx, "bestBid"), _field(ctx, "bestAsk")
-        out.append({
-            "source": "polymarket", "url": url.split("?")[0], "sport": sport, "league": league,
-            "captured_at_utc": utc(parse_time(capture.get("captured_at_utc"))),
-            "start_utc": utc(parse_time(_field(ctx, "gameStartTime"))),
-            "outcomes": names, "probs": probs, "volume": float(mm.group(3)),
-            "spread": (float(ask) - float(bid)) if bid and ask else None,
-            "closed": _field(ctx, "closed") == "true",
-        })
-        break   # the event's own moneyline comes first on its page
-    return out
+    base = {"source": "polymarket", "url": url.split("?")[0], "league": league,
+            "captured_at_utc": utc(parse_time(capture.get("captured_at_utc")))}
+    markets = [mk for mk in _markets(html) if mk["type"] == "moneyline" and len(mk["outcomes"]) == len(mk["probs"])]
+    for mk in markets:
+        if len(mk["outcomes"]) == 2 and mk["outcomes"] != ["Yes", "No"]:
+            return [{**base, "sport": sport, "start_utc": utc(parse_time(mk["start"])), "outcomes": mk["outcomes"],
+                     "probs": mk["probs"], "volume": mk["volume"], "spread": mk["spread"], "closed": mk["closed"]}]
+    draw = next((mk for mk in markets if DRAW_Q.match(mk["question"])), None)
+    if draw:
+        home, away = DRAW_Q.match(draw["question"]).groups()
+        wins = {WIN_Q.match(mk["question"]).group(1): mk for mk in markets if WIN_Q.match(mk["question"])}
+        if home in wins and away in wins:
+            legs = [wins[home], draw, wins[away]]
+            spreads = [x["spread"] for x in legs if x["spread"] is not None]
+            return [{**base, "sport": sport or "soccer", "start_utc": utc(parse_time(draw["start"])),
+                     "outcomes": [home, "Draw", away], "probs": [x["probs"][0] for x in legs],
+                     "volume": min(x["volume"] for x in legs), "spread": max(spreads) if spreads else None,
+                     "closed": any(x["closed"] for x in legs)}]
+    return []
 
 
 def quotes_from_walk(run: dict) -> list[dict]:
@@ -102,16 +127,25 @@ def _surname(bet9ja_name: str) -> str:
     return toks[0] if toks else ""
 
 
+TEAM_NOISE = {"fc", "cf", "sc", "ac", "afc", "club", "de", "the", "fk", "sk", "if", "bk", "cd", "ca", "sv"}
+
+
 def same_side(bet9ja_name: str, quote_name: str) -> bool:
-    s = _surname(bet9ja_name)
-    return bool(s) and s in _tokens(quote_name)
+    """Players: Bet9ja's 'Surname, Given' surname appears in the quote name.
+    Teams: the names share a significant word (e.g. 'Cyprus', 'Bodo')."""
+    if "," in bet9ja_name:
+        s = _surname(bet9ja_name)
+        return bool(s) and s in _tokens(quote_name)
+    a, b = _tokens(bet9ja_name) - TEAM_NOISE, _tokens(quote_name) - TEAM_NOISE
+    return bool(a & b)
 
 
 def match_quote(candidate: dict, quotes: list[dict]) -> tuple[dict, list[int]] | None:
-    """Find the quote for a Bet9ja candidate (two-way markets only) and the
+    """Find the quote for a Bet9ja candidate (two- or three-way) and the
     order mapping quote outcome -> Bet9ja selection. Matches on sport, both
     surnames and a kickoff within 3 hours."""
-    if len(candidate.get("outcomes") or []) != 2:
+    n = len(candidate.get("outcomes") or [])
+    if n not in (2, 3):
         return None
     kick = parse_time(candidate.get("kickoff_utc"))
     home, away = candidate["home"], candidate["away"]
@@ -121,11 +155,13 @@ def match_quote(candidate: dict, quotes: list[dict]) -> tuple[dict, list[int]] |
         start = parse_time(q["start_utc"])
         if kick and start and abs(kick - start) > KICKOFF_TOLERANCE:
             continue
-        a, b = q["outcomes"]
+        if len(q["outcomes"]) != n:
+            continue
+        a, b = q["outcomes"][0], q["outcomes"][-1]
         if same_side(home, a) and same_side(away, b):
-            return q, [0, 1]
+            return q, list(range(n))
         if same_side(home, b) and same_side(away, a):
-            return q, [1, 0]
+            return q, [1, 0] if n == 2 else [2, 1, 0]
     return None
 
 
