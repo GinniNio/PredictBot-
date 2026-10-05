@@ -52,13 +52,24 @@
     },
   ];
 
+  // A host matches its listed name, any subdomain of it (m., www., en.),
+  // or a regional domain with the same name (oddsportal.ng, flashscore.co.uk).
+  function hostMatches(source, hostname) {
+    const host = hostname.toLowerCase();
+    return source.hosts.some((h) => {
+      const base = h.replace(/^www\./, '');
+      const name = base.split('.')[0];
+      return host === base || host.endsWith('.' + base) || host.split('.').includes(name);
+    });
+  }
+
   function findSource(urlLike) {
     let url;
     try { url = new URL(urlLike); } catch (_) { return null; }
-    return SOURCES.find((source) => source.hosts.includes(url.hostname.toLowerCase())) || null;
+    return SOURCES.find((source) => hostMatches(source, url.hostname)) || null;
   }
 
-  const api = { SOURCES, findSource };
+  const api = { SOURCES, findSource, hostMatches };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PublicOddsSources = api;
 })(typeof window !== 'undefined' ? window : globalThis);

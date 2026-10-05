@@ -10,6 +10,7 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import odds_sources
 import pcbf
 import schemas
 from storage import DataFolder
@@ -201,3 +202,55 @@ def import_pcbf_ledger(df: DataFolder, csv_path, now: datetime) -> dict:
     df.append("capture", caps)
     df.append("selection", sels)
     return {"imported": sels}
+
+
+def benchmark_quotes(df: DataFolder, extra_folders=()) -> list[dict]:
+    quotes = []
+    for _path, raw in df.odds_walks(extra_folders):
+        try:
+            run = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        if isinstance(run, dict):
+            quotes.extend(odds_sources.quotes_from_walk(run))
+    return quotes
+
+
+def auto_benchmark(df: DataFolder, now: datetime, extra_folders=()) -> dict:
+    """Price screened-in candidates against captured benchmark pages
+    (Polymarket) without a chat. Each matched quote goes through the same
+    validation as a chat reply line. Unusable quotes (in-play, thin, wide)
+    are reported, and thin or wide ones are logged as RESEARCH."""
+    quotes = benchmark_quotes(df, extra_folders)
+    loaded = load_candidates(df, now, extra_folders)
+    already = {s["selection_id"] for s in df.read("selection") if s["tier"] in ("PICK", "WATCH")}
+    known_caps = {r["capture_id"] for r in df.read("capture")}
+    caps, records, skipped = [], [], []
+    for c in loaded["accepted"]:
+        found = odds_sources.match_quote(c, quotes)
+        if not found:
+            continue
+        q, order = found
+        recs = pcbf.capture_records(c)
+        name = f"{c['home']} v {c['away']}"
+        problem = odds_sources.quote_problem(q)
+        if problem and problem.startswith("captured after") or (problem == "market closed"):
+            skipped.append((name, problem, q["url"]))
+            continue
+        if any(r["selection_id"] in already for r in recs):
+            skipped.append((name, "already priced", q["url"]))
+            continue
+        caps.extend(r for r in recs if r["capture_id"] not in known_caps)
+        known_caps |= {r["capture_id"] for r in recs}
+        if problem:
+            fields = ["NONE", f"polymarket {problem}"]
+        else:
+            fields = odds_sources.reply_fields(q, order)
+        out = pcbf.price_benchmark(recs, fields, now, "auto-polymarket", already)
+        for r in out:
+            r["origin"] = "auto: polymarket capture"
+        records.extend(out)
+        already |= {r["selection_id"] for r in out if r["tier"] in ("PICK", "WATCH")}
+    df.append("capture", caps)
+    df.append("selection", records)
+    return {"quotes": len(quotes), "records": records, "skipped": skipped}

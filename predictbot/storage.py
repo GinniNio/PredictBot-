@@ -106,8 +106,22 @@ class DataFolder:
                     out.append((p, raw))
         return out
 
+    def odds_walks(self, extra_folders=()) -> list[tuple[Path, bytes]]:
+        """public-odds-walk-*.json files from the benchmark capture extension."""
+        seen, out = set(), []
+        for folder in [self.root / "captures", *map(Path, extra_folders)]:
+            if not folder.exists():
+                continue
+            for p in sorted(folder.rglob("public-odds-walk-*.json")):
+                raw = p.read_bytes()
+                h = hashlib.sha256(raw).hexdigest()
+                if h not in seen:
+                    seen.add(h)
+                    out.append((p, raw))
+        return out
+
     def import_captures(self, folder) -> int:
-        """Copy new bet9ja-*.json files from e.g. Downloads into captures/,
+        """Copy new bet9ja-*.json and public-odds-walk-*.json files from e.g. Downloads into captures/,
         bytes unchanged, skipping any whose content is already stored."""
         folder = Path(folder)
         if not folder.exists():
@@ -115,7 +129,7 @@ class DataFolder:
         dest = self.root / "captures"
         have = {hashlib.sha256(p.read_bytes()).hexdigest() for p in dest.glob("*.json")}
         n = 0
-        for src in sorted(folder.glob("bet9ja-*.json")):
+        for src in sorted([*folder.glob("bet9ja-*.json"), *folder.glob("public-odds-walk-*.json")]):
             raw = src.read_bytes()
             h = hashlib.sha256(raw).hexdigest()
             if h in have:

@@ -46,7 +46,7 @@ async function walk(tabId, maxEvents, scope) {
   const tab = await chrome.tabs.get(tabId);
   const startUrl = tab.url || null;
   const source = PublicOddsSources.findSource(startUrl || '');
-  if (!source) throw new Error('Open a supported public source first.');
+  if (!source) throw new Error(`Open a supported public source first (this tab is ${startUrl ? new URL(startUrl).hostname : 'not a web page'}).`);
   const run = {
     schema_version: 'public-odds-capture-walk.v1', capture_status: 'RUNNING',
     source_key: source.key, started_at_utc: new Date().toISOString(), seed_url: startUrl,

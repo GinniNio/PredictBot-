@@ -91,6 +91,10 @@ def page_candidates() -> str:
         if any(c["sport"] == s for c in acc):
             out.append(f"<label><input type='checkbox' name='sport' value='{e(s)}' checked> {e(s)}</label> ")
     out.append(f"</p><button>Create next research pack ({min(len(waiting), workflow.PACK_SIZE)} fixtures)</button></form>")
+    nq = len(workflow.benchmark_quotes(DF, [DOWNLOADS]))
+    out.append("<form method='post' action='/auto'><p><button>Benchmark from captured odds pages</button> "
+               f"<span class='dim'>{nq} Polymarket quotes found in public-odds-walk files; matched fixtures are "
+               "priced without a chat.</span></p></form>")
     rows = [[e(c["sport"]), e(c["competition"]), e(c["kickoff_utc"]), e(f"{c['home']} v {c['away']}"), e(c["market"]),
              e(" / ".join(f"{float(o):.2f}" for o in c["odds"])), f"{pcbf.book_total([float(o) for o in c['odds']]) * 100:.1f}%"]
             for c in acc]
@@ -283,6 +287,14 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/pack":
                 workflow.create_pack(DF, now(), set(form.get("sport") or []) or None, [])
                 return self.redirect("/pack")
+            if u.path == "/auto":
+                r = workflow.auto_benchmark(DF, now(), [DOWNLOADS])
+                res = {"pack_id": "auto (captured odds pages)", "records": r["records"], "unknown_codes": [],
+                       "unanswered": []}
+                skipped = table(["Game", "Not used", "Source"], [[e(a), e(b), e(c)] for a, b, c in r["skipped"]])
+                body = (f"<p>{r['quotes']} captured quotes; {len(r['records'])} selection records written.</p>"
+                        + page_reply_result(res) + ("<h2>Quotes not used</h2>" + skipped if r["skipped"] else ""))
+                return self.send(layout("/", body))
             if u.path == "/reply":
                 return self.send(layout("/pack", page_reply_result(workflow.apply_reply(DF, get("reply"), now()))))
             if u.path == "/settlepack":

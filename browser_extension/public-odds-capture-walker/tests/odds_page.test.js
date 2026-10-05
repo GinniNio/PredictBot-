@@ -70,3 +70,12 @@ test('background passes no undefined args to executeScript', () => {
   assert.match(src, /async function callPage\(tabId, action, scope = 'sports'\)/);
   assert.doesNotMatch(src, /args: \[action, scope\]/);
 });
+
+test('regional and mobile hosts are recognised', () => {
+  const { findSource } = require('../source_registry.js');
+  for (const u of ['https://www.oddsportal.com/tennis/', 'https://m.oddsportal.com/', 'https://oddsportal.ng/football/',
+                   'https://www.flashscore.co.uk/']) {
+    assert.ok(findSource(u), u);
+  }
+  assert.equal(findSource('https://notoddsportal.example.com/'), null);
+});

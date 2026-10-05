@@ -11,6 +11,7 @@ This opens http://localhost:8000. It needs Python 3.10+ and nothing else install
 ## Where the odds come from
 
 - **All sports:** the Chrome extension in `browser_extension/bet9ja-allsports-evidence-capture-v0.2.2/`. Its "Walk sport" button saves one file per sport (`bet9ja-allsports-walk-<sport>-*.json`, schema `bet9ja-allsports-sport-walk.v2.1`).
+- **Benchmarks (Polymarket):** `browser_extension/public-odds-capture-walker/`, files `public-odds-walk-*.json`.
 - **Soccer, open bets, settled bets:** the older extension in `browser_extension/bet9ja_capture/`, schemas `bet9ja-soccer-session.v1`, `bet9ja-ticket-capture.v1` and `bet9ja-settled-bets.v1`.
 
 Each time a page loads, the app copies new `bet9ja-*.json` files from your Downloads folder into the data folder, with their bytes unchanged.
@@ -27,7 +28,9 @@ Each time a page loads, the app copies new `bet9ja-*.json` files from your Downl
 
 ## Benchmark requirement
 
-A price is compared with the **same market, same settlement, same day** from one source, in this order: Pinnacle, then the oddsportal average, then oddschecker's best prices. Edge = Bet9ja price × fair probability − 1. The fair probability is the more cautious of the proportional and power de-vigs, using the rulebook's code verbatim (`pcbf.py`).
+A price is compared with the **same market, same settlement, same day** from one source, in this order: Pinnacle, then the oddsportal average, then oddschecker's best prices, then **Polymarket**. The operator added Polymarket as a fourth source on 2026-10-05, a change to PCBF Mini v1.3.
+
+**Polymarket from captured pages.** Use the `public-odds-capture-walker` extension on a **pre-match** Polymarket sports page (e.g. `/sports/atp`, not `/sports/live`). On the Candidates page, click **Benchmark from captured odds pages**. Two-way fixtures are matched by sport, both surnames and a kickoff within 3h. They're priced from Polymarket's mid prices without a chat. A quote isn't used if it was captured after the event's `gameStartTime` (in-play). It's logged as RESEARCH if its moneyline traded under $5,000 or its bid/ask spread is wider than 0.04. Edge = Bet9ja price × fair probability − 1. The fair probability is the more cautious of the proportional and power de-vigs, using the rulebook's code verbatim (`pcbf.py`).
 
 ## Tiers
 
@@ -69,5 +72,6 @@ Field definitions are in `schemas.py`. Rows are never edited or deleted, and a r
 | `storage.py` | Append-only reads and writes in the data folder |
 | `workflow.py` | The daily loop, joining the core and storage |
 | `tickets.py` | Bet9ja ticket P&L from open and settled bet captures |
+| `odds_sources.py` | Benchmark quotes read from captured odds pages (Polymarket), matching to Bet9ja fixtures |
 | `app.py` | Thin stdlib web interface over `workflow.py` |
 | `tests/` | `python -m unittest discover -s predictbot/tests` |

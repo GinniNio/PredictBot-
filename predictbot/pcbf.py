@@ -20,7 +20,7 @@ GATE_PICKS = 200                      # PCBF Mini step 5
 MAX_CAPTURE_BENCHMARK_GAP = timedelta(hours=6)
 CLOCK_SKEW = timedelta(minutes=10)
 MIN_LEAD = timedelta(minutes=60)      # too close to kickoff to research and benchmark
-BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker")
+BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker", "polymarket")   # polymarket added by the operator 2026-10-05
 
 # ------------------------------------------------------------------ markets
 # (sport, Bet9ja market_key) -> canonical market. Anything not listed is an
@@ -349,14 +349,14 @@ def selection_name(c: dict, i: int) -> str:
 PACK_RULES = """TASK, START NOW WITHOUT ASKING QUESTIONS: use web search to find a benchmark price for every fixture listed below, then reply with ONLY the lines in the format at the end. No summary, no edges, no questions.
 
 You are the research step of PCBF Mini v1.3. The app does all arithmetic: do NOT calculate edges or fair odds.
-For each fixture, find the SAME market TODAY from ONE source, in this order: Pinnacle (direct or via a comparison site); else oddsportal average; else oddschecker best prices.
+For each fixture, find the SAME market TODAY from ONE source, in this order: Pinnacle (direct or via a comparison site); else oddsportal average; else oddschecker best prices; else Polymarket (pre-match moneyline only; convert each price to decimal odds = 1 / price, e.g. 69c -> 1.449).
 Same settlement as stated on the line. A page dated a previous day is stale: you may give it, but say so in the note.
 Match prices by team/player NAME, never by position (US sites often list the away side first). Give prices in the SAME ORDER as the line.
-Use only these three sources; any other site (Betmonitor, Oddsator, Matchstat, etc.) = NONE. Reply NONE for any fixture, league or participant with a named integrity concern. Add a short news note (injury, manager change, big price move) where relevant.
+Use only these four sources; any other site (Betmonitor, Oddsator, Matchstat, etc.) = NONE. Reply NONE for any fixture, league or participant with a named integrity concern. Add a short news note (injury, manager change, big price move) where relevant.
 Never invent prices, URLs, times or news. Unknown = NONE.
 
 Reply with ONLY these lines, one per fixture:
-[code] | [source: pinnacle / oddsportal / oddschecker] | [page URL] | [time you read it, UTC, YYYY-MM-DDTHH:MMZ] | [prices in line order, decimal, separated by " / "] | [note or -]
+[code] | [source: pinnacle / oddsportal / oddschecker / polymarket] | [page URL] | [time you read it, UTC, YYYY-MM-DDTHH:MMZ] | [prices in line order, decimal, separated by " / "] | [note or -]
 [code] | NONE | [reason]
 
 Example:
@@ -435,7 +435,7 @@ def price_benchmark(captures: list[dict], fields: list[str], now: datetime, pack
     captured = parse_time(captures[0]["captured_at_utc"])
 
     if not any(s in source for s in BENCHMARK_SOURCES):
-        return [record(c, "RESEARCH", reason=f"benchmark source '{fields[0]}' not Pinnacle/oddsportal/oddschecker",
+        return [record(c, "RESEARCH", reason=f"benchmark source '{fields[0]}' not Pinnacle/oddsportal/oddschecker/Polymarket",
                        note=note, url=url) for c in captures]
     reason = None
     if not url.lower().startswith("http"):

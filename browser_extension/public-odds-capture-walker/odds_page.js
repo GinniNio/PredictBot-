@@ -39,7 +39,7 @@
       let url;
       try { url = new URL(anchor.getAttribute('href'), href); } catch (_) { continue; }
       const labelRaw = cleanText(anchor.textContent);
-      if (!source.hosts.includes(url.hostname.toLowerCase()) || !source.isEventUrl(url)) continue;
+      if (!SOURCE_API.hostMatches(source, url.hostname) || !source.isEventUrl(url)) continue;
       if (scope === 'sports' && source.isSportsEvent && !source.isSportsEvent(url, labelRaw)) continue;
       const absolute = url.href;
       if (seen.has(absolute)) continue;

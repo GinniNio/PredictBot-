@@ -222,6 +222,64 @@ class RealMarketKeys(unittest.TestCase):
         self.assertEqual(list(merged), ["bet9ja:bxf_abc"])   # 08:55 session capture is newer than the 08:50 walk
 
 
+def poly_capture(names, probs, volume, start, taken, bid=0.70, ask=0.71, league="atp", slug="atp-x-y-2026-10-05"):
+    market = ('{"question":"%s vs %s","outcomes":["%s","%s"],"outcomePrices":["%s","%s"],"volume":"%s",'
+              '"active":true,"closed":false,"sportsMarketType":"moneyline","bestBid":%s,"bestAsk":%s,'
+              '"gameStartTime":"%s"}' % (names[0], names[1], names[0], names[1], probs[0], probs[1], volume,
+                                         bid, ask, start))
+    html = "<script>self.__next_f.push([1,\"" + market.replace('"', '\\"') + "\"])</script>"
+    return {"schema_version": "public-odds-capture-walk.v1", "source_key": "polymarket",
+            "captures": [{"role": "event", "capture_status": "CAPTURE_OK", "captured_at_utc": taken,
+                          "source_url": f"https://polymarket.com/sports/{league}/{slug}", "html": html}]}
+
+
+class Polymarket(unittest.TestCase):
+    def setUp(self):
+        self.cand = pcbf.candidates_from_capture(
+            walker("tennis", [("match_winner", [2.10, 1.73])], home="Medvedev, Daniil", away="Djokovic, Novak"), "h")[0]
+        self.cand["kickoff_utc"] = "2026-10-05T11:00Z"
+
+    def test_parse_match_and_price(self):
+        import odds_sources
+        run = poly_capture(["Novak Djokovic", "Daniil Medvedev"], ["0.40", "0.60"], "1900463.2",
+                           "2026-10-05 11:15:00+00", "2026-10-05T10:20:00.000Z")
+        qs = odds_sources.quotes_from_walk(run)
+        self.assertEqual((qs[0]["outcomes"], qs[0]["probs"], qs[0]["start_utc"]),
+                         (["Novak Djokovic", "Daniil Medvedev"], [0.4, 0.6], "2026-10-05T11:15Z"))
+        self.assertIsNone(odds_sources.quote_problem(qs[0]))
+        q, order = odds_sources.match_quote(self.cand, qs)
+        self.assertEqual(order, [1, 0])            # Bet9ja lists Medvedev first
+        recs = pcbf.capture_records(self.cand)
+        out = pcbf.price_benchmark(recs, odds_sources.reply_fields(q, order), at("2026-10-05T10:25:00Z"))
+        # Medvedev: 2.10 x 0.60 - 1 = +26%; Djokovic: 1.73 x 0.40 - 1 = -30.8%
+        self.assertEqual([(r["tier"], r["edge_pct"], r["benchmark_source"]) for r in out],
+                         [("PICK", "0.2600", "polymarket"), ("WATCH", "-0.3080", "polymarket")])
+
+    def test_unusable_quotes(self):
+        import odds_sources
+        inplay = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.5", "0.5"], "90000",
+                                                            "2026-10-05 11:55:00+00", "2026-10-05T12:58:00Z"))[0]
+        thin = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.5", "0.5"], "643",
+                                                          "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z"))[0]
+        wide = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.5", "0.5"], "90000",
+                                                          "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z",
+                                                          bid=0.12, ask=1.0))[0]
+        self.assertEqual(odds_sources.quote_problem(inplay), "captured after the event started (in-play price)")
+        self.assertTrue(odds_sources.quote_problem(thin).startswith("thin market"))
+        self.assertTrue(odds_sources.quote_problem(wide).startswith("wide market"))
+
+    def test_no_match_on_different_players_or_day(self):
+        import odds_sources
+        qs = odds_sources.quotes_from_walk(poly_capture(["Novak Djokovic", "Jannik Sinner"], ["0.4", "0.6"], "900000",
+                                                        "2026-10-05 11:15:00+00", "2026-10-05T10:20:00Z"))
+        self.assertEqual(len(qs), 1)
+        self.assertIsNone(odds_sources.match_quote(self.cand, qs))
+        qs = odds_sources.quotes_from_walk(poly_capture(["Novak Djokovic", "Daniil Medvedev"], ["0.4", "0.6"], "900000",
+                                                        "2026-10-06 11:15:00+00", "2026-10-05T10:20:00Z"))
+        self.assertEqual(len(qs), 1)
+        self.assertIsNone(odds_sources.match_quote(self.cand, qs))
+
+
 class EndToEnd(unittest.TestCase):
     """Walker capture -> pack -> chat reply -> validated records -> bet ->
     settlement -> CLV and performance."""
