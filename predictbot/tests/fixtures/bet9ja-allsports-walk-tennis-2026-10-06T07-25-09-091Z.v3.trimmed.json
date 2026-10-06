@@ -1,0 +1,122 @@
+{
+ "capture_started_at_utc": "2026-10-06T07:22:54.741Z",
+ "capture_status": "COMPLETE",
+ "captured_at_utc": "2026-10-06T07:25:09.040Z",
+ "competitions_attempted": 27,
+ "competitions_failed": 0,
+ "competitions_seen": 27,
+ "competitions_successful": 27,
+ "competitions_validated": 27,
+ "failures": [],
+ "fixtures_total": 151,
+ "fixtures_with_any_price": 151,
+ "fixtures_with_priced_market": 151,
+ "groups_discovered": 8,
+ "groups_failed": 0,
+ "groups_seen": 8,
+ "page_timezone": "Africa/Lagos",
+ "page_timezone_raw": "08:22 Africa/Lagos",
+ "page_utc_offset": "+01:00",
+ "priced_fixture_ratio": 1,
+ "results": [
+  {
+   "attempted_click": true,
+   "competition_id": "5609769",
+   "competition_label": "ATP Beijing, China Men Singles",
+   "fixtures": [
+    {
+     "date_text_raw": "Tue 6 Oct",
+     "fixture_id": "846425768",
+     "has_priced_market": true,
+     "kickoff_time_raw": "12:00",
+     "kickoff_utc": "2026-10-06T11:00:00.000Z",
+     "markets": [
+      {
+       "header_raw": "1 / 2",
+       "line": null,
+       "line_raw": null,
+       "market_code_raw": "match_winner",
+       "market_raw": "match winner",
+       "period_raw": null,
+       "raw_snippet": "Game Handicap | match winner | 1 / 2 | Djokovic, Novak: 1.52 / de Minaur, Alex: 2.55",
+       "selections": [
+        {
+         "label_raw": "Djokovic, Novak",
+         "odds": 1.52,
+         "odds_raw": "1.52",
+         "state": "open"
+        },
+        {
+         "label_raw": "de Minaur, Alex",
+         "odds": 2.55,
+         "odds_raw": "2.55",
+         "state": "open"
+        }
+       ],
+       "validation_flags": []
+      },
+      {
+       "header_raw": "Sets / 1 / 2",
+       "line": -1.5,
+       "line_raw": "-1.5",
+       "market_code_raw": "set_handicap",
+       "market_raw": "set handicap",
+       "period_raw": null,
+       "raw_snippet": "Game Handicap | set handicap | Sets / 1 / 2 | Djokovic, Novak: 2.30 / de Minaur, Alex: 1.58",
+       "selections": [
+        {
+         "label_raw": "Djokovic, Novak",
+         "odds": 2.3,
+         "odds_raw": "2.30",
+         "state": "open"
+        },
+        {
+         "label_raw": "de Minaur, Alex",
+         "odds": 1.58,
+         "odds_raw": "1.58",
+         "state": "open"
+        }
+       ],
+       "validation_flags": []
+      },
+      {
+       "header_raw": "Games / 1 / 2",
+       "line": -2.5,
+       "line_raw": "-2.5",
+       "market_code_raw": "game_handicap",
+       "market_raw": "game handicap",
+       "period_raw": null,
+       "raw_snippet": "Game Handicap | game handicap | Games / 1 / 2 | Djokovic, Novak: 1.75 / de Minaur, Alex: 2.00",
+       "selections": [
+        {
+         "label_raw": "Djokovic, Novak",
+         "odds": 1.75,
+         "odds_raw": "1.75",
+         "state": "open"
+        },
+        {
+         "label_raw": "de Minaur, Alex",
+         "odds": 2,
+         "odds_raw": "2.00",
+         "state": "open"
+        }
+       ],
+       "validation_flags": []
+      }
+     ],
+     "missing_participants": false,
+     "odds_flags": [],
+     "participant_1": "Djokovic, Novak",
+     "participant_2": "de Minaur, Alex"
+    }
+   ],
+   "observed_competition_heading_raw": "ATP Beijing, China Men Singles",
+   "observed_source_url_raw": "https://sports.bet9ja.com/competition/tennis/atp/atpbeijingchinamensingles/5-43762-5609769",
+   "parse_result": "populated",
+   "price_captured_at_utc": "2026-10-06T07:22:58.848Z",
+   "source_url_after_click": "https://sports.bet9ja.com/competition/tennis/atp/atpbeijingchinamensingles/5-43762-5609769"
+  }
+ ],
+ "schema_version": "bet9ja-allsports-sport-walk.v3",
+ "sport": "tennis"
+}

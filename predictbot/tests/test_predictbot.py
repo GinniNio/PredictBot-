@@ -120,6 +120,15 @@ class WalkerCapture(unittest.TestCase):
         for r in recs:
             self.assertEqual(schemas.validate("capture", r), [])
 
+    def test_walker_v3_format(self):
+        path = FIX / "bet9ja-allsports-walk-tennis-2026-10-06T07-25-09-091Z.v3.trimmed.json"
+        raw = path.read_bytes()
+        c = pcbf.candidates_from_capture(json.loads(raw), pcbf.payload_hash(raw))[0]
+        self.assertEqual((c["home"], c["away"], c["market"], c["odds"], c["kickoff_utc"], c["captured_at_utc"]),
+                         ("Djokovic, Novak", "de Minaur, Alex", "MATCH_WINNER", [1.52, 2.55],
+                          "2026-10-06T11:00Z", "2026-10-06T07:22Z"))
+        self.assertIsNone(pcbf.screen(c, at("2026-10-06T07:30:00Z")))
+
     def test_two_way_semantics(self):
         raw = CRICKET.read_bytes()
         cands = pcbf.candidates_from_capture(json.loads(raw), pcbf.payload_hash(raw))

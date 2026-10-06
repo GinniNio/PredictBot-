@@ -214,15 +214,19 @@ def candidates_from_capture(data: dict, raw_hash: str, file_name: str = "") -> l
         for res in data.get("results") or []:
             url = res.get("observed_source_url_raw") or res.get("source_url_after_click") or ""
             for fx in res.get("fixtures") or []:
-                markets = {m.get("market_key"): m for m in fx.get("markets") or []}
+                # v2.1 names the market `market_key`; v3 calls it `market_code_raw`
+                markets = {(m.get("market_key") or m.get("market_code_raw")): m for m in fx.get("markets") or []}
                 key, market = choose_market(sport, markets)
                 c = {"sport": sport, "competition": res.get("competition_label") or "",
                      "country": _country_from_url(url), "source_url": url,
                      "event_id": f"bet9ja:{fx.get('fixture_id')}",
                      "home": fx.get("participant_1") or "", "away": fx.get("participant_2") or "",
-                     "kickoff_utc": utc(parse_time(fx.get("kickoff_utc_derived"))),
-                     "kickoff_basis": fx.get("kickoff_utc_basis") or "",
-                     "captured_at_utc": utc(parse_time(res.get("captured_at_utc") or data.get("captured_at_utc"))),
+                     # v2.1: kickoff_utc_derived (+ basis); v3: kickoff_utc + page_utc_offset
+                     "kickoff_utc": utc(parse_time(fx.get("kickoff_utc_derived") or fx.get("kickoff_utc"))),
+                     "kickoff_basis": fx.get("kickoff_utc_basis") or (f"page time {data['page_utc_offset']}"
+                                                                     if data.get("page_utc_offset") else ""),
+                     "captured_at_utc": utc(parse_time(res.get("captured_at_utc") or res.get("price_captured_at_utc")
+                                                       or data.get("captured_at_utc"))),
                      "raw_payload_hash": raw_hash, "capture_file": file_name,
                      "market_key": key, "market": market, "outcomes": [], "odds": [],
                      "problem": None}
