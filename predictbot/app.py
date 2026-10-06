@@ -31,6 +31,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import feeds  # noqa: E402
 import odds_sources  # noqa: E402
 import pcbf  # noqa: E402
 import schemas  # noqa: E402
@@ -105,6 +106,11 @@ def update_now() -> str:
     msg = [f"{imported} new capture files from Downloads" if imported else "no new capture files"]
     if blocked():
         return "; ".join(msg) + ". Pricing paused: data folder is read-only (see Pending)."
+    f = feeds.fetch_polymarket(DF, now())
+    if f["status"] == "fetched":
+        msg.append(f"Polymarket feed: {f['events']} upcoming games" + (f" (partial: {f['error']})" if f["error"] else ""))
+    elif f["status"] == "failed":
+        msg.append(f"Polymarket feed unavailable ({f['error']}); using earlier fetches")
     r = workflow.auto_benchmark(DF, now(), [DOWNLOADS])
     events = {x["selection_id"].rsplit(":", 1)[0] for x in r["records"]}
     msg.append(f"{len(events)} fixtures priced from captured odds pages")
@@ -227,13 +233,19 @@ def page_pending(msg="") -> str:
         out.append("<p class='dim'>Nothing to review.</p>")
     # settlement rules
     rules = workflow.unconfirmed_rules(DF)
+    texts = workflow.rules_text(status["quotes"])
     out.append(f"<h2>Settlement rules to confirm ({len(rules)})</h2>")
     if rules:
         rows = []
         for k, n in sorted(rules.items(), key=lambda kv: -kv[1]):
             src, sport, market = k.split("|")
             what = pcbf.VARIABLE_RULES.get(market, {}).get(sport) or "resolution rules"
-            rows.append([e(src), e(sport), e(market), e(what), n,
+            said = texts.get((src, sport))
+            if said:
+                what = f"{what}<br><details><summary>{e(src)}'s own rules</summary><span class='dim'>{e(said)}</span></details>"
+            else:
+                what = e(what)
+            rows.append([e(src), e(sport), e(market), what, n,
                          f"<form method='post' action='/rule' class='inline'><input type='hidden' name='key' value='{e(k)}'>"
                          "<input name='note' placeholder='what you checked' size='18'>"
                          "<button name='status' value='same as bet9ja'>Same as Bet9ja</button>"

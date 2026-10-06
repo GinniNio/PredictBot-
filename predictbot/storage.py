@@ -356,6 +356,19 @@ class DataFolder:
         """public-odds-walk-*.json files from the benchmark capture extension."""
         return self._files("public-odds-walk-*.json", extra_folders, since)
 
+    def feed_files(self, since: datetime | None = None) -> list[tuple[Path, bytes]]:
+        """polymarket-feed-*.json files saved by feeds.py."""
+        return self._files("polymarket-feed-*.json", (), since)
+
+    def save_capture(self, name: str, raw: bytes) -> Path:
+        """Store a capture written by the app itself (e.g. a feed fetch)."""
+        self._check_writable()
+        p = self.root / "captures" / name
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_bytes(raw)
+        os.replace(tmp, p)
+        return p
+
     def _files(self, pattern, extra_folders, since):
         cutoff = (since - timedelta(days=1)).strftime("%Y-%m-%d") if since else None
         seen, out = set(), []

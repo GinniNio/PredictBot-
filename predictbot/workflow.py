@@ -225,15 +225,31 @@ def import_pcbf_ledger(df: DataFolder, csv_path, now: datetime) -> dict:
 
 
 def benchmark_quotes(df: DataFolder, extra_folders=(), now: datetime | None = None) -> list[dict]:
+    """Quotes from walker captures and saved Polymarket feed fetches."""
+    since = (now - RECENT) if now else None
     quotes = []
-    for path, raw in df.odds_walks(extra_folders, (now - RECENT) if now else None):
+    for path, raw in [*df.odds_walks(extra_folders, since), *df.feed_files(since)]:
         try:
-            run = json.loads(raw.decode("utf-8"))
+            data = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
             continue
-        if isinstance(run, dict):
-            quotes.extend(odds_sources.quotes_from_walk(run, path.name))
+        if not isinstance(data, dict):
+            continue
+        if path.name.startswith("polymarket-feed-"):
+            quotes.extend(odds_sources.quotes_from_feed(data, path.name))
+        else:
+            quotes.extend(odds_sources.quotes_from_walk(data, path.name))
     return quotes
+
+
+def rules_text(quotes: list[dict]) -> dict:
+    """(source, sport) -> the newest rules text a quote carries (Polymarket
+    markets state their own resolution rules)."""
+    out = {}
+    for q in sorted(quotes, key=lambda q: q["captured_at_utc"]):
+        if q.get("rules"):
+            out[(q["source"], q["sport"])] = q["rules"]
+    return out
 
 
 def confirmed_rules(df: DataFolder) -> dict:
@@ -322,6 +338,8 @@ def coverage(df: DataFolder, status: dict, now: datetime) -> list[dict]:
             continue
         key = r["reason"] if r["state"] in ("screened out", "unresolved") else r["state"]
         key = re.sub(r"\(found: .*\)", "", key).strip()
+        key = re.sub(r"(thin|wide|shallow) market:.*", r"\1 market", key)   # group by kind, not by amount
+        key = re.sub(r"only \d+ bookmakers listed.*", "too few bookmakers", key)
         bucket = "screen_reasons" if r["state"] == "screened out" else "reasons"
         d["screened_out" if r["state"] == "screened out" else "unresolved"] += 1
         d[bucket][key] = d[bucket].get(key, 0) + 1

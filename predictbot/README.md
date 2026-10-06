@@ -14,9 +14,9 @@ Stop it with the **Stop PredictBot** button (top right) before switching laptops
 
 1. **Capture** with the Chrome extensions:
    - Bet9ja, one sport at a time: `browser_extension/bet9ja-allsports-evidence-capture-v0.2.2/` (walker 0.3.0, "Walk sport").
-   - Benchmarks: `browser_extension/public-odds-capture-walker/` on Polymarket (`polymarket.com/sports`) and OddsPortal sport pages. Capture these close in time to the Bet9ja walk.
+   - Benchmarks: `browser_extension/public-odds-capture-walker/` on OddsPortal sport pages, close in time to the Bet9ja walk. **Polymarket needs no capture**: the app reads its public feed itself (below).
    - Your bets: `browser_extension/bet9ja_capture/` ("Capture open bets", settled bets).
-2. **Opportunities.** Opening it copies new files from Downloads into the data folder (bytes unchanged) and prices every fixture it can match to a captured benchmark. You see:
+2. **Opportunities.** Opening it copies new files from Downloads into the data folder (bytes unchanged), fetches Polymarket's upcoming games (at most every 10 minutes), and prices every fixture it can match to a benchmark. You see:
    - **Coverage by sport**: fixtures captured, with usable prices, screened out by the rulebook, benchmarked, unresolved (with reasons), on the shortlist.
    - **Shortlist**: PICK and PM_PAPER for upcoming games, with **min odds**: the lowest Bet9ja price that still clears +3% at the fair probability.
    - **Recheck**: type the Bet9ja price you see just before betting. The app stores the initial and rechecked odds and recomputes the edge and tier. Below min odds, skip it.
@@ -43,6 +43,8 @@ Order of preference (PCBF Mini, with Polymarket added by the operator on 2026-10
 | `REJECTED` | Failed validation: missing URL or time, wrong price count, benchmark after kickoff, duplicate, or a settlement rule that differs from Bet9ja's. |
 
 **OddsPortal average.** Every complete bookmaker row is de-vigged on its own (proportionally), then the probabilities are averaged; a margin is never built from prices taken across different books, and Bet9ja's own row is excluded (operator's odds-source audit, 6 Oct 2026). Each selection lists the bookmakers used. Because the averaged probabilities already sum to 1, the rulebook's cautious power de-vig changes nothing for OddsPortal quotes; it still applies to prices pasted from a chat.
+
+**Polymarket feed.** The app reads Polymarket's public data feed (`gamma-api.polymarket.com`, free, no key) instead of walking its pages: every game starting in the next 36 hours, in a few requests. Each fetch is saved as `captures/polymarket-feed-<time>.json` (game events with their moneyline markets, including each market's own rules text), so every price traces back to the response it came from. If the feed is unreachable, the day carries on with earlier fetches and OddsPortal. Esports are skipped. Polymarket's rules text is shown on Pending when you confirm a settlement rule.
 
 **Polymarket evidence.** Each quote records its price basis. On every moneyline captured so far, the displayed price equals the bid/ask midpoint; a quote where it does not is labelled and cannot be PM_PAPER. Thresholds (volume ≥ $5,000, spread ≤ 0.04, liquidity ≥ $5,000 on the thinnest leg, quote within 2h) are rules under evaluation, set in `odds_sources.py` and `pcbf.py`.
 
@@ -87,7 +89,7 @@ The handover is the protection; these checks are guards and indicators, not a gu
 
 | Path | Contents |
 |---|---|
-| `captures/*.json` | Raw captures, bytes unchanged |
+| `captures/*.json` | Raw captures, bytes unchanged; `polymarket-feed-*.json` are the app's own feed fetches |
 | `captures/capture-records.csv` | One row per Bet9ja selection priced |
 | `selections/selections.csv` | Every PICK, PM_PAPER, WATCH, RESEARCH and REJECTED record |
 | `selections/screening.csv` | Candidates screened when a research pack was made |
@@ -108,7 +110,8 @@ Rows are never edited or deleted. When a newer app adds columns, a file is rewri
 | File | Role |
 |---|---|
 | `pcbf.py` | Pure core: rulebook de-vig and edge, tiers, settlement rules, rechecks, snapshot labels, forecast scoring, performance |
-| `odds_sources.py` | Captured benchmark pages to one quote format; matching and review grading |
+| `odds_sources.py` | Captured pages and feed fetches to one quote format; matching and review grading |
+| `feeds.py` | Fetches Polymarket's public feed (the app's only network code) |
 | `schemas.py` | Record definitions, versions, validation |
 | `storage.py` | Append-only files, write guard, versions, conflict merge, session marker |
 | `workflow.py` | The daily loop joining core and storage |

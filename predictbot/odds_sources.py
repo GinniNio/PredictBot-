@@ -16,6 +16,7 @@ Pure functions only; no file or network access.
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from datetime import timedelta
@@ -28,7 +29,7 @@ MIN_POLYMARKET_LIQUIDITY = 5000.0  # USD resting liquidity on the thinnest leg; 
 SOURCE_PRIORITY = ("pinnacle", "oddsportal", "oddschecker", "polymarket")   # PCBF Mini order
 KICKOFF_TOLERANCE = timedelta(hours=3)
 
-LEAGUE_SPORT = {"soccer": "soccer", "unl": "soccer", "ucl": "soccer", "uel": "soccer", "fifa": "soccer",
+LEAGUE_SPORT = {"soccer": "soccer", "fif": "soccer", "unl": "soccer", "ucl": "soccer", "uel": "soccer", "fifa": "soccer",
                 "epl": "soccer", "es2": "soccer", "nor": "soccer","atp": "tennis", "wta": "tennis", "itf": "tennis", "challenger": "tennis",
                 "modus": "darts", "pdc": "darts", "darts": "darts", "table-tennis": "table_tennis",
                 "mlb": "baseball", "nba": "basketball", "nhl": "ice_hockey", "nfl": "american_football"}
@@ -55,23 +56,28 @@ def _markets(html: str) -> list[dict]:
             continue
         questions = re.findall(r'"question":"([^"]+)"', back)
         liquidity = re.findall(r'"liquidity":"([\d.]+)"', back)
-        bid, ask = _field(fwd, "bestBid"), _field(fwd, "bestAsk")
-        try:
-            bid, ask = (float(bid), float(ask)) if bid and ask else (None, None)
-        except ValueError:
-            bid = ask = None
-        if bid is None:
-            basis = "displayed price (no bid/ask on page)"
-        elif probs and abs(probs[0] - (bid + ask) / 2) <= 0.0051:
-            basis = "midpoint (bid/ask)"
-        else:
-            basis = "displayed price (differs from bid/ask midpoint; may be last trade)"
+        bid, ask = _floats(_field(fwd, "bestBid"), _field(fwd, "bestAsk"))
         out.append({"outcomes": re.findall(r'"([^"]+)"', m.group(1)), "probs": probs, "volume": float(m.group(3)),
                     "type": _field(fwd, "sportsMarketType"), "start": _field(fwd, "gameStartTime"),
                     "closed": _field(fwd, "closed") == "true", "question": questions[-1] if questions else "",
-                    "spread": (ask - bid) if bid is not None else None, "basis": basis,
+                    "spread": (ask - bid) if bid is not None else None, "basis": _basis(probs, bid, ask),
                     "liquidity": float(liquidity[-1]) if liquidity else None})
     return out
+
+
+def _floats(bid, ask):
+    try:
+        return (float(bid), float(ask)) if bid not in (None, "") and ask not in (None, "") else (None, None)
+    except (TypeError, ValueError):
+        return None, None
+
+
+def _basis(probs, bid, ask) -> str:
+    if bid is None:
+        return "displayed price (no bid/ask)"
+    if probs and abs(probs[0] - (bid + ask) / 2) <= 0.0051:
+        return "midpoint (bid/ask)"
+    return "displayed price (differs from bid/ask midpoint; may be last trade)"
 
 
 WIN_Q = re.compile(r"^Will (.+?) win(?: on \d{4}-\d{2}-\d{2})?\?$")
@@ -79,10 +85,7 @@ DRAW_Q = re.compile(r"^Will (.+?) vs\.? (.+?) end in a draw\?$")
 
 
 def polymarket_quotes(capture: dict) -> list[dict]:
-    """The event's moneyline from one captured Polymarket page: a two-way
-    market (players as outcomes) or, for soccer, three Yes/No markets
-    ('Will A win?', 'Will A vs. B end in a draw?', 'Will B win?') combined
-    into home / draw / away using their Yes prices."""
+    """The event's moneyline from one captured Polymarket page."""
     html = (capture.get("html") or "").replace('\\"', '"')
     url = capture.get("source_url") or ""
     m = re.search(r"/sports/([a-z0-9-]+)/", url)
@@ -91,12 +94,20 @@ def polymarket_quotes(capture: dict) -> list[dict]:
     taken = utc(parse_time(capture.get("captured_at_utc")))
     base = {"source": "polymarket", "bookmakers": "Polymarket", "url": url.split("?")[0], "league": league,
             "captured_at_utc": taken, "quote_time_utc": taken}
-    markets = [mk for mk in _markets(html) if mk["type"] == "moneyline" and len(mk["outcomes"]) == len(mk["probs"])]
+    q = _moneyline(_markets(html), base, sport)
+    return [q] if q else []
+
+
+def _moneyline(markets: list[dict], base: dict, sport: str | None) -> dict | None:
+    """A two-way market (players or teams as outcomes) or, for soccer, three
+    Yes/No markets ('Will A win?', 'Will A vs. B end in a draw?', 'Will B
+    win?') combined into home / draw / away using their Yes prices."""
+    markets = [mk for mk in markets if mk["type"] == "moneyline" and len(mk["outcomes"]) == len(mk["probs"])]
     for mk in markets:
         if len(mk["outcomes"]) == 2 and mk["outcomes"] != ["Yes", "No"]:
-            return [_finish({**base, "sport": sport, "start_utc": utc(parse_time(mk["start"])), "outcomes": mk["outcomes"],
-                             "probs": mk["probs"], "volume": mk["volume"], "spread": mk["spread"], "closed": mk["closed"],
-                             "price_basis": mk["basis"], "depth": mk["liquidity"]})]
+            return _finish({**base, "sport": sport, "start_utc": utc(parse_time(mk["start"])), "outcomes": mk["outcomes"],
+                            "probs": mk["probs"], "volume": mk["volume"], "spread": mk["spread"], "closed": mk["closed"],
+                            "price_basis": mk["basis"], "depth": mk["liquidity"], "rules": mk.get("rules")})
     draw = next((mk for mk in markets if DRAW_Q.match(mk["question"])), None)
     if draw:
         home, away = DRAW_Q.match(draw["question"]).groups()
@@ -106,19 +117,76 @@ def polymarket_quotes(capture: dict) -> list[dict]:
             spreads = [x["spread"] for x in legs if x["spread"] is not None]
             bases = {x["basis"] for x in legs}
             depths = [x["liquidity"] for x in legs]
-            return [_finish({**base, "sport": sport or "soccer", "start_utc": utc(parse_time(draw["start"])),
-                             "outcomes": [home, "Draw", away], "probs": [x["probs"][0] for x in legs],
-                             "volume": min(x["volume"] for x in legs), "spread": max(spreads) if spreads else None,
-                             "closed": any(x["closed"] for x in legs),
-                             "price_basis": bases.pop() if len(bases) == 1 else "mixed: " + "; ".join(sorted(bases)),
-                             "depth": None if None in depths else min(depths)})]
-    return []
+            return _finish({**base, "sport": sport or "soccer", "start_utc": utc(parse_time(draw["start"])),
+                            "outcomes": [home, "Draw", away], "probs": [x["probs"][0] for x in legs],
+                            "volume": min(x["volume"] for x in legs), "spread": max(spreads) if spreads else None,
+                            "closed": any(x["closed"] for x in legs),
+                            "price_basis": bases.pop() if len(bases) == 1 else "mixed: " + "; ".join(sorted(bases)),
+                            "depth": None if None in depths else min(depths), "rules": legs[0].get("rules")})
+    return None
+
+
+# ------------------------------------------------------- polymarket feed
+# Polymarket's public data feed (gamma-api.polymarket.com, no key), saved by
+# feeds.py as polymarket-feed-*.json: game events with their moneyline
+# markets, start time, live / ended flags and each market's rules text.
+
+FEED_TAG_SPORT = {"soccer": "soccer", "tennis": "tennis", "table-tennis": "table_tennis", "basketball": "basketball",
+                  "hockey": "ice_hockey", "baseball": "baseball", "cricket": "cricket", "mma": "mma", "ufc": "mma",
+                  "boxing": "boxing", "darts": "darts", "handball": "handball", "volleyball": "volleyball",
+                  "nfl": "american_football", "american-football": "american_football", "cfb": "american_football"}
+
+
+def feed_sport(event: dict) -> str | None:
+    """Sport from the event's tags; None for esports and anything unmapped."""
+    tags = {t.get("slug") for t in event.get("tags") or [] if isinstance(t, dict)}
+    if "esports" in tags:
+        return None
+    return next((FEED_TAG_SPORT[t] for t in sorted(tags) if t in FEED_TAG_SPORT), None)
+
+
+def _feed_market(m: dict) -> dict | None:
+    try:
+        outcomes = json.loads(m["outcomes"]) if isinstance(m.get("outcomes"), str) else list(m.get("outcomes") or [])
+        probs = [float(x) for x in (json.loads(m["outcomePrices"]) if isinstance(m.get("outcomePrices"), str)
+                                    else m.get("outcomePrices") or [])]
+    except (KeyError, TypeError, ValueError):
+        return None
+    bid, ask = _floats(m.get("bestBid"), m.get("bestAsk"))
+    try:
+        liquidity = float(m["liquidity"]) if m.get("liquidity") not in (None, "") else None
+        volume = float(m.get("volume") or 0)
+    except (TypeError, ValueError):
+        liquidity, volume = None, 0.0
+    return {"outcomes": outcomes, "probs": probs, "volume": volume, "type": m.get("sportsMarketType"),
+            "start": m.get("gameStartTime"), "question": m.get("question") or "",
+            "closed": bool(m.get("closed")) or m.get("acceptingOrders") is False,
+            "spread": (ask - bid) if bid is not None else None, "basis": _basis(probs, bid, ask),
+            "liquidity": liquidity, "rules": (m.get("description") or "")[:1500]}
+
+
+def quotes_from_feed(feed: dict, file_name: str = "") -> list[dict]:
+    """One quote per game event in a saved Polymarket feed file."""
+    taken = utc(parse_time(feed.get("fetched_at_utc")))
+    out = []
+    for ev in feed.get("events") or []:
+        sport = feed_sport(ev)
+        if not sport:
+            continue
+        league = (ev.get("sport") or {}).get("sport") if isinstance(ev.get("sport"), dict) else ev.get("seriesSlug") or ""
+        base = {"source": "polymarket", "bookmakers": "Polymarket", "league": league or "",
+                "url": f"https://polymarket.com/sports/{league}/{ev.get('slug')}", "captured_at_utc": taken,
+                "quote_time_utc": taken, "file": file_name, "live": bool(ev.get("live")), "ended": bool(ev.get("ended"))}
+        q = _moneyline([x for x in map(_feed_market, ev.get("markets") or []) if x], base, sport)
+        if q:
+            out.append(q)
+    return out
 
 
 def _finish(q: dict) -> dict:
     """Fill the shared quote fields every source must carry."""
     q.setdefault("odds", [round(1 / p, 4) if p > 0 else None for p in q["probs"]])
-    for k in ("bookmakers", "price_basis", "depth", "volume", "spread", "file", "league"):
+    for k in ("bookmakers", "price_basis", "depth", "volume", "spread", "file", "league", "rules"):
         q.setdefault(k, None)
     q.setdefault("quote_time_utc", q.get("captured_at_utc"))
     return q
@@ -218,8 +286,10 @@ def quote_key(q: dict) -> str:
 def quote_problem(q: dict) -> str | None:
     """Why a quote cannot be a benchmark, or None if it can."""
     start, taken = parse_time(q["start_utc"]), parse_time(q["captured_at_utc"])
-    if q["closed"]:
+    if q["closed"] or q.get("ended"):
         return "market closed"
+    if q.get("live"):
+        return "captured after the event started (feed marks it live)"
     if q["source"] == "polymarket" and not start:
         return "event start time not readable: cannot rule out an in-play price"
     if start and taken and taken >= start:
@@ -243,9 +313,12 @@ def quote_problem(q: dict) -> str | None:
 
 # ------------------------------------------------------------------ matching
 
+ABBREVIATIONS = {"st": "saint", "ste": "sainte", "utd": "united", "intl": "international"}
+
+
 def _tokens(name: str) -> set:
     s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
-    return {t for t in re.split(r"[^a-z]+", s) if len(t) > 1}
+    return {ABBREVIATIONS.get(t, t) for t in re.split(r"[^a-z]+", s) if len(t) > 1}
 
 
 def _surname(bet9ja_name: str) -> str:

@@ -395,6 +395,114 @@ class ReviewRegressions(unittest.TestCase):
         self.assertEqual(odds_sources.choose_quote(c, [q, again], decisions)["status"], "none")
 
 
+def feed_event(slug, start, outcomes, prices, tags=("games", "sports", "tennis"), live=None, league="atp",
+               bid=None, ask=None, liquidity="25000", volume="900", question=None, extra_markets=()):
+    p0 = float(prices[0])
+    def market(q, outs, ps, b, a):
+        return {"question": q, "outcomes": json.dumps(outs), "outcomePrices": json.dumps([str(x) for x in ps]),
+                "bestBid": b, "bestAsk": a, "liquidity": liquidity, "volume": volume, "sportsMarketType": "moneyline",
+                "gameStartTime": start.replace("T", " ").replace("Z", "+00"), "closed": False, "acceptingOrders": True,
+                "description": "This market will resolve to the player who advances.", "image": "x" * 50}
+    main_outs, main_ps = (["Yes", "No"], [p0, round(1 - p0, 3)]) if question else (outcomes, prices)
+    markets = [market(question or " vs ".join(outcomes), main_outs, main_ps,
+                      round(p0 - 0.005, 3) if bid is None else bid, round(p0 + 0.005, 3) if ask is None else ask)]
+    markets += [market(q, ["Yes", "No"], [p, round(1 - p, 3)], round(p - 0.005, 3), round(p + 0.005, 3))
+                for q, p in extra_markets]
+    markets.append({"question": "Total sets", "sportsMarketType": "totals", "outcomes": "[]", "outcomePrices": "[]"})
+    return {"id": slug, "slug": slug, "title": " vs ".join(outcomes), "startTime": start, "live": live, "ended": None,
+            "closed": False, "seriesSlug": league, "sport": {"sport": league, "image": "x"},
+            "tags": [{"slug": t, "label": t} for t in tags], "markets": markets}
+
+
+class FakeFeed:
+    def __init__(self, pages):
+        self.pages, self.urls = pages, []
+
+    def __call__(self, url):
+        import io
+        self.urls.append(url)
+        page = self.pages[len(self.urls) - 1] if len(self.urls) <= len(self.pages) else []
+        if isinstance(page, Exception):
+            raise page
+        return io.BytesIO(json.dumps(page).encode())
+
+
+class PolymarketFeed(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.df = DataFolder(self.tmp, host="HP")
+        self.now = at("2026-10-06T09:30:00Z")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def events(self):
+        return [
+            feed_event("atp-broska-neumay-2026-10-06", "2026-10-06T12:00:00Z", ["Florian Broska", "Lukas Neumayer"], [0.295, 0.705]),
+            feed_event("fif-cro-esp-2026-10-06", "2026-10-06T18:45:00Z", ["Croatia", "Spain"], [0.085],
+                       tags=("games", "soccer", "sports"), league="fif", question="Will Croatia win on 2026-10-06?",
+                       extra_markets=[("Will Croatia vs. Spain end in a draw?", 0.145), ("Will Spain win on 2026-10-06?", 0.765)]),
+            feed_event("cs2-a-b-2026-10-06", "2026-10-06T13:00:00Z", ["Team A", "Team B"], [0.5, 0.5],
+                       tags=("games", "esports", "counter-strike-2", "sports"), league="cs2"),
+            feed_event("atp-live-2026-10-06", "2026-10-06T09:40:00Z", ["Al Live", "Bo Live"], [0.5, 0.5], live=True),
+        ]
+
+    def test_fetch_saves_trimmed_feed_and_prices(self):
+        import feeds
+        far = feed_event("atp-far-2026-10-08", "2026-10-08T12:00:00Z", ["Far One", "Far Two"], [0.5, 0.5])
+        fake = FakeFeed([self.events() + [far]])
+        r = feeds.fetch_polymarket(self.df, self.now, opener=fake, pause=0)
+        self.assertEqual((r["status"], r["events"]), ("fetched", 3))      # esports dropped, beyond 36h dropped
+        self.assertIn("start_time_min=2026-10-06T09%3A30%3A00Z", fake.urls[0])
+        saved = json.loads((self.tmp / "captures" / r["file"]).read_text())
+        self.assertEqual(saved["schema_version"], "polymarket-gamma-feed.v1")
+        self.assertTrue(all(m["sportsMarketType"] == "moneyline" and "image" not in m
+                            for ev in saved["events"] for m in ev["markets"]))
+        qs = workflow.benchmark_quotes(self.df, now=self.now)
+        by = {q["outcomes"][0]: q for q in qs}
+        self.assertEqual(set(by), {"Florian Broska", "Croatia", "Al Live"})
+        self.assertEqual((by["Croatia"]["outcomes"], by["Croatia"]["probs"], by["Croatia"]["sport"]),
+                         (["Croatia", "Draw", "Spain"], [0.085, 0.145, 0.765], "soccer"))
+        self.assertEqual(by["Florian Broska"]["url"], "https://polymarket.com/sports/atp/atp-broska-neumay-2026-10-06")
+        self.assertEqual(by["Florian Broska"]["price_basis"], "midpoint (bid/ask)")
+        self.assertIn("advances", by["Florian Broska"]["rules"])
+        self.assertTrue(odds_sources.quote_problem(by["Al Live"]).startswith("captured after the event started"))
+        # pricing a Bet9ja fixture from the feed, with the rules text on the selection's quote
+        cand = pcbf.candidates_from_capture(walker("tennis", [("match_winner", [3.30, 1.29])], home="Broska, Florian",
+                                                   away="Neumayer, Lukas"), "h")[0]
+        cand["kickoff_utc"] = "2026-10-06T12:00Z"
+        self.assertEqual(odds_sources.choose_quote(cand, qs)["match"]["order"], [0, 1])
+        self.assertIn(("polymarket", "tennis"), workflow.rules_text(qs))
+
+    def test_paging_stops_at_horizon_and_short_page(self):
+        import feeds
+        page = [feed_event(f"atp-p{i}-2026-10-06", "2026-10-06T12:00:00Z", [f"A{i} X", f"B{i} Y"], [0.5, 0.5])
+                for i in range(feeds.PAGE)]
+        fake = FakeFeed([page, page[:3]])
+        r = feeds.fetch_polymarket(self.df, self.now, opener=fake, pause=0)
+        self.assertEqual((len(fake.urls), r["events"]), (2, feeds.PAGE + 3))
+        self.assertIn("offset=100", fake.urls[1])
+
+    def test_throttle_and_failure(self):
+        import feeds
+        feeds.fetch_polymarket(self.df, self.now, opener=FakeFeed([self.events()]), pause=0)
+        self.assertEqual(feeds.fetch_polymarket(self.df, at("2026-10-06T09:35:00Z"), opener=FakeFeed([]))["status"], "recent")
+        down = feeds.fetch_polymarket(self.df, at("2026-10-06T09:45:00Z"), opener=FakeFeed([OSError("offline")]))
+        self.assertEqual(down["status"], "failed")
+        self.assertIn("offline", down["error"])
+        self.assertEqual(len(list((self.tmp / "captures").glob("polymarket-feed-*.json"))), 1)
+        self.assertEqual(len(workflow.benchmark_quotes(self.df, now=self.now)), 3)   # earlier fetch still used
+
+    def test_fetch_respects_read_only(self):
+        import feeds
+        (self.tmp / "predictbot-session.json").write_text(json.dumps({"host": "HUAWAI", "released": True}))
+        with self.assertRaises(InvalidRecord):
+            feeds.fetch_polymarket(self.df, self.now, opener=FakeFeed([self.events()]), pause=0)
+
+    def test_saint_abbreviation(self):
+        self.assertEqual(odds_sources.side_match("Saint Vincent and the Grenadines", "St. Vincent and the Grenadines"), "exact")
+
+
 class TwoLaptops(unittest.TestCase):
     """Acceptance: start a session on one laptop, sync, continue on the other,
     and every record is still there exactly once."""
