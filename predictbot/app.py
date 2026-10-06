@@ -54,6 +54,9 @@ def data_root() -> Path:
 
 DF: DataFolder | None = None
 SERVER = None
+# One request at a time: pages write records, and two overlapping loads
+# must not both append the same new rows.
+LOCK = threading.Lock()
 
 
 def now() -> datetime:
@@ -208,7 +211,7 @@ def page_pending(msg="") -> str:
             c = r["c"]
             for m in r["review"]:
                 q = m["quote"]
-                fields = {"event_id": c["event_id"], "quote_key": odds_sources.quote_key(q),
+                fields = {"event_id": c["event_id"], "quote_key": odds_sources.event_key(q),
                           "event_name": f"{c['home']} v {c['away']}", "quote_event": " v ".join(q["outcomes"][::len(q["outcomes"]) - 1]),
                           "source": q["source"]}
                 rows.append([e(c["sport"]), e(c["kickoff_utc"]), e(f"{c['home']} v {c['away']}"),
@@ -455,11 +458,21 @@ def layout(path, body):
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        with LOCK:
+            self._get()
+
+    def do_POST(self):
+        with LOCK:
+            self._post()
+
+    def _get(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
-        pages = {"/": page_opportunities, "/pending": page_pending, "/performance": page_performance,
+        msg = (q.get("msg") or [""])[0]
+        pages = {"/": lambda: page_opportunities(msg), "/pending": lambda: page_pending(msg),
+                 "/performance": lambda: page_performance(msg),
                  "/pack": lambda: page_pack("research"), "/settle": lambda: page_pack("settle"),
-                 "/selections": lambda: page_selections(q), "/bets": lambda: page_bets("", (q.get("rid") or [""])[0])}
+                 "/selections": lambda: page_selections(q), "/bets": lambda: page_bets(msg, (q.get("rid") or [""])[0])}
         if u.path not in pages:
             return self.send_error(404)
         try:
@@ -467,7 +480,7 @@ class Handler(BaseHTTPRequestHandler):
         except InvalidRecord as exc:
             self.send(layout(u.path, f"<p class='err'>{e(str(exc))}</p>"))
 
-    def do_POST(self):
+    def _post(self):
         u = urlparse(self.path)
         n = int(self.headers.get("Content-Length", 0))
         form = parse_qs(self.rfile.read(n).decode("utf-8"), keep_blank_values=True)
@@ -492,27 +505,26 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/bet":
                 workflow.record_bet(DF, get("selection_record_id"), get("stake"), get("odds"), get("placed"),
                                     get("ticket"))
-                return self.send(layout("/bets", page_bets("Bet saved.")))
+                return self.redirect("/bets", "Bet saved.")
             if u.path == "/recheck":
                 r = workflow.recheck_selection(DF, get("rid"), get("odds"), now())
-                return self.send(layout("/", page_opportunities(
-                    f"Recheck saved: {r['rechecked_odds']} gives edge {float(r['edge_pct']) * 100:+.1f}%, {r['tier']} "
-                    f"(min odds {r['min_odds']}).")))
+                return self.redirect("/", f"Recheck saved: {r['rechecked_odds']} gives edge "
+                                          f"{float(r['edge_pct']) * 100:+.1f}%, {r['tier']} (min odds {r['min_odds']}).")
             if u.path == "/matchreview":
                 workflow.record_match_review(DF, get("event_id"), get("quote_key"), get("decision"), now(),
                                              get("event_name"), get("quote_event"), get("source"))
-                return self.send(layout("/pending", page_pending("Match decision saved. Accepted matches are priced on "
-                                                                 "the next Opportunities load.")))
+                return self.redirect("/pending", "Match decision saved. Accepted matches are priced on the next "
+                                                 "Opportunities load.")
             if u.path == "/rule":
                 workflow.record_rule(DF, get("key"), get("status"), now(), get("note"))
-                return self.send(layout("/pending", page_pending("Settlement rule saved.")))
+                return self.redirect("/pending", "Settlement rule saved.")
             if u.path == "/evidence":
                 workflow.record_evidence_review(DF, get("decision"), get("summary"), now(), get("pm") == "yes",
                                                 get("reviewer"))
-                return self.send(layout("/performance", page_performance("Evidence review saved.")))
+                return self.redirect("/performance", "Evidence review saved.")
             if u.path == "/handover":
                 DF.confirm_handover(now())
-                return self.send(layout("/pending", page_pending(f"Handover confirmed: {DF.host} now runs PredictBot.")))
+                return self.redirect("/pending", f"Handover confirmed: {DF.host} now runs PredictBot.")
             if u.path == "/stop":
                 DF.release_session(now())
                 threading.Thread(target=SERVER.shutdown, daemon=True).start()
@@ -521,15 +533,15 @@ class Handler(BaseHTTPRequestHandler):
                                  "other laptop, wait until OneDrive shows <b>Up to date</b> on both.</p>")
             if u.path == "/merge":
                 done = DF.merge_conflict_copies()
-                return self.send(layout("/pending", page_pending(
-                    "Merged: " + ", ".join(f"{f} (+{n} rows)" for f, n in done))))
+                return self.redirect("/pending", "Merged: " + ", ".join(f"{f} (+{n} rows)" for f, n in done))
         except InvalidRecord as exc:
             return self.send(layout(u.path, f"<p class='err'>{e(str(exc))}</p>"))
         self.send_error(404)
 
-    def redirect(self, where):
+    def redirect(self, where, msg=""):
+        from urllib.parse import quote
         self.send_response(303)
-        self.send_header("Location", where)
+        self.send_header("Location", where + (f"?msg={quote(msg)}" if msg else ""))
         self.end_headers()
 
     def send(self, body):

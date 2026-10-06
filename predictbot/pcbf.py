@@ -694,7 +694,7 @@ def event_forecasts(selections: list[dict], settlements: list[dict]) -> list[dic
         if event in seen:
             continue
         n = 3 if rows[0]["market"] == THREE_WAY else 2
-        by_idx = {int(r["selection_index"]): r for r in rows}
+        by_idx = {int(r["selection_index"]): r for r in rows if str(r.get("selection_index", "")).isdigit()}
         if sorted(by_idx) != list(range(n)) or any(r["selection_record_id"] not in st for r in by_idx.values()):
             continue
         results = [st[by_idx[i]["selection_record_id"]] for i in range(n)]

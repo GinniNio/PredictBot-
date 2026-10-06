@@ -310,6 +310,91 @@ class MergeById(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class ReviewRegressions(unittest.TestCase):
+    """Bugs found in review of the first Step 1 commit."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.df = DataFolder(self.tmp, host="HP")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def test_merge_keeps_correction_rows(self):
+        base = {"selection_record_id": "sel_1", "settled_at_utc": "2026-10-05T22:00Z", "return_amount": "0.00",
+                "settlement_source": "chat"}
+        self.df.append("settlement", [dict(base, result="WIN"), dict(base, result="LOSE", note="correction")])
+        copy = self.df.path("settlement").with_name("settlements-HUAWAI.csv")
+        with copy.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=schemas.fields("settlement"))
+            w.writeheader()
+            w.writerow({**base, "result": "WIN", "settled_at_utc": "2026-10-05T22:07Z"})
+        self.assertEqual(self.df.merge_conflict_copies(), [("settlements-HUAWAI.csv", 0)])
+        self.assertEqual([r["result"] for r in self.df.read("settlement")], ["WIN", "LOSE"])
+
+    def test_merge_refused_until_handover(self):
+        (self.tmp / "predictbot-session.json").write_text(json.dumps({"host": "HUAWAI", "released": False}))
+        (self.tmp / "rules" / "settlement-rules (1).csv").write_text("rule_key,status,confirmed_at_utc,note\n")
+        with self.assertRaises(InvalidRecord):
+            self.df.merge_conflict_copies()
+
+    def test_merge_refuses_unknown_columns(self):
+        self.df.append("rule", [{"rule_key": "a|x|M", "status": "differs", "confirmed_at_utc": "2026-10-05T10:00Z"}])
+        (self.tmp / "rules" / "settlement-rules-HUAWAI.csv").write_text(
+            "rule_key,status,confirmed_at_utc,note,future\nb|x|M,differs,2026-10-05T11:00Z,,1\n")
+        with self.assertRaises(InvalidRecord):
+            self.df.merge_conflict_copies()
+
+    def test_snapshot_uses_the_benchmark_source(self):
+        from test_predictbot import OddsPortal
+        rows = [("Pinnacle", 1.50, 4.60, 6.90, 97.5)] + [("b%d" % i, 1.47, 4.5, 6.2, 94.0) for i in range(5)]
+        page = OddsPortal.page(None, rows)
+        (self.tmp / "captures" / "public-odds-walk-oddsportal-2026-10-05T16-47.json").write_text(json.dumps(page))
+        w = walker("soccer", [("1x2", [1.6, 4.4, 6.5])], home="France", away="Belgium", fid="9")
+        w["results"][0]["fixtures"][0]["kickoff_utc_derived"] = "2026-10-05T18:45:00.000Z"
+        w["results"][0]["captured_at_utc"] = "2026-10-05T16:30:00.000Z"
+        (self.tmp / "captures" / "bet9ja-allsports-walk-soccer-2026-10-05.json").write_text(json.dumps(w))
+        first = workflow.auto_benchmark(self.df, at("2026-10-05T16:50:00Z"))["records"]
+        self.assertEqual({r["benchmark_source"] for r in first}, {"pinnacle"})
+        page["captures"][0]["captured_at_utc"] = "2026-10-05T18:42:00Z"
+        page["captures"][0]["html"] = page["captures"][0]["html"].replace("<p>1.5</p>", "<p>1.55</p>", 1)
+        (self.tmp / "captures" / "public-odds-walk-oddsportal-2026-10-05T18-42.json").write_text(json.dumps(page))
+        closes = workflow.auto_benchmark(self.df, at("2026-10-05T19:00:00Z"))["closes"]
+        self.assertEqual({(c["source"], c["snapshot_label"]) for c in closes}, {("pinnacle", "closing price")})
+
+    def test_zero_price_snapshot_does_not_crash(self):
+        soccer_day(self.tmp)
+        workflow.auto_benchmark(self.df, at("2026-10-05T14:00:00Z"))
+        run = poly_soccer("Italy", "Türkiye", [0.0, 0.19, 0.12], [9e5, 9e5, 9e5], "2026-10-05 18:00:00+00",
+                          "2026-10-05T17:58:00Z")
+        (self.tmp / "captures" / "public-odds-walk-polymarket-2026-10-05T17-58.json").write_text(json.dumps(run))
+        self.assertEqual(workflow.auto_benchmark(self.df, at("2026-10-05T18:30:00Z"))["closes"], [])
+
+    def test_unknown_month_leaves_kickoff_blank(self):
+        from test_predictbot import OddsPortal
+        page = OddsPortal.page(None, [("b%d" % i, 1.47, 4.5, 6.2, 94.0) for i in range(5)])
+        page["captures"][0]["html"] = page["captures"][0]["html"].replace("05 Oct 2026", "05 Okt 2026")
+        self.assertEqual(odds_sources.quotes_from_walk(page)[0]["start_utc"], "")
+
+    def test_research_fixture_shows_as_unresolved(self):
+        soccer_day(self.tmp)
+        run = json.loads((self.tmp / "captures" / "public-odds-walk-polymarket-2026-10-05T13-56.json").read_text())
+        run["captures"][0]["html"] = run["captures"][0]["html"].replace('\\"volume\\":\\"52110\\"', '\\"volume\\":\\"900\\"')
+        (self.tmp / "captures" / "public-odds-walk-polymarket-2026-10-05T13-56.json").write_text(json.dumps(run))
+        recs = workflow.auto_benchmark(self.df, at("2026-10-05T14:00:00Z"))["records"]
+        self.assertEqual({r["tier"] for r in recs}, {"RESEARCH"})
+        row = workflow.day_status(self.df, at("2026-10-05T14:00:00Z"))["rows"][0]
+        self.assertEqual(row["state"], "unresolved")
+        self.assertIn("thin market", row["reason"])
+
+    def test_review_decision_survives_recapture(self):
+        q = Matching.soccer_quote(None, "Manchester United", "Leeds United")
+        c = Matching.cand(None, "Manchester City", "Leeds United")
+        decisions = {(c["event_id"], odds_sources.event_key(q)): "reject"}
+        again = dict(q, captured_at_utc="2026-10-05T17:00Z")
+        self.assertEqual(odds_sources.choose_quote(c, [q, again], decisions)["status"], "none")
+
+
 class TwoLaptops(unittest.TestCase):
     """Acceptance: start a session on one laptop, sync, continue on the other,
     and every record is still there exactly once."""

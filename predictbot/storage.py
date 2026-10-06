@@ -47,10 +47,8 @@ FILES = {
     "rule": ("rules", "settlement-rules.csv"),
     "evidence_review": ("reviews", "evidence-reviews.csv"),
 }
-# One row per key; a merge keeps the first row seen for a key.
-KEYS = {"capture-records.csv": "capture_id", "selections.csv": "selection_record_id", "bets.csv": "bet_id",
-        "settlements.csv": "selection_record_id", "closing-prices.csv": "selection_record_id",
-        "rechecks.csv": "recheck_id", "evidence-reviews.csv": "review_id"}
+# Files checked for OneDrive conflict copies besides the record files.
+EXTRA_SYNCED = {("selections", "screening.csv")}
 VERSION_FILE = "predictbot-data.json"
 FILE_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})T\d{2}")
 SESSION_FILE = "predictbot-session.json"
@@ -138,7 +136,8 @@ class DataFolder:
             d = self.root / sub
             if not d.exists():
                 continue
-            names = {n for s2, n in FILES.values() if s2 == sub} | ({SESSION_FILE, VERSION_FILE} if sub == "." else set())
+            names = ({n for s2, n in FILES.values() if s2 == sub} | {n for s2, n in EXTRA_SYNCED if s2 == sub}
+                     | ({SESSION_FILE, VERSION_FILE} if sub == "." else set()))
             for name in sorted(names):
                 stem, ext = os.path.splitext(name)
                 pat = re.compile(re.escape(stem) + r"(-[A-Za-z0-9_.-]+| \(\d+\))" + re.escape(ext) + "$")
@@ -149,9 +148,16 @@ class DataFolder:
         return [c for c, _ in self.conflict_pairs()]
 
     def merge_conflict_copies(self) -> list[tuple[str, int]]:
-        """Union each conflict copy's rows into its original (rows are
-        append-only, so the union loses nothing); identical rows are kept
-        once. The copy is moved to .backup/. Returns (copy, rows added)."""
+        """Add each conflict copy's rows to its original and move the copy to
+        .backup/. Every row of the original is kept (a correction row is
+        never dropped). A row from the copy is skipped when the original
+        already has the same row apart from its timestamps: the same record
+        written on both laptops. Refused while another block is active."""
+        if self.data_version() > schemas.DATA_SCHEMA_VERSION:
+            raise InvalidRecord("read-only: the data folder is from a newer PredictBot; git pull before merging")
+        if self.foreign_session() and not self.handover_confirmed:
+            raise InvalidRecord("read-only: confirm the handover before merging")
+        kinds = {name: kind for kind, (_, name) in FILES.items()}
         done = []
         for copy, original in self.conflict_pairs():
             if not copy.exists():
@@ -160,22 +166,25 @@ class DataFolder:
                 self._backup(copy, move=True)
                 done.append((copy.name, 0))
                 continue
-            mine, theirs = self._rows(original), self._rows(copy)
-            header = list(dict.fromkeys((mine[0] if mine else []) + (theirs[0] if theirs else [])))
-            seen, rows = set(), []
-            id_col = KEYS.get(original.name)
-            for part in (mine, theirs):
-                for r in (part[1] if part else []):
-                    key = r.get(id_col) if id_col and r.get(id_col) else tuple(r.get(c, "") for c in header)
-                    if key not in seen:
-                        seen.add(key)
-                        rows.append(r)
-            added = len(rows) - (len(mine[1]) if mine else 0)
+            mine, theirs = self._rows(original) or ([], []), self._rows(copy) or ([], [])
+            if original.name in kinds:
+                unknown = [c for c in theirs[0] if c not in schemas.fields(kinds[original.name])]
+                if unknown:
+                    raise InvalidRecord(f"read-only: {copy.name} has columns this app does not know "
+                                        f"({', '.join(unknown)}). Run git pull, then merge.")
+            header = list(dict.fromkeys(mine[0] + theirs[0]))
+            same = lambda r: tuple((c, r.get(c, "")) for c in header if not c.endswith("_utc"))
+            seen = {same(r) for r in mine[1]}
+            rows = list(mine[1])
+            for r in theirs[1]:
+                if same(r) not in seen:
+                    seen.add(same(r))
+                    rows.append(r)
             if original.exists():
                 self._backup(original)
             self._write_rows(original, header, rows)
             self._backup(copy, move=True)
-            done.append((copy.name, added))
+            done.append((copy.name, len(rows) - len(mine[1])))
         return done
 
     @staticmethod

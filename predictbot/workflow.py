@@ -285,13 +285,14 @@ def day_status(df: DataFolder, now: datetime, extra_folders=(), quotes=None, loa
         if ev in priced:
             rows.append({"c": c, "state": "benchmarked", "reason": ""})
             continue
+        if ev in researched:
+            rows.append({"c": c, "state": "unresolved", "reason": researched[ev]})
+            continue
         choice = odds_sources.choose_quote(c, quotes, decisions)
         if choice["status"] == "review":
             rows.append({"c": c, "state": "match review", "reason": choice["review"][0]["why"], "review": choice["review"]})
         elif choice["status"] == "matched":
-            rows.append({"c": c, "state": "quote waiting", "reason": "matched quote not yet priced (run Update)"})
-        elif ev in researched:
-            rows.append({"c": c, "state": "unresolved", "reason": researched[ev]})
+            rows.append({"c": c, "state": "quote waiting", "reason": "matched quote not yet priced (reload Opportunities)"})
         else:
             rows.append({"c": c, "state": "no benchmark", "reason": "no benchmark quote captured"})
     return {"loaded": loaded, "rows": rows, "quotes": quotes}
@@ -393,8 +394,11 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
         kick, bench_t = parse_kick(s), pcbf.parse_time(s["benchmark_timestamp_utc"])
         if not kick or kick > now or s["benchmark_url"] not in by_url:
             continue
+        src = pcbf.canonical_source(s["benchmark_source"])
         later = [q for q in by_url[s["benchmark_url"]]
-                 if (pcbf.parse_time(q["captured_at_utc"]) or kick) < kick
+                 if pcbf.canonical_source(q["source"]) == src            # an OddsPortal page also carries a Pinnacle row
+                 and all(0 < p < 1 for p in q["probs"]) and not q.get("closed")
+                 and (pcbf.parse_time(q["captured_at_utc"]) or kick) < kick
                  and (not bench_t or pcbf.parse_time(q["captured_at_utc"]) > bench_t)]
         if not later:
             continue
@@ -423,7 +427,8 @@ def recheck_selection(df: DataFolder, selection_record_id: str, odds: str, now: 
     if price is None:
         raise schemas_error("enter the Bet9ja price as decimal odds, e.g. 2.15")
     rec = pcbf.recheck(sel, price, now, note)
-    df.append("recheck", [rec])
+    if not any(r["recheck_id"] == rec["recheck_id"] for r in df.read("recheck")):   # a resubmitted form
+        df.append("recheck", [rec])
     return rec
 
 
@@ -470,5 +475,6 @@ def record_evidence_review(df: DataFolder, decision: str, summary: str, now: dat
     rec = {"review_id": schemas.stable_id("rev", pcbf.utc(now), decision, summary), "reviewed_at_utc": pcbf.utc(now),
            "decision": decision, "summary": summary.strip(), "polymarket_picks_allowed": "yes" if pm_allowed else "no",
            "metrics_snapshot": json.dumps(snap), "reviewer": reviewer}
-    df.append("evidence_review", [rec])
+    if not any(r["review_id"] == rec["review_id"] for r in df.read("evidence_review")):
+        df.append("evidence_review", [rec])
     return rec

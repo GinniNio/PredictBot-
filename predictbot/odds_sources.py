@@ -164,7 +164,7 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     avg = [sum(r[1][k] for r in rows) / len(rows) for k in range(n)]
     kick = None
     km = re.search(r"\|(\d{2}) ([A-Za-z]{3}) (\d{4}),\|(\d{2}):(\d{2})\|", text)
-    if km and utc_offset_minutes is not None:
+    if km and utc_offset_minutes is not None and km.group(2).lower() in MONTHS:
         from datetime import datetime, timezone, timedelta
         local = datetime(int(km.group(3)), MONTHS[km.group(2).lower()], int(km.group(1)), int(km.group(4)), int(km.group(5)))
         kick = (local - timedelta(minutes=utc_offset_minutes)).replace(tzinfo=timezone.utc)
@@ -325,7 +325,7 @@ def choose_quote(candidate: dict, quotes: list[dict], decisions: dict | None = N
     ev = candidate["event_id"]
     found = []
     for m in find_matches(candidate, quotes):
-        d = decisions.get((ev, quote_key(m["quote"]))) or decisions.get((ev, _event_key(m["quote"])))
+        d = decisions.get((ev, quote_key(m["quote"]))) or decisions.get((ev, event_key(m["quote"])))
         if d == "reject":
             continue
         if d == "accept":
@@ -342,15 +342,16 @@ def choose_quote(candidate: dict, quotes: list[dict], decisions: dict | None = N
         # rather than price from a lower source by default.
         return {"status": "review", "match": None, "review": [m for m in review if rank(m) < best]}
     top = [m for m in exact if rank(m) == best]
-    if len({_event_key(m["quote"]) for m in top}) > 1:
+    if len({event_key(m["quote"]) for m in top}) > 1:
         return {"status": "review", "match": None,
                 "review": [{**m, "why": "several different events match this fixture"} for m in top]}
     top.sort(key=lambda m: m["quote"]["captured_at_utc"], reverse=True)
     return {"status": "matched", "match": top[0], "review": [], "all": exact}
 
 
-def _event_key(q: dict) -> str:
-    """The same event captured at different times shares this key."""
+def event_key(q: dict) -> str:
+    """The same event captured at different times shares this key; match
+    review decisions are stored against it so they survive re-captures."""
     return f"{q['source']}|{q['url']}"
 
 
