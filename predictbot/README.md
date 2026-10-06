@@ -10,7 +10,7 @@ This opens http://localhost:8000. It needs Python 3.10+ and nothing else install
 
 ## Where the odds come from
 
-- **All sports:** the Chrome extension in `browser_extension/bet9ja-allsports-evidence-capture-v0.2.2/`. Its "Walk sport" button saves one file per sport (`bet9ja-allsports-walk-<sport>-*.json`, schema `bet9ja-allsports-sport-walk.v2.1`).
+- **All sports:** the Chrome extension in `browser_extension/bet9ja-allsports-evidence-capture-v0.2.2/`. Its "Walk sport" button saves one file per sport (`bet9ja-allsports-walk-<sport>-*.json`, schema `bet9ja-allsports-sport-walk.v3` from extension 0.3.0; older v2.1 files are still read).
 - **Benchmarks (Polymarket):** `browser_extension/public-odds-capture-walker/`, files `public-odds-walk-*.json`.
 - **Soccer, open bets, settled bets:** the older extension in `browser_extension/bet9ja_capture/`, schemas `bet9ja-soccer-session.v1`, `bet9ja-ticket-capture.v1` and `bet9ja-settled-bets.v1`.
 

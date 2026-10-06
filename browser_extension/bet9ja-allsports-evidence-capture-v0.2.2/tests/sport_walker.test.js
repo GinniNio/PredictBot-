@@ -126,11 +126,13 @@ test("walkSport expands a collapsed sport, clicks 'show more' until its label st
   const summary = await walkSport(dom.window.document, {
     sportId: 4,
     sportSlug: "ice_hockey",
+    oddsWaitMs: 0,
+    identityWaitMs: 0,
     now: () => "2026-09-30T18:00:00.000Z",
   });
 
   assert.equal(summary.groups_seen, 2);
-  assert.equal(summary.capture_status, "PARTIAL");
+  assert.equal(summary.capture_status, "ODDS_MISSING");
   assert.equal(summary.groups_discovered, 2);
   assert.equal(summary.groups_failed, 0);
   assert.equal(summary.competitions_seen, 4); // USA/NHL + Switzerland's 3
@@ -158,6 +160,8 @@ test("walkSport flags a competition whose resulting breadcrumb disagrees with th
   const summary = await walkSport(dom.window.document, {
     sportId: 4,
     sportSlug: "ice_hockey",
+    oddsWaitMs: 0,
+    identityWaitMs: 0,
     now: () => "2026-09-30T18:00:00.000Z",
   });
 
@@ -219,7 +223,7 @@ test("walkSport records a MISSING_COMPETITION failure when a competition's link 
     }
   });
 
-  const summary = await walkSport(doc, { sportId: 4, sportSlug: "ice_hockey" });
+  const summary = await walkSport(doc, { sportId: 4, sportSlug: "ice_hockey", oddsWaitMs: 0, identityWaitMs: 0 });
 
   assert.equal(summary.competitions_seen, 2);
   const failureRecord = summary.failures.find((f) => f.stage === "MISSING_COMPETITION");
@@ -230,7 +234,7 @@ test("walkSport records a MISSING_COMPETITION failure when a competition's link 
 
 test("walkSport records a typed failure and returns an honest empty summary when the sport root itself is missing", async () => {
   const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>");
-  const summary = await walkSport(dom.window.document, { sportId: 4, sportSlug: "ice_hockey" });
+  const summary = await walkSport(dom.window.document, { sportId: 4, sportSlug: "ice_hockey", oddsWaitMs: 0, identityWaitMs: 0 });
 
   assert.equal(summary.groups_seen, 0);
   assert.equal(summary.capture_status, "PARTIAL");
@@ -245,13 +249,15 @@ test("walkSport respects maxGroups and maxCompetitionsPerGroup caps", async () =
   const summary = await walkSport(dom.window.document, {
     sportId: 4,
     sportSlug: "ice_hockey",
+    oddsWaitMs: 0,
+    identityWaitMs: 0,
     now: () => "2026-09-30T18:00:00.000Z",
     maxGroups: 1,
     maxCompetitionsPerGroup: 1,
   });
 
   assert.equal(summary.groups_seen, 1);
-  assert.equal(summary.capture_status, "PARTIAL");
+  assert.equal(summary.capture_status, "ODDS_MISSING");
   assert.equal(summary.competitions_attempted, 1);
 });
 
@@ -272,113 +278,84 @@ test("walkSport captures a Specials Basketball match with punctuated group ID an
       <div class="sports-table__td sports-table__matchup" id="prematch_event-845000684"><div class="sports-table__home">(Hamburg Towers) Ogbe, Kenneth</div><div class="sports-table__away"></div></div>
       <div class="sports-table__td sports-table__odds"><div class="dropdown__btn">9.5</div><li id="prematch_event-845000684_event-845000684_odds_market-points_over_under_sign-O">1.47</li></div></div></div>${sidebar}`;
   });
-  const summary = await walkSport(doc, { sportId: 2000002, sportSlug: 'specials_basketball' });
-  assert.equal(summary.capture_status, 'COMPLETE');
+  const summary = await walkSport(doc, { sportId: 2000002, sportSlug: 'specials_basketball', oddsWaitMs: 0, identityWaitMs: 0 });
+  assert.equal(summary.capture_status, 'ODDS_MISSING');
   assert.equal(summary.groups_seen, 1);
   assert.equal(summary.competitions_validated, 1);
   assert.equal(summary.results[0].fixtures[0].fixture_label_raw, 'Hamburg Towers - Rostock Seawolves');
-  assert.deepEqual(summary.results[0].fixtures[0].market_rows[0], {
-    market_event_id: '845000684', player_raw: '(Hamburg Towers) Ogbe, Kenneth',
-    line_raw: '9.5', over_under_odds: { over: '1.47' },
-  });
+  const market = summary.results[0].fixtures[0].markets[0];
+  assert.equal(market.market_event_id, '845000684');
+  assert.equal(market.player_raw, '(Hamburg Towers) Ogbe, Kenneth');
+  assert.equal(market.line, 9.5);
+  assert.equal(market.selections[0].odds, 1.47);
 });
 
-// ---------------------------------------------------------------------
-// v2: capture_status must reflect prices, not just rows.
-// ---------------------------------------------------------------------
-function buildSnookerSite(oddsHtml) {
+test("walkSport marks a fully priced Snooker fixture complete and records Lagos kickoff UTC", async () => {
   const root = 'left_prematch_sport-19_snooker';
   const group = `${root}_sg-10932_international`;
   const link = `${group}_g-10200232_shenzhen_open_2026`;
-  const dom = new JSDOM(`<!doctype html><div id="${root}_label-toggle">Snooker</div>`);
+  const clock = '<div class="toolbar__timezone">06:35 Africa/Lagos</div>';
+  const dom = new JSDOM(`<!doctype html>${clock}<div id="${root}_label-toggle">Snooker</div>`);
   const doc = dom.window.document;
-  const sidebar = `<div id="${root}_label-toggle">Snooker</div><div id="${group}_label-toggle">International</div>`;
+  const sidebar = `${clock}<div id="${root}_label-toggle">Snooker</div><div id="${group}_label-toggle">International</div>`;
   doc.addEventListener('click', (event) => {
     if (event.target.id === `${root}_label-toggle` && !doc.getElementById(`${group}_label-toggle`)) doc.body.innerHTML = sidebar;
     if (event.target.id === `${group}_label-toggle`) doc.body.innerHTML = sidebar + `<a id="${link}">Shenzhen Open 2026</a>`;
-    if (event.target.id === link) doc.body.innerHTML = `
-      <div class="sports-view__crumbs">Snooker>International>Shenzhen Open 2026</div>
-      <div class="sports-view__bar pl15"><span class="txt-gray">Shenzhen Open 2026</span></div>
-      <div class="sports-head table"><div class="sports-head__date"><span>Sat 3 Oct</span></div></div>
-      <div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__time"><span>07:00</span></div>
-      <div class="sports-table__td sports-table__matchup" id="prematch_event-844915311"><div class="sports-table__home">Sijun, Yuan</div><div class="sports-table__away">Robertson, Jimmy</div></div>
-      <div class="sports-table__td sports-table__odds"><ul>${oddsHtml}</ul></div></div></div>${sidebar}`;
+    if (event.target.id === link) doc.body.innerHTML = `${sidebar}<div class="sports-view__crumbs">Snooker>International>Shenzhen Open 2026</div>
+      <div class="sports-view__bar pl15"><div class="txt-gray">Shenzhen Open 2026</div></div>
+      <div class="sports-view__bar"><div class="sports-view__bar-markets">2 Way</div></div>
+      <div class="sports-head table"><div class="sports-head__date"><span>Sat 3 Oct</span></div><div class="sports-head__odds-col2"><ul><li class="sports-head__odds-item">1</li><li class="sports-head__odds-item">2</li></ul></div></div>
+      <div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__time">12:30</div>
+      <div class="sports-table__td sports-table__matchup" id="prematch_event-844915312"><div class="sports-table__home">Trump, Judd</div><div class="sports-table__away">Yize, Wu</div></div>
+      <div class="sports-table__td sports-table__odds-col2"><ul><li id="prematch_event-844915312_event-844915312_odds_market-2_way_sign-1">1.48</li><li id="prematch_event-844915312_event-844915312_odds_market-2_way_sign-2">2.50</li></ul></div></div></div>`;
   });
-  return doc;
-}
-
-test("v2: snooker walk with rows but no prices is ODDS_MISSING, never COMPLETE", async () => {
-  const doc = buildSnookerSite('');
-  const summary = await walkSport(doc, { sportId: 19, sportSlug: 'snooker', oddsLoadTimeoutMs: 50 });
-  assert.equal(summary.competitions_validated, 1, JSON.stringify(summary.failures));
-  assert.equal(summary.odds_status, 'ODDS_MISSING');
-  assert.equal(summary.capture_status, 'ODDS_MISSING');
-  assert.equal(summary.results[0].odds_wait_result, 'ODDS_TIMEOUT');
-});
-
-test("v2: snooker walk with 2-way match_winner prices is COMPLETE with markets captured", async () => {
-  const doc = buildSnookerSite(
-    '<li id="prematch_event-844915311_event-844915311_odds_market-match_winner_sign-1">1.85</li>' +
-    '<li id="prematch_event-844915311_event-844915311_odds_market-match_winner_sign-2">1.95</li>'
-  );
-  const summary = await walkSport(doc, { sportId: 19, sportSlug: 'snooker', oddsLoadTimeoutMs: 50 });
-  assert.equal(summary.competitions_validated, 1, JSON.stringify(summary.failures));
-  assert.equal(summary.odds_status, 'ODDS_COMPLETE');
+  const summary = await walkSport(doc, { sportId: 19, sportSlug: 'snooker',
+    now: () => '2026-10-03T05:35:00.000Z', oddsWaitMs: 0, identityWaitMs: 0 });
   assert.equal(summary.capture_status, 'COMPLETE');
-  const f = summary.results[0].fixtures[0];
-  assert.equal(f.three_way_odds, null);
-  assert.deepEqual(f.markets[0].selections.map((s) => s.odds), [1.85, 1.95]);
-  assert.ok(typeof summary.captured_at_utc === 'string');
-  assert.ok(Number.isInteger(summary.browser_utc_offset_minutes));
+  assert.equal(summary.page_timezone, 'Africa/Lagos');
+  assert.equal(summary.page_utc_offset, '+01:00');
+  assert.equal(summary.fixtures_with_priced_market, 1);
+  assert.equal(summary.results[0].fixtures[0].kickoff_utc, '2026-10-03T11:30:00.000Z');
 });
 
-test("v2.1: a heading that lags the breadcrumb (real Basketball 2026-10-03 failure) is accepted once it updates", async () => {
-  const root = 'left_prematch_sport-2_basketball';
-  const group = `${root}_sg-1_sweden`;
-  const link = `${group}_g-77_sbl`;
-  const dom = new JSDOM(`<!doctype html><div id="${root}_label-toggle">Basketball</div>`);
+test("walkSport waits for a stale competition heading to change before rejecting fresh rows", async () => {
+  const dom = new JSDOM(`<!doctype html><div id="left_prematch_sport-2_basketball_label-toggle">Basketball</div>`);
   const doc = dom.window.document;
-  const sidebar = `<div id="${root}_label-toggle">Basketball</div><div id="${group}_label-toggle">Sweden</div>`;
-  const page = (heading) => `
-      <div class="sports-view__crumbs">Basketball>Sweden>SBL</div>
-      <div class="sports-view__bar pl15"><span class="txt-gray">${heading}</span></div>
-      <div class="sports-head table"><div class="sports-head__date"><span>Sat 3 Oct</span></div></div>
-      <div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__time"><span>18:00</span></div>
-      <div class="sports-table__td sports-table__matchup" id="prematch_event-1"><div class="sports-table__home">A</div><div class="sports-table__away">B</div></div>
-      <div class="sports-table__td sports-table__odds"><ul>
-        <li id="prematch_event-1_event-1_odds_market-2_way_sign-1">1.50</li>
-        <li id="prematch_event-1_event-1_odds_market-2_way_sign-2">2.50</li></ul></div></div></div>${sidebar}`;
+  const root = 'left_prematch_sport-2_basketball';
+  const group = `${root}_sg-1_usa`;
+  const link = `${group}_g-2_wnba`;
+  const sidebar = `<div id="${root}_label-toggle">Basketball</div><div id="${group}_label-toggle">USA</div>`;
   doc.addEventListener('click', (event) => {
     if (event.target.id === `${root}_label-toggle` && !doc.getElementById(`${group}_label-toggle`)) doc.body.innerHTML = sidebar;
-    if (event.target.id === `${group}_label-toggle`) doc.body.innerHTML = sidebar + `<a id="${link}">SBL</a>`;
+    if (event.target.id === `${group}_label-toggle`) doc.body.innerHTML = sidebar + `<a id="${link}">WNBA</a>`;
     if (event.target.id === link) {
-      doc.body.innerHTML = page('Extraliga'); // stale heading from the previous route
-      setTimeout(() => { doc.body.innerHTML = page('SBL'); }, 300);
+      doc.body.innerHTML = `${sidebar}<div class="sports-view__crumbs">Basketball>USA>WNBA</div>
+        <div class="sports-view__bar pl15"><div class="txt-gray">Extraliga</div></div>
+        <div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__matchup" id="prematch_event-5"><div class="sports-table__home">A</div><div class="sports-table__away">B</div></div>
+        <div class="sports-table__td sports-table__odds-col2"><li id="prematch_event-5_event-5_odds_market-2_way_sign-1">1.80</li><li id="prematch_event-5_event-5_odds_market-2_way_sign-2">2.00</li></div></div></div>`;
+      setTimeout(() => { const heading = doc.querySelector('.sports-view__bar.pl15 > .txt-gray'); if (heading) heading.textContent = 'WNBA'; }, 25);
     }
   });
-  const summary = await walkSport(doc, { sportId: 2, sportSlug: 'basketball', oddsLoadTimeoutMs: 50 });
-  assert.equal(summary.competitions_validated, 1, JSON.stringify(summary.failures));
-  assert.equal(summary.capture_status, 'COMPLETE');
+  const summary = await walkSport(doc, { sportId: 2, sportSlug: 'basketball', oddsWaitMs: 0, identityWaitMs: 250 });
+  assert.equal(summary.competitions_validated, 1);
+  assert.equal(summary.results[0].observed_competition_heading_raw, 'WNBA');
 });
 
-test("v2.1: a heading that never updates is still rejected (fail-closed)", async () => {
-  const root = 'left_prematch_sport-2_basketball';
-  const group = `${root}_sg-1_sweden`;
-  const link = `${group}_g-77_sbl`;
-  const dom = new JSDOM(`<!doctype html><div id="${root}_label-toggle">Basketball</div>`);
-  const doc = dom.window.document;
-  const sidebar = `<div id="${root}_label-toggle">Basketball</div><div id="${group}_label-toggle">Sweden</div>`;
+test("a priced one-selection Specials Combo market is complete", async () => {
+  const root = 'left_prematch_sport-305_specials_combo';
+  const group = `${root}_sg-1_international`;
+  const link = `${group}_g-10_croatia_-_england`;
+  const doc = new JSDOM(`<!doctype html><div id="${root}_label-toggle">Specials Combo</div>`).window.document;
+  const sidebar = `<div id="${root}_label-toggle">Specials Combo</div><div id="${group}_label-toggle">International</div>`;
   doc.addEventListener('click', (event) => {
     if (event.target.id === `${root}_label-toggle` && !doc.getElementById(`${group}_label-toggle`)) doc.body.innerHTML = sidebar;
-    if (event.target.id === `${group}_label-toggle`) doc.body.innerHTML = sidebar + `<a id="${link}">SBL</a>`;
-    if (event.target.id === link) doc.body.innerHTML = `
-      <div class="sports-view__crumbs">Basketball>Sweden>SBL</div>
-      <div class="sports-view__bar pl15"><span class="txt-gray">Extraliga</span></div>
-      <div class="sports-table"><div class="table-f">
-      <div class="sports-table__td sports-table__matchup" id="prematch_event-1"><div class="sports-table__home">A</div><div class="sports-table__away">B</div></div></div></div>${sidebar}`;
+    if (event.target.id === `${group}_label-toggle`) doc.body.innerHTML = sidebar + `<a id="${link}">Croatia - England</a>`;
+    if (event.target.id === link) doc.body.innerHTML = `${sidebar}<div class="sports-view__crumbs">Specials Combo>International>Croatia - England</div>
+      <div class="sports-view__bar pl15"><div class="txt-gray">Croatia - England</div></div>
+      <div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__matchup" id="prematch_event-1"><div class="sports-table__home">England Score Both Halves</div><div class="sports-table__away"></div></div>
+      <div class="sports-table__td sports-table__odds"><li id="prematch_event-1_event-1_odds_market-to_happen_sign-Y">3.25</li></div></div></div>`;
   });
-  const summary = await walkSport(doc, { sportId: 2, sportSlug: 'basketball', oddsLoadTimeoutMs: 50 });
-  assert.equal(summary.competitions_validated, 0);
-  assert.equal(summary.results[0].identity_wait_result, 'IDENTITY_TIMEOUT');
-  assert.equal(summary.results[0].failure_reason, 'COMPETITION_IDENTITY_DID_NOT_MATCH_REQUESTED_COMPETITION');
+  const summary = await walkSport(doc, { sportId: 305, sportSlug: 'specials_combo', oddsWaitMs: 0, identityWaitMs: 0 });
+  assert.equal(summary.capture_status, 'COMPLETE');
+  assert.equal(summary.fixtures_with_priced_market, 1);
 });

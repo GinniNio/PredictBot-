@@ -1,6 +1,6 @@
 {
   "name": "bet9ja-allsports-evidence-capture",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "description": "Manifest V3 browser extension, stage 1 of a separate all-sports/all-fixtures Bet9ja capture tool: captures a raw, unparsed DOM snapshot from an open, authenticated Bet9ja page for building real per-sport fixture parsers against. Not published; load unpacked for testing (see README.md).",
   "scripts": {

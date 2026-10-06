@@ -125,7 +125,7 @@
  * here should match `>` with `\s*` on both sides, not assume spaces.
  */
 (function (root) {
-  const SCHEMA_VERSION = 'bet9ja-allsports-fixture-capture.v2.2';
+  const SCHEMA_VERSION = 'bet9ja-allsports-fixture-capture.v3';
 
   // See header comment: identical across every sport evidenced so far.
   const FIXTURE_ROW_ID_PATTERN = /^prematch_event-(\d+)$/;
@@ -226,114 +226,95 @@
     return Object.keys(odds).length > 0 ? odds : null;
   }
 
-  /**
-   * GENERIC MARKET EXTRACTION (v2, 2026-10-03).
-   *
-   * Root cause of null odds on snooker (and KHL, and any 2-way sport):
-   * `parseThreeWayOdds` only matched the `3way` market key. Real bytes
-   * show the market key varies by sport: WNBA `2_way`, `3way`,
-   * `handicap`; KHL `match_winner`, `draw_no_bet`, `handicap_rt`.
-   *
-   * This reads EVERY odds element in the row's `.table-f` whose id is
-   * `prematch_event-<id>_event-<id>_odds_market-<KEY>_sign-<SIGN>`,
-   * groups by KEY, and records what is on the page. It never assumes a
-   * market shape. The line (handicap/total) is the `.dropdown__btn` text
-   * inside the same `.sports-table__td` cell, when present.
-   *
-   * Each selection keeps `odds_raw` verbatim; `odds` is a number only if
-   * the raw text parses as a decimal > 1.0, otherwise null with
-   * state 'unpriced' (locked/suspended/blank). `class_raw` is kept so a
-   * locked-state class can be confirmed from real captures later.
-   */
-  const ODDS_ID_PATTERN = /_odds_market-(.+)_sign-([^_]+)$/;
-
-  function parseDecimalOdds(raw) {
-    if (!raw || !/^\d+(\.\d+)?$/.test(raw)) return null;
-    const value = Number(raw);
-    return value > 1.0 ? value : null;
+  function marketHeader(tableEl) {
+    const bars = Array.from(tableEl.ownerDocument.querySelectorAll('.sports-view__bar-markets'));
+    const previous = bars.filter((bar) => !!(bar.compareDocumentPosition(tableEl) & 4)).at(-1);
+    return text(previous) || null;
   }
 
-  function parseAllMarkets(fixtureEl, fixtureId) {
-    const row = resolveRowContainer(fixtureEl);
-    if (!row) return [];
+  function periodHeader(tableEl) {
+    const selected = Array.from(tableEl.ownerDocument.querySelectorAll('.sports-view__bar-navitem--current'))
+      .filter((el) => !!(el.compareDocumentPosition(tableEl) & 4)).at(-1);
+    const label = text(selected);
+    return label && !/popular markets|matches|player/i.test(label) ? label : null;
+  }
+
+  function parseMarkets(rowEl, fixtureId, tableEl, participant1, participant2) {
+    const container = resolveRowContainer(rowEl);
+    if (!container) return [];
+    const header = tableEl && tableEl.previousElementSibling;
+    const headerCells = header ? Array.from(header.children).filter((el) => /sports-head__odds/.test(el.className)) : [];
+    const rowCells = Array.from(container.children).filter((el) => /sports-table__odds/.test(el.className));
+    const rawMarket = tableEl && marketHeader(tableEl);
+    const periodRaw = tableEl && periodHeader(tableEl);
+    const grouped = new Map();
     const prefix = `prematch_event-${fixtureId}_event-${fixtureId}_odds_market-`;
-    const byKey = new Map();
-    for (const el of row.querySelectorAll(`[id^="${prefix}"]`)) {
-      const match = el.id.match(ODDS_ID_PATTERN);
-      if (!match) continue;
-      const marketKey = match[1];
-      const signRaw = match[2];
-      if (!byKey.has(marketKey)) {
-        const cell = el.closest('.sports-table__td');
-        const lineRaw = cell ? text(cell.querySelector('.dropdown__btn')) || null : null;
-        byKey.set(marketKey, { market_key: marketKey, line_raw: lineRaw, selections: [] });
-      }
-      const oddsRaw = text(el);
-      const odds = parseDecimalOdds(oddsRaw);
-      byKey.get(marketKey).selections.push({
-        sign_raw: signRaw,
-        odds_raw: oddsRaw || null,
-        odds,
-        // v2.2: `locked` class confirmed on real captures 2026-10-03
-        // (Boxing, Basketball, Floorball, Futsal, MMA): blank text plus
-        // class "sports-table__odds-item dib pt10 locked".
-        state: /(^|\s)locked(\s|$)/.test(el.getAttribute('class') || '') ? 'locked' : odds === null ? 'unpriced' : 'open',
-        class_raw: el.getAttribute('class') || null,
-      });
+    const oddsEls = Array.from(container.querySelectorAll('[id*="_odds_market-"]'))
+      .filter((el) => el.id.startsWith(prefix));
+    for (const el of oddsEls) {
+      const suffix = el.id.slice(prefix.length);
+      const separator = suffix.lastIndexOf('_sign-');
+      if (separator < 0) continue;
+      const code = suffix.slice(0, separator);
+      const sign = suffix.slice(separator + 6);
+      const cell = el.closest('.sports-table__td');
+      const cellIndex = rowCells.indexOf(cell);
+      const headerCell = headerCells[cellIndex];
+      const allHeaderLabels = headerCell ? Array.from(headerCell.querySelectorAll('.sports-head__odds-item'))
+        .map((item) => text(item.querySelector('.dropdown__btn') || item)) : [];
+      const selectionCount = cell ? cell.querySelectorAll(`[id^="${prefix}${code}_sign-"]`).length : 0;
+      const columnLabels = selectionCount ? allHeaderLabels.slice(-selectionCount) : allHeaderLabels;
+      if (!grouped.has(code)) grouped.set(code, { selections: [], cell, columnLabels, headerRaw: allHeaderLabels.join(' / ') });
+      const sameMarketIndex = grouped.get(code).selections.length;
+      const headerLabel = columnLabels[sameMarketIndex];
+      const label = code === 'to_happen' && participant1 ? participant1 :
+        headerLabel && !/^\d+(?:\.\d+)?$/.test(headerLabel) && !/^[12X]$/.test(headerLabel)
+        ? headerLabel
+        : sign === 'O' ? 'Over' : sign === 'U' ? 'Under' :
+          sign === 'X' || sign === 'XB' ? 'X' :
+          sign === '1' || sign === '1B' ? participant1 || '1' :
+          sign === '2' || sign === '2B' ? participant2 || '2' :
+          headerLabel || sign;
+      const rawOdds = text(el);
+      const classes = `${el.className || ''} ${el.parentElement?.className || ''}`;
+      const locked = /\blocked\b/i.test(classes);
+      const suspended = /suspend|disabled/i.test(classes) || el.getAttribute('aria-disabled') === 'true';
+      const numeric = /^\d+(?:\.\d+)?$/.test(rawOdds) ? Number(rawOdds) : null;
+      grouped.get(code).selections.push({ label_raw: label, odds: !locked && !suspended && numeric > 1.01 ? numeric : null,
+        state: locked ? 'locked' : suspended || !(numeric > 1.01) ? 'suspended' : 'open', odds_raw: rawOdds || null });
     }
-    return Array.from(byKey.values()).map((market) => ({
-      ...market,
-      selection_count: market.selections.length,
-      // v2.2: a one-selection market (Specials Combo "to_happen", Y only)
-      // is priced if its one selection is; `complete_market` separately
-      // says whether an opposing side exists (needed for margin removal).
-      fully_priced: market.selections.length >= 1 && market.selections.every((sel) => sel.odds !== null && sel.state === 'open'),
-      complete_market: market.selections.length >= 2,
-    }));
+    return Array.from(grouped, ([code, group]) => {
+      const { selections, cell, columnLabels, headerRaw } = group;
+      const lineEl = cell && cell.querySelector('.dropdown__btn');
+      const lineRaw = text(lineEl) || null;
+      const line = lineRaw && /^[-+]?\d+(?:\.\d+)?$/.test(lineRaw) ? Number(lineRaw) : null;
+      const marketName = grouped.size === 1 && rawMarket ? rawMarket : code.replace(/_/g, ' ');
+      const market = {
+        market_raw: marketName,
+        market_code_raw: code,
+        period_raw: periodRaw,
+        header_raw: headerRaw || null,
+        line,
+        line_raw: lineRaw,
+        selections,
+        raw_snippet: `${rawMarket || ''} | ${marketName} | ${headerRaw} | ${selections.map((s) => `${s.label_raw}: ${s.odds_raw || ''}`).join(' / ')}`,
+      };
+      return market;
+    });
   }
 
-  /**
-   * v2.2 kickoff UTC. Evidence (2026-10-03): Bet9ja listed Charlotte 49ers
-   * v Memphis Tigers at 16:00; the official kickoff is 10:00 CT (15:00 UTC,
-   * gotigersgo.com 2026-10-01). 16:00 = UTC+1 (West Africa Time), not the
-   * browser's Asia/Dubai zone. Snooker listings on the same day are
-   * consistent with UTC+1. One-fixture evidence: the result is labelled
-   * DERIVED_ASSUMED_WAT and the raw fields are always kept.
-   */
-  const BET9JA_DISPLAY_UTC_OFFSET_MINUTES = 60;
-  const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
-
-  function deriveKickoffUtc(dateTextRaw, timeRaw, capturedAtUtc) {
-    const d = (dateTextRaw || '').match(/(\d{1,2})\s+([A-Za-z]{3})/);
-    const t = (timeRaw || '').match(/^(\d{1,2}):(\d{2})$/);
-    if (!d || !t || !capturedAtUtc) return null;
-    const month = MONTHS[d[2].toLowerCase()];
-    if (month === undefined) return null;
-    const cap = new Date(capturedAtUtc);
-    if (Number.isNaN(cap.getTime())) return null;
-    let year = cap.getUTCFullYear();
-    if (month < cap.getUTCMonth() - 6) year += 1; // Dec capture listing Jan fixtures
-    const ms = Date.UTC(year, month, Number(d[1]), Number(t[1]), Number(t[2])) - BET9JA_DISPLAY_UTC_OFFSET_MINUTES * 60000;
-    return new Date(ms).toISOString();
-  }
-
-  function parseFixtureRow(rowEl, dateTextRaw, capturedAtUtc) {
+  function parseFixtureRow(rowEl, dateTextRaw, tableEl) {
     const fixtureId = rowEl.id.match(FIXTURE_ROW_ID_PATTERN)[1];
     const participant1 = text(rowEl.querySelector(SELECTORS.home));
     const participant2 = text(rowEl.querySelector(SELECTORS.away));
-    const markets = parseAllMarkets(rowEl, fixtureId);
     return {
       fixture_id: fixtureId,
       participant_1: participant1 || null,
       participant_2: participant2 || null,
       kickoff_time_raw: resolveKickoffTime(rowEl),
       date_text_raw: dateTextRaw,
-      kickoff_utc_derived: deriveKickoffUtc(dateTextRaw, resolveKickoffTime(rowEl), capturedAtUtc),
-      kickoff_utc_basis: 'DERIVED_ASSUMED_WAT_UTC+1',
-      three_way_odds: parseThreeWayOdds(rowEl, fixtureId),
+      markets: parseMarkets(rowEl, fixtureId, tableEl, participant1, participant2),
       missing_participants: !participant1 || !participant2,
-      markets,
-      priced_market_count: markets.filter((market) => market.fully_priced).length,
     };
   }
 
@@ -341,18 +322,6 @@
    * @param {Document} documentLike
    * @param {{href: string, capturedAtUtc: string}} context
    */
-  /**
-   * ODDS_COMPLETE: every fixture has >=1 fully priced market.
-   * ODDS_PARTIAL: some do. ODDS_MISSING: fixtures exist, none priced.
-   * NO_FIXTURES: nothing to price.
-   */
-  function summarizeOddsCoverage(fixtures) {
-    const total = fixtures.length;
-    const priced = fixtures.filter((fixture) => fixture.priced_market_count > 0).length;
-    const status = total === 0 ? 'NO_FIXTURES' : priced === total ? 'ODDS_COMPLETE' : priced === 0 ? 'ODDS_MISSING' : 'ODDS_PARTIAL';
-    return { fixtures_total: total, fixtures_with_priced_market: priced, status };
-  }
-
   function parseFixturesFromDocument(documentLike, context) {
     if (!documentLike || typeof documentLike.querySelectorAll !== 'function') {
       throw new Error('parseFixturesFromDocument requires a Document-like object.');
@@ -390,7 +359,7 @@
       const rows = Array.from(tableEl.querySelectorAll('[id^="prematch_event-"]')).filter(isExactFixtureRow);
       for (const rowEl of rows) {
         rowsInTables.add(rowEl);
-        fixtures.push(parseFixtureRow(rowEl, dateTextRaw, capturedAtUtc));
+        fixtures.push(parseFixtureRow(rowEl, dateTextRaw, tableEl));
       }
     }
     const strayRows = Array.from(documentLike.querySelectorAll('[id^="prematch_event-"]'))
@@ -401,7 +370,7 @@
         return !table || !excludedTables.has(table);
       });
     for (const rowEl of strayRows) {
-      fixtures.push(parseFixtureRow(rowEl, null, capturedAtUtc));
+      fixtures.push(parseFixtureRow(rowEl, null, rowEl.closest('.sports-table')));
     }
 
     const seenIds = new Set();
@@ -427,7 +396,6 @@
       empty_state_status: emptyStateStatus,
       fixtures,
       duplicate_fixture_ids: duplicateFixtureIds,
-      odds_coverage: summarizeOddsCoverage(fixtures),
     };
   }
 
@@ -435,9 +403,6 @@
     parseFixturesFromDocument,
     resolveSportSlugFromUrl,
     parseThreeWayOdds,
-    parseAllMarkets,
-    deriveKickoffUtc,
-    summarizeOddsCoverage,
     FIXTURE_ROW_ID_PATTERN,
     THREE_WAY_SIGN_MAP,
     EMPTY_STATE_TEXT_EXACT,

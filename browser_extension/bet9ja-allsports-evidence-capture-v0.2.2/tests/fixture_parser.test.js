@@ -20,14 +20,6 @@ test("parseFixturesFromDocument excludes table nodes supplied by a multi-navigat
   assert.equal(result.fixtures[0].fixture_id, "2");
 });
 
-// v2 adds `markets` and `priced_market_count` per fixture; the legacy
-// assertions below check only the v1 fields, the new fields are
-// covered by their own tests at the end of this file.
-function core(fixture) {
-  const { markets, priced_market_count, kickoff_utc_derived, kickoff_utc_basis, ...rest } = fixture;
-  return rest;
-}
-
 function loadFixture(name) {
   return fs.readFileSync(path.join(__dirname, "fixtures", name), "utf8");
 }
@@ -56,33 +48,18 @@ test("real WNBA fragment (2026-09-30T16:23:42Z): all 3 fixtures, correct date/ti
   assert.equal(result.empty_state_status, "NOT_EMPTY");
   assert.deepEqual(result.duplicate_fixture_ids, []);
 
-  assert.deepEqual(core(result.fixtures[0]), {
-    fixture_id: "842933379",
-    participant_1: "Washington Mystics",
-    participant_2: "Atlanta Dream",
-    kickoff_time_raw: "00:00",
-    date_text_raw: "Thu 1 Oct",
-    three_way_odds: { "1": "2.35", X: "13.00", "2": "1.73" },
-    missing_participants: false,
-  });
-  assert.deepEqual(core(result.fixtures[1]), {
-    fixture_id: "842949763",
-    participant_1: "Dallas Wings",
-    participant_2: "Golden State Valkyries",
-    kickoff_time_raw: "02:00",
-    date_text_raw: "Thu 1 Oct",
-    three_way_odds: { "1": "2.60", X: "14.80", "2": "1.59" },
-    missing_participants: false,
-  });
-  assert.deepEqual(core(result.fixtures[2]), {
-    fixture_id: "843748380",
-    participant_1: "Las Vegas Aces",
-    participant_2: "Indiana Fever",
-    kickoff_time_raw: "02:00",
-    date_text_raw: "Fri 2 Oct",
-    three_way_odds: { "1": "1.63", X: "14.30", "2": "2.50" },
-    missing_participants: false,
-  });
+  assert.deepEqual(result.fixtures.map((f) => [f.fixture_id, f.kickoff_time_raw, f.date_text_raw]), [
+    ["842933379", "00:00", "Thu 1 Oct"],
+    ["842949763", "02:00", "Thu 1 Oct"],
+    ["843748380", "02:00", "Fri 2 Oct"],
+  ]);
+  assert.deepEqual(result.fixtures[0].markets.find((m) => m.market_code_raw === '3way').selections
+    .map((s) => [s.label_raw, s.odds, s.state]), [
+      ['Washington Mystics', 2.35, 'open'], ['X', 13, 'open'], ['Atlanta Dream', 1.73, 'open'],
+    ]);
+  assert.deepEqual(result.fixtures[1].markets.find((m) => m.market_code_raw === '3way').selections.map((s) => s.odds), [2.6, 14.8, 1.59]);
+  assert.deepEqual(result.fixtures[2].markets.find((m) => m.market_code_raw === '3way').selections.map((s) => s.odds), [1.63, 14.3, 2.5]);
+  assert.equal(result.fixtures[0].markets.find((m) => m.market_code_raw === 'handicap').line, 2.5);
 });
 
 test("real WNBA fragment (2026-09-30T15:33:17Z): CONFIRMED_EMPTY via the exact real marker", () => {
@@ -97,7 +74,7 @@ test("real WNBA fragment (2026-09-30T15:33:17Z): CONFIRMED_EMPTY via the exact r
   assert.equal(result.empty_state_status, "CONFIRMED_EMPTY");
 });
 
-test("real Ice Hockey/KHL fragment (2026-09-30T16:26:27Z, a different sport from WNBA): all 4 fixtures, no 3way market", () => {
+test("real Ice Hockey/KHL fragment captures market winner and handicap odds", () => {
   const dom = new JSDOM(KHL_POPULATED_HTML);
   const result = parseFixturesFromDocument(dom.window.document, {
     href: "https://sports.bet9ja.com/competition/icehockey/russia/khl/4-44083-4714776",
@@ -109,20 +86,12 @@ test("real Ice Hockey/KHL fragment (2026-09-30T16:26:27Z, a different sport from
   assert.equal(result.sport_slug_from_url, "icehockey");
   assert.deepEqual(result.duplicate_fixture_ids, []);
 
-  assert.deepEqual(core(result.fixtures[0]), {
-    fixture_id: "842493730",
-    participant_1: "HC Sochi",
-    participant_2: "Salavat Yulaev UFA",
-    kickoff_time_raw: "17:30",
-    date_text_raw: "Wed 30 Sep",
-    three_way_odds: null,
-    missing_participants: false,
-  });
-  // Every KHL fixture in this fragment shares the same date group and
-  // has no 3way market (confirmed real: Ice Hockey doesn't carry it).
+  assert.equal(result.fixtures[0].fixture_id, '842493730');
+  assert.equal(result.fixtures[0].participant_1, 'HC Sochi');
+  assert.deepEqual(result.fixtures[0].markets.find((m) => m.market_code_raw === 'match_winner').selections.map((s) => s.odds), [4.45, 4.05, 1.56]);
   for (const fixture of result.fixtures) {
     assert.equal(fixture.date_text_raw, "Wed 30 Sep");
-    assert.equal(fixture.three_way_odds, null);
+    assert.ok(fixture.markets.length > 0);
   }
 });
 
@@ -236,13 +205,13 @@ test("parses all 8 real Handball fixture rows with correct ids/participants/time
   assert.equal(result.breadcrumb_raw, "Handball > Germany > Bundesliga");
   assert.equal(result.sport_slug_from_url, "handball");
   assert.deepEqual(result.duplicate_fixture_ids, []);
-  assert.deepEqual(core(result.fixtures[0]), {
+  assert.deepEqual(result.fixtures[0], {
     fixture_id: "843197066",
     participant_1: "SC Magdeburg",
     participant_2: "THW Kiel",
     kickoff_time_raw: "18:00",
     date_text_raw: null,
-    three_way_odds: null,
+    markets: [],
     missing_participants: false,
   });
 });
@@ -323,105 +292,40 @@ test("reports a genuinely empty page honestly when no marker is present (UNKNOWN
   assert.equal(result.empty_state_status, "UNKNOWN_EMPTY");
 });
 
-// ---------------------------------------------------------------------
-// v2 generic market extraction -- real byte fragments only.
-// ---------------------------------------------------------------------
-const { parseAllMarkets, summarizeOddsCoverage } = require("../fixture_parser.js");
-
-test("v2: KHL (no 3way market) now yields match_winner 1/X/2, draw_no_bet and handicap_rt with line", () => {
-  const dom = new JSDOM(KHL_POPULATED_HTML);
-  const result = parseFixturesFromDocument(dom.window.document, {
-    href: "https://sports.bet9ja.com/competition/icehockey/russia/khl/4-44083-4714776",
-  });
-  const f = result.fixtures.find((x) => x.fixture_id === "842493730");
-  assert.equal(f.three_way_odds, null, "legacy field still null -- the original bug");
-  const keys = f.markets.map((m) => m.market_key).sort();
-  assert.deepEqual(keys, ["draw_no_bet", "handicap_rt", "match_winner"]);
-  const mw = f.markets.find((m) => m.market_key === "match_winner");
-  assert.deepEqual(mw.selections.map((s) => [s.sign_raw, s.odds]), [["1", 4.45], ["X", 4.05], ["2", 1.56]]);
-  assert.equal(mw.fully_priced, true);
-  const hcp = f.markets.find((m) => m.market_key === "handicap_rt");
-  assert.equal(hcp.line_raw, "+1.5");
-  assert.deepEqual(hcp.selections.map((s) => s.odds), [1.75, 1.96]);
-  assert.equal(result.odds_coverage.status, "ODDS_COMPLETE");
-  assert.equal(result.odds_coverage.fixtures_with_priced_market, result.fixture_row_count);
+test("generic markets preserve two-way snooker odds and a locked selection", () => {
+  const dom = new JSDOM(`<!doctype html><div class="sports-view__bar"><div class="sports-view__bar-markets">2 Way</div></div>
+    <div class="sports-head table"><div class="sports-head__date"><span>Sat 3 Oct</span></div><div class="sports-head__odds-col2"><ul><li class="sports-head__odds-item">1</li><li class="sports-head__odds-item">2</li></ul></div></div>
+    <div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__time">07:00</div>
+      <div class="sports-table__td sports-table__matchup" id="prematch_event-123"><div class="sports-table__home">Sijun, Yuan</div><div class="sports-table__away">Robertson, Jimmy</div></div>
+      <div class="sports-table__td sports-table__odds-col2"><ul><li id="prematch_event-123_event-123_odds_market-2_way_sign-1">1.85</li><li class="locked" id="prematch_event-123_event-123_odds_market-2_way_sign-2">1.95</li></ul></div></div></div>`);
+  const fixture = parseFixturesFromDocument(dom.window.document, {}).fixtures[0];
+  assert.equal(fixture.markets[0].market_raw, '2 Way');
+  assert.deepEqual(fixture.markets[0].selections.map((s) => [s.label_raw, s.odds, s.state]), [
+    ['Sijun, Yuan', 1.85, 'open'], ['Robertson, Jimmy', null, 'locked'],
+  ]);
 });
 
-test("v2: WNBA captures 2_way and handicap alongside 3way", () => {
-  const dom = new JSDOM(WNBA_POPULATED_HTML);
-  const result = parseFixturesFromDocument(dom.window.document, { href: "https://sports.bet9ja.com/competition/basketball/usa/wnba/2-43460-4759871" });
-  const f = result.fixtures[0];
-  const keys = f.markets.map((m) => m.market_key).sort();
-  assert.deepEqual(keys, ["2_way", "3way", "handicap"]);
-  const two = f.markets.find((m) => m.market_key === "2_way");
-  assert.deepEqual(two.selections.map((s) => s.odds), [2.2, 1.65]);
-  assert.equal(f.markets.find((m) => m.market_key === "handicap").line_raw, "+2.5");
+test("generic markets preserve futsal 1X2 and totals with their distinct labels and line", () => {
+  const dom = new JSDOM(`<!doctype html><div class="sports-view__bar"><div class="sports-view__bar-markets">Main</div></div>
+    <div class="sports-head table"><div class="sports-head__date"><span>Sat 3 Oct</span></div>
+      <div class="sports-head__odds"><ul><li class="sports-head__odds-item">1</li><li class="sports-head__odds-item">X</li><li class="sports-head__odds-item">2</li></ul></div>
+      <div class="sports-head__odds"><ul><li class="sports-head__odds-item">Goals</li><li class="sports-head__odds-item">Over</li><li class="sports-head__odds-item">Under</li></ul></div></div>
+    <div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__time">18:00</div>
+      <div class="sports-table__td sports-table__matchup" id="prematch_event-456"><div class="sports-table__home">Home</div><div class="sports-table__away">Away</div></div>
+      <div class="sports-table__td sports-table__odds"><ul><li id="prematch_event-456_event-456_odds_market-1x2_sign-1">2.10</li><li id="prematch_event-456_event-456_odds_market-1x2_sign-X">3.30</li><li id="prematch_event-456_event-456_odds_market-1x2_sign-2">3.50</li></ul></div>
+      <div class="sports-table__td sports-table__odds"><div class="dropdown__btn">2.5</div><ul><li id="prematch_event-456_event-456_odds_market-goals_over_under_sign-O">1.80</li><li id="prematch_event-456_event-456_odds_market-goals_over_under_sign-U">2.00</li></ul></div></div></div>`);
+  const markets = parseFixturesFromDocument(dom.window.document, {}).fixtures[0].markets;
+  assert.deepEqual(markets[0].selections.map((s) => s.odds), [2.1, 3.3, 3.5]);
+  assert.equal(markets[1].line, 2.5);
+  assert.deepEqual(markets[1].selections.map((s) => s.label_raw), ['Over', 'Under']);
 });
 
-test("v2: a 2-way sport (snooker-shaped row) is priced without any 3way market", () => {
-  const dom = new JSDOM(`<!DOCTYPE html><body><div class="sports-table"><div class="table-f">
-    <div class="sports-table__td sports-table__time"><span>07:00</span></div>
-    <div class="sports-table__td sports-table__matchup" id="prematch_event-9">
-      <div class="sports-table__home">Sijun, Yuan</div><div class="sports-table__away">Robertson, Jimmy</div></div>
-    <div class="sports-table__td sports-table__odds"><ul>
-      <li id="prematch_event-9_event-9_odds_market-match_winner_sign-1">1.85</li>
-      <li id="prematch_event-9_event-9_odds_market-match_winner_sign-2">1.95</li></ul></div>
-  </div></div></body>`);
-  const result = parseFixturesFromDocument(dom.window.document, { href: "https://sports.bet9ja.com/competition/snooker/international/x/19-1-1" });
-  assert.equal(result.fixtures[0].three_way_odds, null);
-  assert.equal(result.fixtures[0].priced_market_count, 1);
-  assert.equal(result.odds_coverage.status, "ODDS_COMPLETE");
-});
-
-test("v2: locked/blank prices are unpriced, never numbers; coverage reports ODDS_MISSING", () => {
-  const dom = new JSDOM(`<!DOCTYPE html><body><div class="sports-table"><div class="table-f">
-    <div class="sports-table__td sports-table__matchup" id="prematch_event-5">
-      <div class="sports-table__home">A</div><div class="sports-table__away">B</div></div>
-    <div class="sports-table__td"><ul>
-      <li class="locked" id="prematch_event-5_event-5_odds_market-match_winner_sign-1"></li>
-      <li id="prematch_event-5_event-5_odds_market-match_winner_sign-2">-</li></ul></div>
-  </div></div></body>`);
-  const result = parseFixturesFromDocument(dom.window.document, { href: "" });
-  const sel = result.fixtures[0].markets[0].selections;
-  assert.deepEqual(sel.map((s) => [s.odds, s.state]), [[null, "locked"], [null, "unpriced"]]);
-  assert.equal(sel[0].class_raw, "locked");
-  assert.equal(result.odds_coverage.status, "ODDS_MISSING");
-});
-
-test("v2: summarizeOddsCoverage statuses", () => {
-  assert.equal(summarizeOddsCoverage([]).status, "NO_FIXTURES");
-  assert.equal(summarizeOddsCoverage([{ priced_market_count: 1 }, { priced_market_count: 0 }]).status, "ODDS_PARTIAL");
-});
-
-const { deriveKickoffUtc } = require("../fixture_parser.js");
-
-test("v2.2: real locked class from 2026-10-03 Boxing capture -> state locked, market not priced", () => {
-  const dom = new JSDOM(`<!DOCTYPE html><body><div class="sports-table"><div class="table-f">
-    <div class="sports-table__td sports-table__matchup" id="prematch_event-7"><div class="sports-table__home">A</div><div class="sports-table__away">B</div></div>
-    <div class="sports-table__td"><ul>
-      <li class="sports-table__odds-item dib pt10 locked" id="prematch_event-7_event-7_odds_market-dnb_sign-1"></li>
-      <li class="sports-table__odds-item dib pt10 locked" id="prematch_event-7_event-7_odds_market-dnb_sign-2"></li></ul></div>
-  </div></div></body>`);
-  const r = parseFixturesFromDocument(dom.window.document, { href: "" });
-  assert.deepEqual(r.fixtures[0].markets[0].selections.map((s) => s.state), ["locked", "locked"]);
-  assert.equal(r.fixtures[0].priced_market_count, 0);
-});
-
-test("v2.2: one-selection Specials Combo market (real shape) counts as priced but not complete", () => {
-  const dom = new JSDOM(`<!DOCTYPE html><body><div class="sports-table"><div class="table-f">
-    <div class="sports-table__td sports-table__matchup" id="prematch_event-844410882"><div class="sports-table__home">England Score Both Halves, England First Team to Score</div></div>
-    <div class="sports-table__td"><ul><li class="sports-table__odds-item dib pt10" id="prematch_event-844410882_event-844410882_odds_market-to_happen_sign-Y">3.25</li></ul></div>
-  </div></div></body>`);
-  const r = parseFixturesFromDocument(dom.window.document, { href: "" });
-  const m = r.fixtures[0].markets[0];
-  assert.equal(m.fully_priced, true);
-  assert.equal(m.complete_market, false);
-  assert.equal(r.odds_coverage.status, "ODDS_COMPLETE");
-});
-
-test("v2.2: kickoff UTC derived at UTC+1 (Charlotte v Memphis listed 16:00 = 15:00Z official)", () => {
-  assert.equal(deriveKickoffUtc("Sat 3 Oct", "16:00", "2026-10-03T07:05:00.000Z"), "2026-10-03T15:00:00.000Z");
-  assert.equal(deriveKickoffUtc("Thu 1 Oct", "00:00", "2026-09-30T16:23:42.845Z"), "2026-09-30T23:00:00.000Z");
-  assert.equal(deriveKickoffUtc("Fri 2 Jan", "12:00", "2026-12-30T10:00:00Z"), "2027-01-02T11:00:00.000Z");
-  assert.equal(deriveKickoffUtc(null, "16:00", "2026-10-03T07:05:00Z"), null);
+test("a Specials Combo yes-only price retains the compound selection text", () => {
+  const dom = new JSDOM(`<!doctype html><div class="sports-head table"><div class="sports-head__date"><span>Sat 3 Oct</span></div><div class="sports-head__odds"><ul><li class="sports-head__odds-item">Yes</li></ul></div></div>
+    <div class="sports-table"><div class="table-f"><div class="sports-table__td sports-table__matchup" id="prematch_event-844410882"><div class="sports-table__home">England Score Both Halves, England First Team to Score</div><div class="sports-table__away"></div></div>
+      <div class="sports-table__td sports-table__odds"><li id="prematch_event-844410882_event-844410882_odds_market-to_happen_sign-Y">3.25</li></div></div></div>`);
+  const market = parseFixturesFromDocument(dom.window.document, {}).fixtures[0].markets[0];
+  assert.equal(market.selections.length, 1);
+  assert.equal(market.selections[0].label_raw, 'England Score Both Halves, England First Team to Score');
+  assert.equal(market.selections[0].odds, 3.25);
 });

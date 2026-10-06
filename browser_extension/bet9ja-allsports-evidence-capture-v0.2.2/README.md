@@ -167,7 +167,8 @@ Output shape:
 
 ```
 {
-  sport, capture_status, groups_discovered, groups_seen, groups_failed,
+  sport, capture_status, capture_started_at_utc, captured_at_utc,
+  page_timezone, page_utc_offset, groups_discovered, groups_seen, groups_failed,
   competitions_seen, competitions_attempted,
   competitions_successful, competitions_validated, competitions_failed,
   results: [{ competition_id, competition_label, source_url_after_click,
@@ -184,11 +185,30 @@ toggle was found but its links did not materialize; `GROUP_TOGGLE_NOT_FOUND`
 means the toggle itself was absent. Competition IDs may contain commas and
 other punctuation in every sport, so discovery preserves the full suffix.
 
+The shared fixture parser records the visible market cells in `markets[]`,
+including their raw header and code, line, selection labels, numeric odds,
+raw price text and open/locked/suspended state. Locked odds have `odds: null`.
+The walker flags `ARITY_MISMATCH` and `NO_PRICED_MARKET` per fixture.
+Specials Combo `to_happen` is a legitimate one-selection market; its
+compound selection text and visible price count as a fully priced market.
+`COMPLETE` requires at least 90% of fixtures to have a market whose every
+selection is open with a price above 1.01; zero priced fixtures yield
+`ODDS_MISSING`. `fixtures_with_any_price` also counts partial markets.
+It waits up to 10 seconds for prices and 5 seconds for the selected page's
+heading to settle. Each result records `price_captured_at_utc`.
+
 Specials Basketball uses match competitions with player markets. Its group
 and match IDs contain spaces and hyphens. The walker records one match fixture
-per competition and places the visible player, line, and available Over/Under
-odds in `fixtures[0].market_rows`. A blank or locked odd stays absent; player
-market IDs are never counted as separate team fixtures.
+per competition and places each visible player market in `fixtures[0].markets`.
+A blank or locked odd remains `null`; player market IDs are never counted as
+separate team fixtures.
+
+The page clock's IANA timezone (when shown, such as `Africa/Lagos`) and its
+UTC offset are saved with the capture. `kickoff_utc` is derived only when the
+page timezone, raw date, and time are all available; otherwise it is `null`.
+Outright layouts without fixture rows still need an observed populated-page
+DOM sample to map rider and price elements. A timeout includes a bounded raw
+page snippet to diagnose that layout.
 
 `parse_result` is one of `populated` / `confirmed_empty` / `unknown_empty`
 / `invalid_content_mismatch`.
@@ -356,28 +376,3 @@ No network requests. No account data read or transmitted. No bet
 placement, no cashout, no interaction with the page beyond reading its
 current DOM. Produces raw HTML evidence only — never a parsed fixture,
 never odds, never anything this project's ledgers would ever write.
-
-## v0.2.0 (2026-10-03): generic odds capture
-
-**Bug fixed.** v0.1 read odds only from the `3way` market id. Any sport whose market key differs (snooker, tennis, MMA: `match_winner` 2-way; KHL: `match_winner` 1/X/2, `draw_no_bet`, `handicap_rt`) produced `three_way_odds: null` while the walk still reported `COMPLETE`.
-
-**Changes**
-- `fixture_parser.js` (schema `fixture-capture.v2`): every fixture now carries `markets[]`, built from every `..._odds_market-<KEY>_sign-<SIGN>` element in the row. Each market has `market_key`, `line_raw` (selected `.dropdown__btn` in the same cell), `selections[]` (`sign_raw`, `odds_raw`, numeric `odds` or null, `state` open/unpriced, `class_raw`), `selection_count`, `fully_priced`. `priced_market_count` per fixture; `odds_coverage` per page. `three_way_odds` kept for backward compatibility.
-- `sport_walker.js` (schema `sport-walk.v2`): after rows load, waits up to 4 s [UNVERIFIED] for prices (`odds_wait_result`). Top level adds `captured_at_utc`, `browser_timezone`, `browser_utc_offset_minutes`, `odds_status`, `odds_fixtures_total`, `odds_fixtures_priced`.
-- `capture_status` is `COMPLETE` only if the walk is structurally complete AND >= 90% of fixtures have a fully priced market. Rows with no prices give `ODDS_MISSING`.
-- Popup status line shows odds coverage.
-
-**Still unconfirmed:** the snooker market key on the live site (tests use `match_winner`; the parser accepts any key), the locked/suspended price class, and the timezone Bet9ja renders kickoff times in.
-
-## v0.2.1 (2026-10-03): fixes from the 30-file all-sports run
-
-- Identity settle: after rows load, waits up to 3 s for breadcrumb AND competition heading to match before the fail-closed check (`identity_wait_result`). Fixes 5 Basketball competitions rejected because the heading still showed the previous route ("Extraliga").
-- Sport expand timeout 3 s to 6 s (Specials Basketball failed twice with SPORT_EXPAND_TIMEOUT before succeeding).
-- Known gaps, not fixed (need raw snapshots): Motor Sports outright pages (no head-to-head rows; all 4 timed out), Specials Soccer (sidebar toggle not found), Specials Combo (rows are bet-builder descriptions, participant_2 always null).
-
-## v0.2.2 (2026-10-03): from the 21-file v0.2.1 re-walk
-
-- Price state `locked` (class `... locked`, blank text) confirmed on Boxing, Basketball, Floorball, Futsal, MMA. Locked prices never count as priced.
-- One-selection markets (Specials Combo `to_happen`, sign `Y`) count as priced; `complete_market: false` marks them as having no opposing side, so no margin removal is possible.
-- `kickoff_utc_derived` per fixture, assuming Bet9ja shows West Africa Time (UTC+1). Evidence: Charlotte v Memphis listed 16:00, official kickoff 10:00 CT = 15:00 UTC. Browser zone (Asia/Dubai) is NOT the display zone. Raw date/time kept.
-- Still open: Motor Sports outrights, Specials Soccer toggle.

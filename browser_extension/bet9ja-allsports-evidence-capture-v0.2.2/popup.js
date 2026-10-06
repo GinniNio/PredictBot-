@@ -127,8 +127,7 @@ walkButton.addEventListener("click", async () => {
     });
 
     setWalkStatus(
-      `Saved ${result.capture_status}. Odds: ${result.odds_status} (${result.odds_fixtures_priced}/${result.odds_fixtures_total} fixtures priced). ` +
-        `${result.sport}: ${result.groups_seen}/${result.groups_discovered} groups, ` +
+      `Saved ${result.capture_status}. ${result.sport}: ${result.groups_seen}/${result.groups_discovered} groups, ` +
         `${result.competitions_seen} seen, ${result.competitions_attempted} attempted, ` +
         `${result.competitions_successful} successful, ${result.competitions_validated} validated, ` +
         `${result.competitions_failed} failed. Please attach the downloaded JSON back.`
