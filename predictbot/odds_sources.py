@@ -2,8 +2,16 @@
 public-odds-capture-walker extension, `public-odds-walk-*.json`).
 
 Polymarket (added as a benchmark source by the operator, 2026-10-05) embeds
-each market as JSON in the page: outcomes, mid prices that sum to 1, volume,
-best bid/ask and gameStartTime. Pure functions only; no file or network access.
+each market as JSON in the page: outcomes, displayed prices, volume,
+liquidity, best bid/ask (of the first outcome) and gameStartTime. On every
+captured moneyline so far the displayed price equals the bid/ask midpoint;
+each quote records whether that held (`price_basis`).
+
+Every source is normalised to one quote format:
+    source, bookmakers, url, league, sport, outcomes, probs, odds,
+    start_utc, quote_time_utc, captured_at_utc, price_basis, depth,
+    volume, spread, closed, file
+Pure functions only; no file or network access.
 """
 
 from __future__ import annotations
@@ -16,6 +24,8 @@ from pcbf import parse_time, utc
 
 MIN_POLYMARKET_VOLUME = 5000.0     # USD traded on the moneyline; thinner = RESEARCH
 MAX_POLYMARKET_SPREAD = 0.04       # best ask - best bid; wider = RESEARCH
+MIN_POLYMARKET_LIQUIDITY = 5000.0  # USD resting liquidity on the thinnest leg; shallower = RESEARCH
+SOURCE_PRIORITY = ("pinnacle", "oddsportal", "oddschecker", "polymarket")   # PCBF Mini order
 KICKOFF_TOLERANCE = timedelta(hours=3)
 
 LEAGUE_SPORT = {"soccer": "soccer", "unl": "soccer", "ucl": "soccer", "uel": "soccer", "fifa": "soccer",
@@ -44,11 +54,23 @@ def _markets(html: str) -> list[dict]:
         except ValueError:
             continue
         questions = re.findall(r'"question":"([^"]+)"', back)
+        liquidity = re.findall(r'"liquidity":"([\d.]+)"', back)
         bid, ask = _field(fwd, "bestBid"), _field(fwd, "bestAsk")
+        try:
+            bid, ask = (float(bid), float(ask)) if bid and ask else (None, None)
+        except ValueError:
+            bid = ask = None
+        if bid is None:
+            basis = "displayed price (no bid/ask on page)"
+        elif probs and abs(probs[0] - (bid + ask) / 2) <= 0.0051:
+            basis = "midpoint (bid/ask)"
+        else:
+            basis = "displayed price (differs from bid/ask midpoint; may be last trade)"
         out.append({"outcomes": re.findall(r'"([^"]+)"', m.group(1)), "probs": probs, "volume": float(m.group(3)),
                     "type": _field(fwd, "sportsMarketType"), "start": _field(fwd, "gameStartTime"),
                     "closed": _field(fwd, "closed") == "true", "question": questions[-1] if questions else "",
-                    "spread": (float(ask) - float(bid)) if bid and ask else None})
+                    "spread": (ask - bid) if bid is not None else None, "basis": basis,
+                    "liquidity": float(liquidity[-1]) if liquidity else None})
     return out
 
 
@@ -66,13 +88,15 @@ def polymarket_quotes(capture: dict) -> list[dict]:
     m = re.search(r"/sports/([a-z0-9-]+)/", url)
     league = m.group(1) if m else ""
     sport = next((s for k, s in LEAGUE_SPORT.items() if league.startswith(k)), None)
-    base = {"source": "polymarket", "url": url.split("?")[0], "league": league,
-            "captured_at_utc": utc(parse_time(capture.get("captured_at_utc")))}
+    taken = utc(parse_time(capture.get("captured_at_utc")))
+    base = {"source": "polymarket", "bookmakers": "Polymarket", "url": url.split("?")[0], "league": league,
+            "captured_at_utc": taken, "quote_time_utc": taken}
     markets = [mk for mk in _markets(html) if mk["type"] == "moneyline" and len(mk["outcomes"]) == len(mk["probs"])]
     for mk in markets:
         if len(mk["outcomes"]) == 2 and mk["outcomes"] != ["Yes", "No"]:
-            return [{**base, "sport": sport, "start_utc": utc(parse_time(mk["start"])), "outcomes": mk["outcomes"],
-                     "probs": mk["probs"], "volume": mk["volume"], "spread": mk["spread"], "closed": mk["closed"]}]
+            return [_finish({**base, "sport": sport, "start_utc": utc(parse_time(mk["start"])), "outcomes": mk["outcomes"],
+                             "probs": mk["probs"], "volume": mk["volume"], "spread": mk["spread"], "closed": mk["closed"],
+                             "price_basis": mk["basis"], "depth": mk["liquidity"]})]
     draw = next((mk for mk in markets if DRAW_Q.match(mk["question"])), None)
     if draw:
         home, away = DRAW_Q.match(draw["question"]).groups()
@@ -80,11 +104,24 @@ def polymarket_quotes(capture: dict) -> list[dict]:
         if home in wins and away in wins:
             legs = [wins[home], draw, wins[away]]
             spreads = [x["spread"] for x in legs if x["spread"] is not None]
-            return [{**base, "sport": sport or "soccer", "start_utc": utc(parse_time(draw["start"])),
-                     "outcomes": [home, "Draw", away], "probs": [x["probs"][0] for x in legs],
-                     "volume": min(x["volume"] for x in legs), "spread": max(spreads) if spreads else None,
-                     "closed": any(x["closed"] for x in legs)}]
+            bases = {x["basis"] for x in legs}
+            depths = [x["liquidity"] for x in legs]
+            return [_finish({**base, "sport": sport or "soccer", "start_utc": utc(parse_time(draw["start"])),
+                             "outcomes": [home, "Draw", away], "probs": [x["probs"][0] for x in legs],
+                             "volume": min(x["volume"] for x in legs), "spread": max(spreads) if spreads else None,
+                             "closed": any(x["closed"] for x in legs),
+                             "price_basis": bases.pop() if len(bases) == 1 else "mixed: " + "; ".join(sorted(bases)),
+                             "depth": None if None in depths else min(depths)})]
     return []
+
+
+def _finish(q: dict) -> dict:
+    """Fill the shared quote fields every source must carry."""
+    q.setdefault("odds", [round(1 / p, 4) if p > 0 else None for p in q["probs"]])
+    for k in ("bookmakers", "price_basis", "depth", "volume", "spread", "file", "league"):
+        q.setdefault(k, None)
+    q.setdefault("quote_time_utc", q.get("captured_at_utc"))
+    return q
 
 
 # ------------------------------------------------------------------ oddsportal
@@ -123,6 +160,7 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     rows = [(m.group(1), [float(m.group(k)) for k in range(2, 2 + n)]) for m in row.finditer(table)]
     if not rows:
         return []
+    rows = [(name.strip(), odds) for name, odds in rows]
     avg = [sum(r[1][k] for r in rows) / len(rows) for k in range(n)]
     kick = None
     km = re.search(r"\|(\d{2}) ([A-Za-z]{3}) (\d{4}),\|(\d{2}):(\d{2})\|", text)
@@ -133,14 +171,22 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     sm = re.search(r"oddsportal\.[a-z.]+/([a-z-]+)/", url)
     home, away = title.group(1).strip(), title.group(2).strip()
     outcomes = [home, "Draw", away] if n == 3 else [home, away]
-    probs = [1 / o for o in avg]
-    return [{"source": "oddsportal", "url": url, "league": "", "sport": OP_SPORT.get(sm.group(1) if sm else "", None),
-             "captured_at_utc": utc(parse_time(capture.get("captured_at_utc"))), "start_utc": utc(kick),
-             "outcomes": outcomes, "probs": probs, "odds": [round(o, 3) for o in avg], "bookmakers": len(rows),
-             "volume": None, "spread": None, "closed": False}]
+    taken = utc(parse_time(capture.get("captured_at_utc")))
+    base = {"url": url, "league": "", "sport": OP_SPORT.get(sm.group(1) if sm else "", None),
+            "captured_at_utc": taken, "quote_time_utc": taken, "start_utc": utc(kick), "outcomes": outcomes,
+            "volume": None, "spread": None, "closed": False}
+    out = [_finish({**base, "source": "oddsportal", "probs": [1 / o for o in avg], "odds": [round(o, 3) for o in avg],
+                    "bookmakers": "; ".join(r[0] for r in rows), "bookmaker_count": len(rows),
+                    "price_basis": f"average of {len(rows)} bookmakers", "depth": len(rows)})]
+    pin = next((r for r in rows if r[0].lower().startswith("pinnacle")), None)
+    if pin:   # PCBF: Pinnacle first, "direct or via a comparison site"
+        out.append(_finish({**base, "source": "pinnacle", "probs": [1 / o for o in pin[1]], "odds": pin[1],
+                            "bookmakers": pin[0], "bookmaker_count": 1,
+                            "price_basis": "Pinnacle row on the OddsPortal page", "depth": 1}))
+    return out
 
 
-def quotes_from_walk(run: dict) -> list[dict]:
+def quotes_from_walk(run: dict, file_name: str = "") -> list[dict]:
     key = run.get("source_key")
     quotes = []
     for cap in run.get("captures") or []:
@@ -150,7 +196,13 @@ def quotes_from_walk(run: dict) -> list[dict]:
             quotes.extend(polymarket_quotes(cap))
         elif key == "oddsportal":
             quotes.extend(oddsportal_quotes(cap, run.get("browser_utc_offset_minutes")))
+    for q in quotes:
+        q["file"] = file_name
     return quotes
+
+
+def quote_key(q: dict) -> str:
+    return f"{q['source']}|{q['url']}|{q['captured_at_utc']}"
 
 
 def quote_problem(q: dict) -> str | None:
@@ -163,13 +215,17 @@ def quote_problem(q: dict) -> str | None:
     if start and taken and taken >= start:
         return "captured after the event started (in-play price)"
     if q["source"] == "oddsportal":
-        if q["bookmakers"] < MIN_ODDSPORTAL_BOOKMAKERS:
-            return f"only {q['bookmakers']} bookmakers listed (< {MIN_ODDSPORTAL_BOOKMAKERS})"
+        if q["bookmaker_count"] < MIN_ODDSPORTAL_BOOKMAKERS:
+            return f"only {q['bookmaker_count']} bookmakers listed (< {MIN_ODDSPORTAL_BOOKMAKERS})"
+        return None
+    if q["source"] != "polymarket":
         return None
     if q["volume"] < MIN_POLYMARKET_VOLUME:
         return f"thin market: ${q['volume']:,.0f} traded < ${MIN_POLYMARKET_VOLUME:,.0f}"
     if q["spread"] is not None and q["spread"] > MAX_POLYMARKET_SPREAD:
         return f"wide market: bid/ask spread {q['spread']:.2f} > {MAX_POLYMARKET_SPREAD:.2f}"
+    if q.get("depth") is not None and q["depth"] < MIN_POLYMARKET_LIQUIDITY:
+        return f"shallow market: ${q['depth']:,.0f} liquidity < ${MIN_POLYMARKET_LIQUIDITY:,.0f}"
     if any(p <= 0 or p >= 1 for p in q["probs"]):
         return "price at 0 or 1"
     return None
@@ -190,43 +246,125 @@ def _surname(bet9ja_name: str) -> str:
 
 
 TEAM_NOISE = {"fc", "cf", "sc", "ac", "afc", "club", "de", "the", "fk", "sk", "if", "bk", "cd", "ca", "sv"}
+# Words shared by many unrelated teams: a match on these alone proves nothing.
+GENERIC = {"united", "city", "town", "real", "sporting", "athletic", "atletico", "county", "rovers", "wanderers",
+           "st", "saint", "san", "santa", "inter", "dynamo", "dinamo", "olympic", "racing", "national", "women",
+           "utd", "sport", "sports", "team", "university", "academy", "hotspur", "albion", "north", "south",
+           "west", "east", "new", "old"}
+
+
+def side_match(bet9ja_name: str, quote_name: str) -> str | None:
+    """'exact', 'partial' (needs review) or None.
+    Players: Bet9ja 'Surname, Given'; the surname must appear in the quote
+    name, and a given name there must agree. Teams: a shared distinctive
+    word; exact when one name's words contain the other's."""
+    q = _tokens(quote_name)
+    if "," in bet9ja_name:
+        s = _surname(bet9ja_name)
+        if not s or s not in q:
+            return None
+        given = _tokens(bet9ja_name.split(",", 1)[1])
+        other = q - _tokens(bet9ja_name.split(",")[0])
+        if not other or not given or given & other or any(o[0] == g[0] for o in other for g in given if len(o) == 1):
+            return "exact"
+        return "partial"
+    a, b = _tokens(bet9ja_name) - TEAM_NOISE, q - TEAM_NOISE
+    if not (a & b) - GENERIC:
+        return None
+    return "exact" if a <= b or b <= a else "partial"
 
 
 def same_side(bet9ja_name: str, quote_name: str) -> bool:
-    """Players: Bet9ja's 'Surname, Given' surname appears in the quote name.
-    Teams: the names share a significant word (e.g. 'Cyprus', 'Bodo')."""
-    if "," in bet9ja_name:
-        s = _surname(bet9ja_name)
-        return bool(s) and s in _tokens(quote_name)
-    a, b = _tokens(bet9ja_name) - TEAM_NOISE, _tokens(quote_name) - TEAM_NOISE
-    return bool(a & b)
+    return side_match(bet9ja_name, quote_name) is not None
 
 
-def match_quote(candidate: dict, quotes: list[dict]) -> tuple[dict, list[int]] | None:
-    """Find the quote for a Bet9ja candidate (two- or three-way) and the
-    order mapping quote outcome -> Bet9ja selection. Matches on sport, both
-    surnames and a kickoff within 3 hours."""
+def find_matches(candidate: dict, quotes: list[dict]) -> list[dict]:
+    """Every quote that could be this Bet9ja fixture: same sport, same number
+    of outcomes, both sides matched, kickoff within 3h (or, without a page
+    start time, captured on Bet9ja's date or the day before). Each match is
+    'exact' or 'review' with the reason."""
     n = len(candidate.get("outcomes") or [])
     if n not in (2, 3):
-        return None
+        return []
     kick = parse_time(candidate.get("kickoff_utc"))
     home, away = candidate["home"], candidate["away"]
+    out = []
     for q in quotes:
         if q["sport"] and q["sport"] != candidate["sport"]:
+            continue
+        if len(q["outcomes"]) != n:
             continue
         start = parse_time(q["start_utc"])
         if kick and start and abs(kick - start) > KICKOFF_TOLERANCE:
             continue
         if kick and not start and q["captured_at_utc"][:10] not in (utc(kick)[:10], utc(kick - timedelta(days=1))[:10]):
-            continue   # no page kickoff time: require the capture to be on (or the day before) Bet9ja's date
-        if len(q["outcomes"]) != n:
             continue
         a, b = q["outcomes"][0], q["outcomes"][-1]
-        if same_side(home, a) and same_side(away, b):
-            return q, list(range(n))
-        if same_side(home, b) and same_side(away, a):
-            return q, [1, 0] if n == 2 else [2, 1, 0]
-    return None
+        for order, (x, y) in ((list(range(n)), (a, b)), ([1, 0] if n == 2 else [2, 1, 0], (b, a))):
+            m1, m2 = side_match(home, x), side_match(away, y)
+            if m1 and m2:
+                why = []
+                if "partial" in (m1, m2):
+                    why.append(f"names only partly agree ({home} / {x}; {away} / {y})")
+                if not start:
+                    why.append("no kickoff time on the source page; matched by date")
+                out.append({"quote": q, "order": order, "quality": "review" if why else "exact",
+                            "why": "; ".join(why)})
+                break
+    return out
+
+
+def choose_quote(candidate: dict, quotes: list[dict], decisions: dict | None = None) -> dict:
+    """Pick the benchmark quote for a candidate.
+    decisions: (event_id, quote_key) -> 'accept' / 'reject' from match reviews.
+    Returns {'status': 'matched' | 'review' | 'none', 'match': ..., 'review': [...]}.
+    Exact matches (or accepted reviews) are ranked by the PCBF source order,
+    then newest capture. Two different events from the best source matching
+    the same fixture is ambiguous and goes to review."""
+    decisions = decisions or {}
+    ev = candidate["event_id"]
+    found = []
+    for m in find_matches(candidate, quotes):
+        d = decisions.get((ev, quote_key(m["quote"]))) or decisions.get((ev, _event_key(m["quote"])))
+        if d == "reject":
+            continue
+        if d == "accept":
+            m = {**m, "quality": "exact", "why": "accepted by operator"}
+        found.append(m)
+    exact = [m for m in found if m["quality"] == "exact"]
+    review = [m for m in found if m["quality"] == "review"]
+    rank = lambda m: (SOURCE_PRIORITY.index(m["quote"]["source"]) if m["quote"]["source"] in SOURCE_PRIORITY else 9)
+    if not exact:
+        return {"status": "review" if review else "none", "match": None, "review": review}
+    best = min(rank(m) for m in exact)
+    if any(rank(m) < best for m in review):
+        # A higher-priority source may have this game: decide that first,
+        # rather than price from a lower source by default.
+        return {"status": "review", "match": None, "review": [m for m in review if rank(m) < best]}
+    top = [m for m in exact if rank(m) == best]
+    if len({_event_key(m["quote"]) for m in top}) > 1:
+        return {"status": "review", "match": None,
+                "review": [{**m, "why": "several different events match this fixture"} for m in top]}
+    top.sort(key=lambda m: m["quote"]["captured_at_utc"], reverse=True)
+    return {"status": "matched", "match": top[0], "review": [], "all": exact}
+
+
+def _event_key(q: dict) -> str:
+    """The same event captured at different times shares this key."""
+    return f"{q['source']}|{q['url']}"
+
+
+def match_quote(candidate: dict, quotes: list[dict]) -> tuple[dict, list[int]] | None:
+    """The exact match only (kept for callers that need no review queue)."""
+    r = choose_quote(candidate, quotes)
+    return (r["match"]["quote"], r["match"]["order"]) if r["status"] == "matched" else None
+
+
+def quote_meta(q: dict) -> dict:
+    """Provenance stored on each selection priced from a captured quote."""
+    return {"captured_utc": q["captured_at_utc"], "bookmakers": q.get("bookmakers") or "",
+            "file": q.get("file") or "", "price_basis": q.get("price_basis") or "",
+            "depth": "" if q.get("depth") is None else f"{q['depth']:.0f}"}
 
 
 def reply_fields(q: dict, order: list[int]) -> list[str]:
@@ -234,9 +372,12 @@ def reply_fields(q: dict, order: list[int]) -> list[str]:
     captured quote exactly as it validates chat research."""
     prices = [1 / q["probs"][i] for i in order]
     if q["source"] == "oddsportal":
-        note = "oddsportal average of %d bookmakers%s" % (q["bookmakers"], "" if q["start_utc"] else
+        note = "oddsportal average of %d bookmakers%s" % (q["bookmaker_count"], "" if q["start_utc"] else
                                                            "; kickoff time not on page in UTC, matched by names + date")
         return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices), note]
+    if q["source"] == "pinnacle":
+        return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices),
+                "Pinnacle row on OddsPortal page"]
     mids = " / ".join("%.3f" % q["probs"][i] for i in order)
     spread = "" if q["spread"] is None else ", spread %.3f" % q["spread"]
     note = "polymarket mid %s, volume $%s%s" % (mids, format(round(q["volume"]), ","), spread)

@@ -1,79 +1,112 @@
 # PredictBot
 
-PredictBot finds Bet9ja prices that pay more than the fair market price. It runs the PCBF Mini v1.3 rulebook as code on your own computer. An AI chat does only the research: benchmark prices and news. The app does all the arithmetic and keeps the record.
+PredictBot finds Bet9ja prices that pay more than the fair market price. It runs the PCBF Mini v1.3 rulebook as code on your own laptop: it reads the capture files your browser extensions save, compares Bet9ja with benchmark prices, logs every priced selection, and measures whether the method works. It never places a bet.
 
-```
-python predictbot/app.py "C:\Users\<you>\OneDrive\PredictBot"
-```
+## Start it
 
-This opens http://localhost:8000. It needs Python 3.10+ and nothing else installed. It never places a bet.
+Double-click **`PredictBot.cmd`** in the repo folder (make a desktop shortcut to it). It updates the code from GitHub, then opens http://localhost:8000.
 
-## Where the odds come from
+By hand: `python predictbot/app.py "C:\Users\<you>\OneDrive\PredictBot"`. Python 3.10+ and nothing else. With no folder given it uses `%OneDrive%\PredictBot`.
 
-- **All sports:** the Chrome extension in `browser_extension/bet9ja-allsports-evidence-capture-v0.2.2/`. Its "Walk sport" button saves one file per sport (`bet9ja-allsports-walk-<sport>-*.json`, schema `bet9ja-allsports-sport-walk.v3` from extension 0.3.0; older v2.1 files are still read).
-- **Benchmarks (Polymarket):** `browser_extension/public-odds-capture-walker/`, files `public-odds-walk-*.json`.
-- **Soccer, open bets, settled bets:** the older extension in `browser_extension/bet9ja_capture/`, schemas `bet9ja-soccer-session.v1`, `bet9ja-ticket-capture.v1` and `bet9ja-settled-bets.v1`.
-
-Each time a page loads, the app copies new `bet9ja-*.json` files from your Downloads folder into the data folder, with their bytes unchanged.
+Stop it with the **Stop PredictBot** button (top right) before switching laptops.
 
 ## The daily loop
 
-1. **Capture** each sport with the extension.
-2. **Candidates** page. Every fixture's main market is checked against the rulebook's step-1 rules. Each fixture is either sent for benchmarking or screened out with a reason: already started, locked price, youth or reserve, virtual, excluded country, or unsupported market.
-3. **Create research pack.** This makes a batch of up to 40 fixtures, earliest kickoff first, with a fixed reply format. Paste it into Claude, ChatGPT or Gemini.
-4. **Paste the chat's reply back.** For every line, the app checks the source, URL, timestamp and price count, then **recomputes the edge itself**. Nothing the chat says about edges or picks is used. Every outcome is saved as a selection record before any bet can exist.
-5. **Bets** page. Record actual wagers, which can only point at a logged selection. Real bets are a separate, optional ledger.
-6. **Selections → Create settlement pack.** Once games are over, paste results and closing prices back. The app works out the result, CLV and notional P&L.
-7. **Performance** page. Shows CLV, ROI, win rate and sample size by tier, sport, market, odds band and benchmark source.
+1. **Capture** with the Chrome extensions:
+   - Bet9ja, one sport at a time: `browser_extension/bet9ja-allsports-evidence-capture-v0.2.2/` (walker 0.3.0, "Walk sport").
+   - Benchmarks: `browser_extension/public-odds-capture-walker/` on Polymarket (`polymarket.com/sports`) and OddsPortal sport pages. Capture these close in time to the Bet9ja walk.
+   - Your bets: `browser_extension/bet9ja_capture/` ("Capture open bets", settled bets).
+2. **Opportunities.** Opening it copies new files from Downloads into the data folder (bytes unchanged) and prices every fixture it can match to a captured benchmark. You see:
+   - **Coverage by sport**: fixtures captured, with usable prices, screened out by the rulebook, benchmarked, unresolved (with reasons), on the shortlist.
+   - **Shortlist**: PICK and PM_PAPER for upcoming games, with **min odds**: the lowest Bet9ja price that still clears +3% at the fair probability.
+   - **Recheck**: type the Bet9ja price you see just before betting. The app stores the initial and rechecked odds and recomputes the edge and tier. Below min odds, skip it.
+3. **Pending.** Everything waiting on you:
+   - **Match review**: a benchmark event whose names only partly agree, or whose page has no kickoff time, or two events that both fit. Pick *Same game* or *Different*. If a higher-priority source is waiting for review, the fixture waits too, so a lower source never wins by default.
+   - **Settlement rules to confirm** (below).
+   - **No benchmark yet**: capture those sports on OddsPortal or Polymarket, or send them to a chat as a research pack (optional).
+   - **Settlement**: create a settlement pack for finished games and paste the chat's results back.
+   - **Handover** and **OneDrive conflicts** when they occur.
+4. **Performance.** Forecast quality, paper results, actual wagers, and the written evidence review.
 
-## Benchmark requirement
+An empty shortlist is a valid result. Missing data is shown with a reason, never filled in.
 
-A price is compared with the **same market, same settlement, same day** from one source, in this order: Pinnacle, then the oddsportal average, then oddschecker's best prices, then **Polymarket**. The operator added Polymarket as a fourth source on 2026-10-05, a change to PCBF Mini v1.3.
+## Benchmarks and tiers
 
-**OddsPortal from captured pages.** Run the extension on an OddsPortal sport page such as `/football/`. Match pages are read for their bookmaker table, and the benchmark is the **average** of all bookmaker rows (exchanges excluded, at least 5 bookmakers). That's the rulebook's "oddsportal average". In-play tabs are skipped. Kickoff times on the page are in the browser's local time, which the extension records (0.2.2+).
-
-**Polymarket from captured pages.** Use the `public-odds-capture-walker` extension on a **pre-match** Polymarket sports page (e.g. `/sports/atp`, not `/sports/live`). On the Candidates page, click **Benchmark from captured odds pages**. Two-way fixtures are matched by sport, both surnames and a kickoff within 3h. They're priced from Polymarket's mid prices without a chat. A quote isn't used if it was captured after the event's `gameStartTime` (in-play). It's logged as RESEARCH if its moneyline traded under $5,000 or its bid/ask spread is wider than 0.04. Edge = Bet9ja price × fair probability − 1. The fair probability is the more cautious of the proportional and power de-vigs, using the rulebook's code verbatim (`pcbf.py`).
-
-## Tiers
+Order of preference (PCBF Mini, with Polymarket added by the operator on 2026-10-05): Pinnacle (direct, or its row on an OddsPortal page), then the OddsPortal average, then Oddschecker, then Polymarket.
 
 | Tier | Meaning |
 |---|---|
-| `PICK` | Valid benchmark, defined market, current price, edge ≥ +3%, no caution flag. Logged at a notional ₦25. |
-| `WATCH` | Valid record, but the edge is below +3%, including negative edges. Also used for an otherwise valid record with a caution flag: stale benchmark, or capture and benchmark more than 6h apart. |
-| `RESEARCH` | No usable benchmark: the chat said NONE, or the source isn't one of the three allowed. |
-| `REJECTED` | Failed validation: missing URL or timestamp, wrong number of prices, benchmark after kickoff, duplicate selection, or an imported row that can't be recomputed. |
+| `PICK` | Valid benchmark, edge ≥ +3%, no caution. Notional ₦25. |
+| `PM_PAPER` | Would be a PICK, but the only benchmark is Polymarket. A separate paper category until an evidence review allows Polymarket PICKs. Notional ₦25. |
+| `WATCH` | Valid, but edge below +3% or a caution: stale benchmark, capture and benchmark over 6h apart, settlement rule unconfirmed, or (Polymarket) quote over 2h from the Bet9ja capture or price not a bid/ask midpoint. |
+| `RESEARCH` | No usable benchmark: none found, or a thin, wide or shallow Polymarket market. |
+| `REJECTED` | Failed validation: missing URL or time, wrong price count, benchmark after kickoff, duplicate, or a settlement rule that differs from Bet9ja's. |
 
-**A priced selection is not a bet.** Every priced outcome is logged, PICK and WATCH alike, as a control group. A bet is something you actually placed on Bet9ja, recorded separately against one of those selections.
+**Polymarket evidence.** Each quote records its price basis. On every moneyline captured so far, the displayed price equals the bid/ask midpoint; a quote where it does not is labelled and cannot be PM_PAPER. Thresholds (volume ≥ $5,000, spread ≤ 0.04, liquidity ≥ $5,000 on the thinnest leg, quote within 2h) are rules under evaluation, set in `odds_sources.py` and `pcbf.py`.
 
-## Real-money lock
+**Settlement rules.** A benchmark must settle the way Bet9ja does. Pinnacle, OddsPortal and Oddschecker follow the standard convention for 1X2 (regulation time) and moneylines (overtime included). Where treatment varies, you confirm once per source, sport and market on the Pending page: tennis and table tennis retirement, cricket ties and no-results, MMA and boxing draws, and every Polymarket market. Until confirmed, those selections stay WATCH. A confirmation applies to future pricing; past records are not changed.
 
-Locked until there are **200 settled PICKs with mean CLV > 0 and notional ROI > 0** (PCBF Mini step 5). The app shows the lock state and never places wagers. Treat early negative CLV as a reason to check data quality, market matching, timestamps and benchmark source before changing any rule.
+**Provenance on every selection**: benchmark source, URL, the underlying bookmakers (OddsPortal lists every row it averaged), quote time, capture time, the capture file, price basis, market depth, settlement check, fair probability, min odds and app version.
+
+## Closing prices and pre-kickoff snapshots
+
+If the odds walker captured the same benchmark page again before kickoff, the app stores the last such quote after the game starts. It is labelled **closing price** only when taken within 5 minutes of kickoff; otherwise **pre-kickoff snapshot, N min before kickoff**. Closing prices pasted from a chat get the same label. A quote taken after kickoff is never used.
+
+## Forecast quality
+
+Performance scores every settled event that has a full priced market (PICK, PM_PAPER and WATCH alike): multi-outcome **Brier score** and **log loss**, with 95% intervals computed across events (outcomes of one match are not independent), by source, and against Bet9ja's own de-vigged prices on the same events. A calibration table compares forecast bands with observed frequencies. The rulebook's cautious de-vig gives probabilities that sum to slightly under 1, so they are normalised for scoring. Paper results and actual wagers are reported separately.
+
+## Real money: written evidence review
+
+Nothing unlocks automatically. A review on the Performance page records a written summary, a decision (continue paper, change method, stop, allow small real stakes) and whether Polymarket-only opportunities may be PICKs. The metrics at that moment are saved with it. The rulebook's 200 settled PICKs is shown as a review point.
+
+## Two laptops
+
+One GitHub repo; each laptop runs its own copy of the app; both use the same OneDrive data folder. Code never goes in OneDrive.
+
+**Handover (every switch):**
+1. On the laptop you are leaving, click **Stop PredictBot** (or press Ctrl+C in its window).
+2. Wait until OneDrive shows **Up to date** on both laptops.
+3. Start PredictBot on the other laptop.
+
+**What protects the data:**
+- **One copy per laptop.** The app holds port 8000; a second start just opens the running one.
+- **Synced session marker** (`predictbot-session.json`). If the other laptop did not stop cleanly, this laptop opens read-only with a warning. Follow the handover, then confirm on Pending. If the first laptop was in fact still running, it sees the new marker within a minute and stops writing.
+- **OneDrive conflict copies** (`selections-HP.csv`, `settlements (1).csv`) block writes. **Merge** on Pending keeps every record from both copies once, by record ID, and moves the copy to `.backup/`.
+- **Versions.** `predictbot-data.json` records the data-schema version and the last writer. A laptop with older code refuses to write until you `git pull` (the launcher does this).
+- **Idempotent imports.** Captures are stored once by content hash. Pricing the same quote again, or pasting the same chat reply on either laptop, writes nothing new.
+
+OneDrive itself offers no locking, so the handover steps are the real protection; the checks above catch mistakes.
 
 ## Data folder (synced, not in git)
 
-| Path | Format | Contents |
-|---|---|---|
-| `captures/*.json` | raw JSON | Bet9ja captures, bytes unchanged |
-| `captures/capture-records.csv` | CSV, append-only | One row per selection sent for benchmarking: `capture_id`, timestamps, source URL, event, market, selection, odds, `raw_payload_hash` |
-| `selections/selections.csv` | CSV, append-only | Every PICK, WATCH, RESEARCH or REJECTED record: benchmark inputs, fair odds, edge, tier, validation status, reason |
-| `selections/screening.csv` | CSV, append-only | Every candidate screened when a pack was made, with its reason |
-| `bets/bets.csv` | CSV, append-only | Actual wagers |
-| `settlements/settlements.csv` | CSV, append-only | Results and notional returns |
-| `closing-prices/closing-prices.csv` | CSV, append-only | Closing market, closing fair odds, CLV |
-| `packs/*.json` | JSON | Research and settlement packs, so reply codes resolve on either laptop |
-| `pcbf-ledger*.csv` | CSV | Optional. Old PCBF Mini ledgers here are imported once at startup. |
+| Path | Contents |
+|---|---|
+| `captures/*.json` | Raw captures, bytes unchanged |
+| `captures/capture-records.csv` | One row per Bet9ja selection priced |
+| `selections/selections.csv` | Every PICK, PM_PAPER, WATCH, RESEARCH and REJECTED record |
+| `selections/screening.csv` | Candidates screened when a research pack was made |
+| `rechecks/rechecks.csv` | Bet9ja prices checked again before betting |
+| `bets/bets.csv` | Actual wagers |
+| `settlements/settlements.csv` | Results and notional returns |
+| `closing-prices/closing-prices.csv` | Closing prices and labelled pre-kickoff snapshots, CLV |
+| `reviews/match-reviews.csv` | Your match decisions |
+| `reviews/evidence-reviews.csv` | Written evidence reviews |
+| `rules/settlement-rules.csv` | Settlement rules you confirmed |
+| `packs/*.json` | Research and settlement packs |
+| `predictbot-data.json`, `predictbot-session.json` | Data version; which laptop runs the app |
 
-Field definitions are in `schemas.py`. Rows are never edited or deleted, and a record that fails validation is refused before it's written.
+Rows are never edited or deleted. When a newer app adds columns, a file is rewritten once with the wider header (values unchanged, the original kept in `.backup/`). The daily views read the last two days of captures.
 
 ## Code
 
 | File | Role |
 |---|---|
-| `pcbf.py` | Pure, deterministic core: odds validation, market normalisation, de-vig, edge, tiers, validation, CLV, performance |
-| `schemas.py` | Record definitions and validation |
-| `storage.py` | Append-only reads and writes in the data folder |
-| `workflow.py` | The daily loop, joining the core and storage |
-| `tickets.py` | Bet9ja ticket P&L from open and settled bet captures |
-| `odds_sources.py` | Benchmark quotes read from captured odds pages (Polymarket), matching to Bet9ja fixtures |
-| `app.py` | Thin stdlib web interface over `workflow.py` |
+| `pcbf.py` | Pure core: rulebook de-vig and edge, tiers, settlement rules, rechecks, snapshot labels, forecast scoring, performance |
+| `odds_sources.py` | Captured benchmark pages to one quote format; matching and review grading |
+| `schemas.py` | Record definitions, versions, validation |
+| `storage.py` | Append-only files, write guard, versions, conflict merge, session marker |
+| `workflow.py` | The daily loop joining core and storage |
+| `tickets.py` | Bet9ja ticket P&L from bet captures |
+| `app.py` | Thin stdlib web interface |
 | `tests/` | `python -m unittest discover -s predictbot/tests` |

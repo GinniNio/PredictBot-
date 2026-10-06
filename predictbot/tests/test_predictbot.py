@@ -236,10 +236,14 @@ class RealMarketKeys(unittest.TestCase):
         self.assertEqual(list(merged), ["bet9ja:bxf_abc"])   # 08:55 session capture is newer than the 08:50 walk
 
 
-def poly_capture(names, probs, volume, start, taken, bid=0.70, ask=0.71, league="atp", slug="atp-x-y-2026-10-05"):
-    market = ('{"question":"%s vs %s","outcomes":["%s","%s"],"outcomePrices":["%s","%s"],"volume":"%s",'
+def poly_capture(names, probs, volume, start, taken, bid=None, ask=None, league="atp", slug="atp-x-y-2026-10-05",
+                 liquidity="250000"):
+    p0 = float(probs[0])
+    bid = round(p0 - 0.005, 4) if bid is None else bid
+    ask = round(p0 + 0.005, 4) if ask is None else ask
+    market = ('{"question":"%s vs %s","liquidity":"%s","outcomes":["%s","%s"],"outcomePrices":["%s","%s"],"volume":"%s",'
               '"active":true,"closed":false,"sportsMarketType":"moneyline","bestBid":%s,"bestAsk":%s,'
-              '"gameStartTime":"%s"}' % (names[0], names[1], names[0], names[1], probs[0], probs[1], volume,
+              '"gameStartTime":"%s"}' % (names[0], names[1], liquidity, names[0], names[1], probs[0], probs[1], volume,
                                          bid, ask, start))
     html = "<script>self.__next_f.push([1,\"" + market.replace('"', '\\"') + "\"])</script>"
     return {"schema_version": "public-odds-capture-walk.v1", "source_key": "polymarket",
@@ -263,11 +267,29 @@ class Polymarket(unittest.TestCase):
         self.assertIsNone(odds_sources.quote_problem(qs[0]))
         q, order = odds_sources.match_quote(self.cand, qs)
         self.assertEqual(order, [1, 0])            # Bet9ja lists Medvedev first
+        self.assertEqual((q["price_basis"], q["depth"], q["bookmakers"]), ("midpoint (bid/ask)", 250000.0, "Polymarket"))
         recs = pcbf.capture_records(self.cand)
-        out = pcbf.price_benchmark(recs, odds_sources.reply_fields(q, order), at("2026-10-05T10:25:00Z"))
+        fields, meta, t = odds_sources.reply_fields(q, order), odds_sources.quote_meta(q), at("2026-10-05T10:25:00Z")
         # Medvedev: 2.10 x 0.60 - 1 = +26%; Djokovic: 1.73 x 0.40 - 1 = -30.8%
+        # Tennis retirement treatment on Polymarket is not yet confirmed: WATCH with a caution.
+        out = pcbf.price_benchmark(recs, fields, t, meta=meta)
         self.assertEqual([(r["tier"], r["edge_pct"], r["benchmark_source"]) for r in out],
-                         [("PICK", "0.2600", "polymarket"), ("WATCH", "-0.3080", "polymarket")])
+                         [("WATCH", "0.2600", "polymarket"), ("WATCH", "-0.3080", "polymarket")])
+        self.assertIn("settlement rule unconfirmed: polymarket tennis retirement", out[0]["caution_flags"])
+        # Rule confirmed: a Polymarket-only opportunity is PM_PAPER, not PICK ...
+        rules = {"polymarket|tennis|MATCH_WINNER": "same as bet9ja"}
+        out = pcbf.price_benchmark(recs, fields, t, meta=meta, rules=rules)
+        self.assertEqual([r["tier"] for r in out], ["PM_PAPER", "WATCH"])
+        self.assertEqual((out[0]["stake_notional"], out[0]["price_basis"], out[0]["min_odds"], out[0]["fair_prob"],
+                          out[0]["benchmark_captured_utc"], out[0]["market_depth"]),
+                         ("25", "midpoint (bid/ask)", "1.72", "0.6000", "2026-10-05T10:20Z", "250000"))
+        # ... until a written evidence review allows Polymarket PICKs.
+        out = pcbf.price_benchmark(recs, fields, t, meta=meta, rules=rules, pm_picks_allowed=True)
+        self.assertEqual(out[0]["tier"], "PICK")
+        # The same price quoted by a chat has no order-book evidence.
+        out = pcbf.price_benchmark(recs, fields, t, rules=rules)
+        self.assertEqual(out[0]["tier"], "WATCH")
+        self.assertIn("no order-book evidence", out[0]["caution_flags"])
 
     def test_unusable_quotes(self):
         import odds_sources
@@ -281,6 +303,11 @@ class Polymarket(unittest.TestCase):
         self.assertEqual(odds_sources.quote_problem(inplay), "captured after the event started (in-play price)")
         self.assertTrue(odds_sources.quote_problem(thin).startswith("thin market"))
         self.assertTrue(odds_sources.quote_problem(wide).startswith("wide market"))
+        self.assertTrue(wide["price_basis"].startswith("displayed price (differs"))
+        shallow = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.5", "0.5"], "90000",
+                                                             "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z",
+                                                             liquidity="900"))[0]
+        self.assertTrue(odds_sources.quote_problem(shallow).startswith("shallow market"))
 
     def test_no_match_on_different_players_or_day(self):
         import odds_sources
@@ -347,11 +374,24 @@ class OddsPortal(unittest.TestCase):
         rows = [("1xBet", 1.50, 4.75, 6.50, 97.0), ("bet365", 1.48, 4.50, 6.00, 93.9), ("Betsson", 1.48, 4.30, 6.30, 93.7),
                 ("22Bet", 1.47, 4.64, 6.35, 94.9), ("Stake.com", 1.46, 4.70, 6.00, 94.0)]
         q = odds_sources.quotes_from_walk(self.page(rows))[0]
-        self.assertEqual((q["outcomes"], q["odds"], q["bookmakers"], q["start_utc"], q["sport"]),
+        self.assertEqual((q["outcomes"], q["odds"], q["bookmaker_count"], q["start_utc"], q["sport"]),
                          (["France", "Draw", "Belgium"], [1.478, 4.578, 6.23], 5, "2026-10-05T18:45Z", "soccer"))
+        self.assertEqual(q["bookmakers"], "1xBet; bet365; Betsson; 22Bet; Stake.com")
+        self.assertEqual(len(odds_sources.quotes_from_walk(self.page(rows))), 1)   # no Pinnacle row here
         self.assertIsNone(odds_sources.quote_problem(q))
         self.assertTrue(odds_sources.quote_problem(odds_sources.quotes_from_walk(self.page(rows[:4]))[0])
                         .startswith("only 4 bookmakers"))
+
+    def test_pinnacle_row_becomes_its_own_quote(self):
+        import odds_sources
+        rows = [("bet365", 1.48, 4.50, 6.00, 93.9), ("Pinnacle", 1.50, 4.60, 6.90, 97.5)] + \
+               [("b%d" % i, 1.47, 4.5, 6.2, 94.0) for i in range(4)]
+        qs = odds_sources.quotes_from_walk(self.page(rows))
+        pin = next(q for q in qs if q["source"] == "pinnacle")
+        self.assertEqual((pin["odds"], pin["bookmakers"]), ([1.5, 4.6, 6.9], "Pinnacle"))
+        cand = pcbf.candidates_from_capture(walker("soccer", [("1x2", [1.5, 4.4, 6.5])], home="France", away="Belgium"), "h")[0]
+        cand["kickoff_utc"] = "2026-10-05T18:45Z"
+        self.assertEqual(odds_sources.choose_quote(cand, qs)["match"]["quote"]["source"], "pinnacle")   # PCBF order
 
     def test_inplay_tab_ignored(self):
         import odds_sources
@@ -407,11 +447,16 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(out["unknown_codes"], ["F99"])
         self.assertEqual(len(self.df.read("selection")), 12)
 
-        # the same benchmark again is a duplicate, not a second PICK
+        # the same reply again (e.g. on the other laptop) writes nothing new
         again = workflow.apply_reply(self.df, reply, self.now)
-        dup = [r for r in again["records"] if r["event_name"].startswith("Inter FS")]
-        self.assertEqual({r["tier"] for r in dup}, {"REJECTED"})
-        self.assertTrue(dup[0]["rejection_reason"].startswith("duplicate"))
+        self.assertEqual(again["records"], [])
+        self.assertEqual(sorted(again["already_recorded"]), sorted([inter, benfica, parrulo, petrarca]))
+        self.assertEqual(len(self.df.read("selection")), 12)
+        # a different benchmark for an event already priced is a duplicate, not a second PICK
+        other = workflow.apply_reply(self.df, f"{pack['pack_id']}\n{inter} | pinnacle | https://www.pinnacle.com/x | "
+                                               "2026-10-03T14:06Z | 1.90 / 4.30 / 3.10 | -", self.now)
+        self.assertEqual({r["tier"] for r in other["records"]}, {"REJECTED"})
+        self.assertTrue(other["records"][0]["rejection_reason"].startswith("duplicate"))
 
         # a bet must point at a logged selection
         with self.assertRaises(InvalidRecord):
@@ -435,8 +480,8 @@ class EndToEnd(unittest.TestCase):
         cl = {c["selection_record_id"]: c for c in self.df.read("closing")}
         self.assertEqual((st[pick["selection_record_id"]]["result"], st[pick["selection_record_id"]]["return_amount"]),
                          ("WIN", "55.00"))
-        self.assertEqual((cl[pick["selection_record_id"]]["closing_fair_odds"], cl[pick["selection_record_id"]]["clv_pct"]),
-                         ("2.292", "-0.0401"))
+        self.assertEqual((cl[pick["selection_record_id"]]["closing_fair_odds"], cl[pick["selection_record_id"]]["clv_pct"],
+                          cl[pick["selection_record_id"]]["snapshot_label"]), ("2.292", "-0.0401", "closing price"))
 
         perf = pcbf.performance(self.df.read("selection"), self.df.read("settlement"), self.df.read("closing"),
                                 self.df.read("bet"))
@@ -445,7 +490,8 @@ class EndToEnd(unittest.TestCase):
         self.assertAlmostEqual(p["mean_clv"], -0.0401)
         self.assertAlmostEqual(perf["pick_notional_roi"], 1.2)
         self.assertAlmostEqual(perf["bets"]["stake_weighted_roi"], 1.2)
-        self.assertFalse(perf["gate"]["unlocked"])
+        self.assertNotIn("unlocked", perf["gate"])          # only a written evidence review changes real-money status
+        self.assertEqual((perf["gate"]["true_closes"], perf["gate"]["snapshots"]), (3, 0))
         self.assertEqual(perf["by_tier"]["WATCH"]["settled"], 2)
 
 

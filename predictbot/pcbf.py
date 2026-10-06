@@ -8,11 +8,12 @@ clock, so every result is reproducible.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import statistics
 from datetime import datetime, timedelta, timezone
 
-from schemas import stable_id
+from schemas import APP_VERSION, PRICED_TIERS, stable_id
 
 PICK_EDGE = 0.03                      # PCBF Mini step 4
 NOTIONAL_STAKE = 25                   # PCBF Mini step 5, NGN
@@ -21,6 +22,11 @@ MAX_CAPTURE_BENCHMARK_GAP = timedelta(hours=6)
 CLOCK_SKEW = timedelta(minutes=10)
 MIN_LEAD = timedelta(minutes=60)      # too close to kickoff to research and benchmark
 BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker", "polymarket")   # polymarket added by the operator 2026-10-05
+# Polymarket-only opportunities are a separate paper tier (PM_PAPER) until an
+# evidence review allows them as PICKs (operator, 2026-10-06). These are
+# rules under evaluation, not settled policy.
+MAX_PM_QUOTE_AGE = timedelta(hours=2)   # Polymarket quote vs Bet9ja capture
+CLOSE_WINDOW = timedelta(minutes=5)    # a quote this close to kickoff counts as the closing price
 
 # ------------------------------------------------------------------ markets
 # (sport, Bet9ja market_key) -> canonical market. Anything not listed is an
@@ -70,6 +76,52 @@ def choose_market(sport: str, markets: dict) -> tuple[str | None, str | None]:
     options.sort(key=lambda kc: (kc[1] != THREE_WAY if sport in THREE_WAY_SPORTS else kc[1] == THREE_WAY,
                                  MAIN_KEYS.index(kc[0]) if kc[0] in MAIN_KEYS else 99))
     return options[0]
+
+# ------------------------------------------------------- settlement rules
+# A benchmark must settle the same way as Bet9ja. Bookmakers follow a common
+# convention for these markets; where treatment varies between books
+# (retirement in tennis, draws and ties in cricket and combat sports) or the
+# source is an exchange-style market (Polymarket), the operator must confirm
+# the match once per source, sport and market (Pending page). Until then the
+# selection carries a caution and cannot be a PICK.
+CONVENTION_SOURCES = {"pinnacle", "oddsportal", "oddschecker"}
+VARIABLE_RULES = {"MATCH_WINNER": {"tennis": "retirement / walkover treatment",
+                                   "table_tennis": "retirement treatment",
+                                   "cricket": "tie / draw / no-result treatment",
+                                   "mma": "draw / no-contest treatment", "boxing": "draw treatment"}}
+
+
+def canonical_source(source: str) -> str:
+    s = str(source or "").lower()
+    return next((b for b in BENCHMARK_SOURCES if b in s), s)
+
+
+def rule_key(source: str, sport: str, market: str) -> str:
+    return f"{canonical_source(source)}|{sport}|{market}"
+
+
+def settlement_check(source: str, sport: str, market: str, confirmed: dict | None = None) -> tuple[str, str]:
+    """('ok' | 'unconfirmed' | 'differs', note). `confirmed` maps rule_key ->
+    status ('same as bet9ja' / 'differs') from the operator's rule records."""
+    src = canonical_source(source)
+    key = rule_key(src, sport, market)
+    status = (confirmed or {}).get(key)
+    if status == "differs":
+        return "differs", f"operator recorded that {src} settles {sport} {market} differently from Bet9ja"
+    if status == "same as bet9ja":
+        return "ok", "confirmed by operator"
+    variable = VARIABLE_RULES.get(market, {}).get(sport)
+    if src in CONVENTION_SOURCES and not variable:
+        return "ok", "standard convention: " + MARKETS[market]["settlement"]
+    what = variable or "resolution rules"
+    return "unconfirmed", f"settlement rule unconfirmed: {src} {sport} {what} vs Bet9ja"
+
+
+def min_odds(fair_prob: float, required_edge: float = PICK_EDGE) -> float:
+    """Lowest Bet9ja price that still clears the edge threshold at this
+    probability, rounded up to the next 0.01."""
+    return math.ceil((1 + required_edge) / fair_prob * 100 - 1e-9) / 100
+
 
 BANNED_WORDS = re.compile(r"\b(russia|russian|belarus|iran)\b", re.I)
 BANNED_COMPETITION_COUNTRIES = {"turkey", "turkiye", "bulgaria", "united arab emirates", "uae",
@@ -403,27 +455,41 @@ def reply_lines(reply: str) -> list[tuple[str, list[str], str]]:
 
 
 def price_benchmark(captures: list[dict], fields: list[str], now: datetime, pack_id: str = "",
-                    already_priced: set | None = None) -> list[dict]:
+                    already_priced: set | None = None, meta: dict | None = None, rules: dict | None = None,
+                    pm_picks_allowed: bool = False) -> list[dict]:
     """Validate one reply line for one fixture and return one selection record
-    per outcome. Tiers: PICK / WATCH when valid, RESEARCH when there is no
-    usable benchmark, REJECTED when the data fails validation."""
+    per outcome. Tiers: PICK / PM_PAPER / WATCH when valid, RESEARCH when there
+    is no usable benchmark, REJECTED when the data fails validation.
+
+    meta: provenance of a captured quote (captured_utc, bookmakers, file,
+    price_basis, depth). Without it the line came from a chat, so the
+    capture time is the moment the reply was pasted.
+    rules: confirmed settlement rules (rule_key -> status).
+    pm_picks_allowed: set only by a written evidence review."""
     already_priced = already_priced or set()
+    meta = meta or {}
     priced_at = utc(now)
 
     def record(cap, tier, reason="", source="", ts="", bench="", fair="", edge_value="", cautions=(),
-               note="", url=""):
+               note="", url="", prob=None, check=""):
         rid = stable_id("sel", cap["capture_id"], tier, source, ts, bench, reason)
         return {
             "selection_record_id": rid, "capture_id": cap["capture_id"], "priced_at_utc": priced_at,
             "benchmark_source": source, "benchmark_timestamp_utc": ts, "benchmark_odds": bench,
             "fair_odds": fair, "edge_pct": edge_value, "tier": tier,
-            "validation_status": "VALID" if tier in ("PICK", "WATCH") else ("NO_BENCHMARK" if tier == "RESEARCH" else "INVALID"),
+            "validation_status": "VALID" if tier in PRICED_TIERS else ("NO_BENCHMARK" if tier == "RESEARCH" else "INVALID"),
             "rejection_reason": reason, "selection_id": cap["selection_id"], "event_name": cap["event_name"],
             "sport": cap["sport"], "competition": cap["competition"], "kickoff_utc": cap["kickoff_utc"],
             "market": cap["market"], "selection": cap["selection"], "selection_index": cap["selection_index"],
             "bookmaker_odds": cap["odds_decimal"], "market_odds": cap["market_odds"], "benchmark_url": url,
             "caution_flags": "; ".join(cautions), "research_note": note, "pack_id": pack_id,
-            "stake_notional": str(NOTIONAL_STAKE) if tier == "PICK" else "", "origin": "research-pack",
+            "stake_notional": str(NOTIONAL_STAKE) if tier in ("PICK", "PM_PAPER") else "", "origin": "research-pack",
+            "benchmark_captured_utc": meta.get("captured_utc") or (priced_at if source else ""),
+            "benchmark_bookmakers": meta.get("bookmakers", ""), "benchmark_file": meta.get("file", ""),
+            "price_basis": meta.get("price_basis") or ("quoted by chat" if source else ""),
+            "fair_prob": f"{prob:.4f}" if prob is not None else "",
+            "min_odds": f"{min_odds(prob):.2f}" if prob is not None else "",
+            "settlement_check": check, "market_depth": meta.get("depth", ""), "app_version": APP_VERSION,
         }
 
     if fields and fields[0].upper() == "NONE":
@@ -443,6 +509,7 @@ def price_benchmark(captures: list[dict], fields: list[str], now: datetime, pack
     if not any(s in source for s in BENCHMARK_SOURCES):
         return [record(c, "RESEARCH", reason=f"benchmark source '{fields[0]}' not Pinnacle/oddsportal/oddschecker/Polymarket",
                        note=note, url=url) for c in captures]
+    check, check_note = settlement_check(source, captures[0]["sport"], captures[0]["market"], rules)
     reason = None
     if not url.lower().startswith("http"):
         reason = "missing source URL"
@@ -456,24 +523,87 @@ def price_benchmark(captures: list[dict], fields: list[str], now: datetime, pack
         reason = f"need {n} valid decimal prices in order {' / '.join(c['selection'] for c in captures)}"
     elif any(c["selection_id"] in already_priced for c in captures):
         reason = "duplicate: this event/selection is already priced"
+    elif check == "differs":
+        reason = check_note
     if reason:
-        return [record(c, "REJECTED", reason=reason, source=source, ts=utc(ts), note=note, url=url) for c in captures]
+        return [record(c, "REJECTED", reason=reason, source=source, ts=utc(ts), note=note, url=url, check=check)
+                for c in captures]
 
     cautions = []
     if utc(ts)[:10] != priced_at[:10]:
         cautions.append("STALE: benchmark not from today")
     if captured and abs(ts - captured) > MAX_CAPTURE_BENCHMARK_GAP:
         cautions.append("Bet9ja capture and benchmark more than 6h apart")
+    if check == "unconfirmed":
+        cautions.append(check_note)
+    polymarket = canonical_source(source) == "polymarket"
+    if polymarket:
+        if meta.get("price_basis", "").startswith("midpoint") is False:
+            cautions.append("polymarket price is not a verified bid/ask midpoint"
+                            + (" (quoted by chat, no order-book evidence)" if not meta else ""))
+        if captured and abs(ts - captured) > MAX_PM_QUOTE_AGE:
+            cautions.append("polymarket quote and Bet9ja capture more than 2h apart")
     if book_total(prices) < 1:
         cautions.append(f"benchmark book {book_total(prices) * 100:.1f}% < 100%: rulebook de-vig understates edge")
+    hard = [x for x in cautions if not x.startswith("benchmark book")]
     bench = "/".join(f"{p:.3f}" for p in prices)
     out = []
     for i, cap in enumerate(captures):
         fair, e = edge(float(cap["odds_decimal"]), prices, i)
-        hard = [x for x in cautions if not x.startswith("benchmark book")]
-        out.append(record(cap, tier_for(e, hard), source=source, ts=utc(ts), bench=bench, fair=f"{fair:.3f}",
-                          edge_value=f"{e:.4f}", cautions=cautions, note=note, url=url))
+        tier = tier_for(e, hard)
+        if tier == "PICK" and polymarket and not pm_picks_allowed:
+            tier = "PM_PAPER"
+        out.append(record(cap, tier, source=source, ts=utc(ts), bench=bench, fair=f"{fair:.3f}",
+                          edge_value=f"{e:.4f}", cautions=cautions, note=note, url=url,
+                          prob=fair_probability(prices, i), check=check))
     return out
+
+
+def recheck(sel: dict, new_odds: float, now: datetime, note: str = "") -> dict:
+    """The selection's Bet9ja price checked again before betting. The edge is
+    recomputed at the new price against the original benchmark probability;
+    a PICK or PM_PAPER that no longer clears the threshold drops to WATCH."""
+    p = float(sel["fair_prob"]) if sel.get("fair_prob") else 1 / float(sel["fair_odds"])
+    e = round(new_odds * p - 1, 4)
+    tier = sel["tier"] if sel["tier"] in ("PICK", "PM_PAPER") and e >= PICK_EDGE else "WATCH"
+    return {"recheck_id": stable_id("rck", sel["selection_record_id"], utc(now), new_odds),
+            "selection_record_id": sel["selection_record_id"], "rechecked_at_utc": utc(now),
+            "initial_odds": sel["bookmaker_odds"], "rechecked_odds": f"{new_odds:.2f}",
+            "fair_odds": sel["fair_odds"], "edge_pct": f"{e:.4f}", "tier": tier,
+            "min_odds": f"{min_odds(p):.2f}", "note": note}
+
+
+def snapshot_label(quote_time: datetime | None, kickoff: datetime | None) -> tuple[str | None, str]:
+    """('closing price' | 'pre-kickoff snapshot, N min before kickoff', minutes),
+    or (None, reason) when the quote cannot stand for the close."""
+    if quote_time is None:
+        return None, "quote time unknown"
+    if kickoff is None:
+        return "snapshot, kickoff time unknown", ""
+    if quote_time >= kickoff:
+        return None, "quote taken after kickoff"
+    mins = int((kickoff - quote_time).total_seconds() // 60)
+    if kickoff - quote_time <= CLOSE_WINDOW:
+        return "closing price", str(mins)
+    return f"pre-kickoff snapshot, {mins} min before kickoff", str(mins)
+
+
+def closing_record(sel: dict, source: str, url: str, quote_time: datetime, prices: list, origin: str) -> tuple[dict | None, str | None]:
+    """A closing (or labelled pre-kickoff) price for a priced selection."""
+    n = 3 if sel["market"] == THREE_WAY else 2
+    if len(prices) != n or not all(valid_decimal(p) for p in prices):
+        return None, "closing prices do not match the market"
+    label, mins = snapshot_label(quote_time, parse_time(sel.get("kickoff_utc")))
+    if label is None:
+        return None, f"closing price not usable: {mins}"
+    idx = int(sel.get("selection_index") or 0)
+    odds = float(sel["bookmaker_odds"])
+    fair, _ = edge(odds, prices, idx)
+    return {"selection_record_id": sel["selection_record_id"], "captured_at_utc": utc(quote_time),
+            "source": source, "closing_odds": "/".join(f"{p:.3f}" for p in prices),
+            "closing_fair_odds": f"{fair:.3f}", "clv_pct": f"{clv(odds, fair):.4f}", "closing_url": url,
+            "quote_time_utc": utc(quote_time), "minutes_before_kickoff": mins, "snapshot_label": label,
+            "origin": origin}, None
 
 
 # --------------------------------------------------------------- settlement
@@ -496,14 +626,10 @@ def settlement_and_closing(sel: dict, result_pos: str, closing: dict | None, now
                   "result": result, "return_amount": f"{ret:.2f}", "settlement_source": source}
     closing_rec = None
     if closing:
-        prices = closing["odds"]
-        if len(prices) != len(outcomes) or not all(valid_decimal(p) for p in prices):
-            return settlement, None, "closing prices do not match the market"
-        fair, _ = edge(odds, prices, idx)
-        closing_rec = {"selection_record_id": sel["selection_record_id"],
-                       "captured_at_utc": closing.get("time") or utc(now), "source": closing["source"],
-                       "closing_odds": "/".join(f"{p:.3f}" for p in prices), "closing_fair_odds": f"{fair:.3f}",
-                       "clv_pct": f"{clv(odds, fair):.4f}", "closing_url": closing.get("url", "")}
+        closing_rec, err = closing_record(sel, closing["source"], closing.get("url", ""),
+                                          parse_time(closing.get("time")) or now, closing["odds"], source)
+        if err:
+            return settlement, None, err
     return settlement, closing_rec, None
 
 
@@ -550,6 +676,79 @@ def odds_band(o: float) -> str:
     return "5.00+"
 
 
+def event_forecasts(selections: list[dict], settlements: list[dict]) -> list[dict]:
+    """One forecast per settled event: the first complete priced set of
+    outcomes (PICK, PM_PAPER and WATCH alike) and the result. The cautious
+    de-vig probabilities do not sum to 1, so they are normalised here to form
+    a distribution. The Bet9ja baseline is Bet9ja's own prices, de-vigged
+    proportionally. Events with a VOID or without exactly one winner are
+    left out."""
+    st = {s["selection_record_id"]: s["result"] for s in settlements}
+    groups = {}
+    for s in selections:
+        if s["tier"] in PRICED_TIERS:
+            groups.setdefault((s["selection_id"].rsplit(":", 1)[0], s["priced_at_utc"], s.get("benchmark_source", "")),
+                              []).append(s)
+    out, seen = [], set()
+    for (event, priced, source), rows in sorted(groups.items(), key=lambda kv: kv[0][1]):
+        if event in seen:
+            continue
+        n = 3 if rows[0]["market"] == THREE_WAY else 2
+        by_idx = {int(r["selection_index"]): r for r in rows}
+        if sorted(by_idx) != list(range(n)) or any(r["selection_record_id"] not in st for r in by_idx.values()):
+            continue
+        results = [st[by_idx[i]["selection_record_id"]] for i in range(n)]
+        if "VOID" in results or results.count("WIN") != 1:
+            continue
+        seen.add(event)
+        raw = [float(by_idx[i]["fair_prob"]) if by_idx[i].get("fair_prob") else 1 / float(by_idx[i]["fair_odds"])
+               for i in range(n)]
+        probs = [x / sum(raw) for x in raw]
+        try:
+            b9 = devig_prop([float(x) for x in by_idx[0]["market_odds"].split("/")])
+            b9 = b9 if len(b9) == n else None
+        except (ValueError, ZeroDivisionError):
+            b9 = None
+        out.append({"event": event, "source": canonical_source(source), "sport": rows[0]["sport"],
+                    "probs": probs, "bet9ja_probs": b9, "winner": results.index("WIN")})
+    return out
+
+
+def _scores(forecasts: list[dict], key: str) -> dict:
+    """Multi-outcome Brier score and log loss per event, with standard errors
+    taken across events (outcomes of one match are not independent)."""
+    rows = [f for f in forecasts if f.get(key)]
+    if not rows:
+        return {"events": 0, "brier": None, "brier_se": None, "log_loss": None, "log_loss_se": None}
+    briers = [sum((p - (1 if i == f["winner"] else 0)) ** 2 for i, p in enumerate(f[key])) for f in rows]
+    logs = [-math.log(max(f[key][f["winner"]], 1e-12)) for f in rows]
+    se = (lambda xs: statistics.stdev(xs) / math.sqrt(len(xs)) if len(xs) > 1 else None)
+    return {"events": len(rows), "brier": statistics.fmean(briers), "brier_se": se(briers),
+            "log_loss": statistics.fmean(logs), "log_loss_se": se(logs)}
+
+
+def probability_metrics(selections: list[dict], settlements: list[dict]) -> dict:
+    """Forecast quality of the benchmark probabilities, against Bet9ja's own
+    prices on the same events, plus a calibration table (outcome level)."""
+    fc = event_forecasts(selections, settlements)
+    bins = {}
+    for f in fc:
+        for i, p in enumerate(f["probs"]):
+            b = min(int(p * 10), 9)
+            bins.setdefault(b, []).append((p, 1 if i == f["winner"] else 0))
+    calibration = [{"bin": f"{b / 10:.1f}-{(b + 1) / 10:.1f}", "n": len(v),
+                    "mean_forecast": statistics.fmean(p for p, _ in v), "observed": statistics.fmean(y for _, y in v)}
+                   for b, v in sorted(bins.items())]
+    by_source = {}
+    for f in fc:
+        by_source.setdefault(f["source"], []).append(f)
+    return {"benchmark": _scores(fc, "probs"),
+            "bet9ja_same_events": _scores([f for f in fc if f["bet9ja_probs"]], "bet9ja_probs"),
+            "benchmark_same_events": _scores([f for f in fc if f["bet9ja_probs"]], "probs"),
+            "by_source": {k: _scores(v, "probs") for k, v in sorted(by_source.items())},
+            "calibration": calibration}
+
+
 def performance(selections: list[dict], settlements: list[dict], closings: list[dict],
                 bets: list[dict] | None = None) -> dict:
     """Aggregate CLV, ROI, win rate and sample sizes, separately by tier, and
@@ -574,9 +773,9 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
             "unit_roi": unit_pnl / len(decided) if decided else None,
         }
 
-    priced = [s for s in selections if s["tier"] in ("PICK", "WATCH")]
+    priced = [s for s in selections if s["tier"] in PRICED_TIERS]
     out = {"by_tier": {t: summarise([s for s in selections if s["tier"] == t])
-                       for t in ("PICK", "WATCH", "RESEARCH", "REJECTED")}}
+                       for t in ("PICK", "PM_PAPER", "WATCH", "RESEARCH", "REJECTED")}}
     picks = [s for s in priced if s["tier"] == "PICK"]
     notional = [(float(s["stake_notional"]), float(st[s["selection_record_id"]]["return_amount"]))
                 for s in picks if s["selection_record_id"] in st and s.get("stake_notional")]
@@ -589,13 +788,14 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
         for s in priced:
             groups.setdefault((s["tier"], fn(s)), []).append(s)
         out[f"by_{dim}"] = {f"{t} | {k}": summarise(v) for (t, k), v in sorted(groups.items())}
+    # Inputs to the written evidence review. Nothing unlocks automatically.
     p = out["by_tier"]["PICK"]
     out["gate"] = {
         "settled_picks": p["settled"], "needed": GATE_PICKS,
         "mean_clv_positive": (p["mean_clv"] or 0) > 0, "roi_positive": (out["pick_notional_roi"] or 0) > 0,
+        "true_closes": sum(1 for c in closings if c.get("snapshot_label", "closing price") == "closing price"),
+        "snapshots": sum(1 for c in closings if c.get("snapshot_label", "closing price") != "closing price"),
     }
-    out["gate"]["unlocked"] = (p["settled"] >= GATE_PICKS and out["gate"]["mean_clv_positive"]
-                               and out["gate"]["roi_positive"])
     # actual bets: stake-weighted ROI on settled bets
     bets = bets or []
     real = [(float(b["stake"]), float(b["bookmaker_odds"]), st[b["selection_record_id"]]["result"])
