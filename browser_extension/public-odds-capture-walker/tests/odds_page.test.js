@@ -71,15 +71,16 @@ test('background passes no undefined args to executeScript', () => {
   assert.doesNotMatch(src, /args: \[action, scope\]/);
 });
 
-test('regional and mobile hosts are recognised', () => {
+test('only allowlisted hosts and their subdomains are recognised', () => {
   const { findSource } = require('../source_registry.js');
-  for (const u of ['https://www.oddsportal.com/tennis/', 'https://m.oddsportal.com/', 'https://oddsportal.ng/football/',
-                   'https://www.flashscore.co.uk/']) {
+  for (const u of ['https://www.oddsportal.com/tennis/', 'https://m.oddsportal.com/', 'https://www.flashscore.info/']) {
     assert.ok(findSource(u), u);
   }
-  assert.equal(findSource('https://notoddsportal.example.com/'), null);
-  assert.equal(findSource('https://oddsportalx.com/'), null);
-  assert.equal(findSource('https://www.oddsportal1.com/football/'), null);   // not a verified mirror
+  for (const u of ['https://oddsportal.evil.example/', 'https://www.oddsportal.evil.example/football/',
+                   'https://notoddsportal.example.com/', 'https://oddsportalx.com/', 'https://www.oddsportal1.com/football/',
+                   'https://oddsportal.ng/football/', 'https://www.flashscore.co.uk/', 'https://evil-oddsportal.com/']) {
+    assert.equal(findSource(u), null, u);
+  }
 });
 
 const { discoverListingLinks, withinDays } = require('../odds_page.js');

@@ -42,6 +42,8 @@ Order of preference (PCBF Mini, with Polymarket added by the operator on 2026-10
 | `RESEARCH` | No usable benchmark: none found, or a thin, wide or shallow Polymarket market. |
 | `REJECTED` | Failed validation: missing URL or time, wrong price count, benchmark after kickoff, duplicate, or a settlement rule that differs from Bet9ja's. |
 
+**OddsPortal average.** Every complete bookmaker row is de-vigged on its own (proportionally), then the probabilities are averaged; a margin is never built from prices taken across different books, and Bet9ja's own row is excluded (operator's odds-source audit, 6 Oct 2026). Each selection lists the bookmakers used. Because the averaged probabilities already sum to 1, the rulebook's cautious power de-vig changes nothing for OddsPortal quotes; it still applies to prices pasted from a chat.
+
 **Polymarket evidence.** Each quote records its price basis. On every moneyline captured so far, the displayed price equals the bid/ask midpoint; a quote where it does not is labelled and cannot be PM_PAPER. Thresholds (volume ≥ $5,000, spread ≤ 0.04, liquidity ≥ $5,000 on the thinnest leg, quote within 2h) are rules under evaluation, set in `odds_sources.py` and `pcbf.py`.
 
 **Settlement rules.** A benchmark must settle the way Bet9ja does. Pinnacle, OddsPortal and Oddschecker follow the standard convention for 1X2 (regulation time) and moneylines (overtime included). Where treatment varies, you confirm once per source, sport and market on the Pending page: tennis and table tennis retirement, cricket ties and no-results, MMA and boxing draws, and every Polymarket market. Until confirmed, those selections stay WATCH. A confirmation applies to future pricing; past records are not changed.
@@ -64,19 +66,22 @@ Nothing unlocks automatically. A review on the Performance page records a writte
 
 One GitHub repo; each laptop runs its own copy of the app; both use the same OneDrive data folder. Code never goes in OneDrive.
 
-**Handover (every switch):**
+**One designated writer.** Only one laptop writes at a time. A synced lock file cannot guarantee that: both laptops can read a stale copy before OneDrive syncs. So the switch is an explicit handover:
 1. On the laptop you are leaving, click **Stop PredictBot** (or press Ctrl+C in its window).
 2. Wait until OneDrive shows **Up to date** on both laptops.
-3. Start PredictBot on the other laptop.
+3. Start PredictBot on the other laptop. It opens read-only and names the current writer.
+4. On its Pending page, click **Make <this laptop> the writer**. The record files are backed up to `.backup/handover-<time>-<laptop>/` first.
 
-**What protects the data:**
+Restarting on the same laptop needs no handover.
+
+**What catches mistakes:**
 - **One copy per laptop.** The app holds port 8000; a second start just opens the running one.
-- **Synced session marker** (`predictbot-session.json`). If the other laptop did not stop cleanly, this laptop opens read-only with a warning. Follow the handover, then confirm on Pending. If the first laptop was in fact still running, it sees the new marker within a minute and stops writing.
-- **OneDrive conflict copies** (`selections-HP.csv`, `settlements (1).csv`) block writes. **Merge** on Pending keeps every record from both copies once, by record ID, and moves the copy to `.backup/`.
+- **Writer marker** (`predictbot-session.json`) names the designated writer. Any other laptop is read-only until the handover. If the old writer was in fact still running, it sees the new marker within a minute and stops writing.
+- **OneDrive conflict copies** (`selections-HP.csv`, `settlements (1).csv`) block writes. **Merge** on Pending adds the copy's rows to the original (every original row kept; a copy row that matches an original row apart from timestamps is the same record written twice and is skipped) and moves the copy to `.backup/`.
 - **Versions.** `predictbot-data.json` records the data-schema version and the last writer. A laptop with older code refuses to write until you `git pull` (the launcher does this).
 - **Idempotent imports.** Captures are stored once by content hash. Pricing the same quote again, or pasting the same chat reply on either laptop, writes nothing new.
 
-OneDrive itself offers no locking, so the handover steps are the real protection; the checks above catch mistakes.
+The handover is the protection; these checks are guards and indicators, not a guarantee.
 
 ## Data folder (synced, not in git)
 
@@ -94,7 +99,7 @@ OneDrive itself offers no locking, so the handover steps are the real protection
 | `reviews/evidence-reviews.csv` | Written evidence reviews |
 | `rules/settlement-rules.csv` | Settlement rules you confirmed |
 | `packs/*.json` | Research and settlement packs |
-| `predictbot-data.json`, `predictbot-session.json` | Data version; which laptop runs the app |
+| `predictbot-data.json`, `predictbot-session.json` | Data version; the designated writer |
 
 Rows are never edited or deleted. When a newer app adds columns, a file is rewritten once with the wider header (values unchanged, the original kept in `.backup/`). The daily views read the last two days of captures.
 

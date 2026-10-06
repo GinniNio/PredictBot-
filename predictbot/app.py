@@ -193,12 +193,16 @@ def page_pending(msg="") -> str:
                    + "</p><p>Both laptops wrote while out of sync. Merging keeps every row from both copies once "
                      "(records are append-only), and moves the copy to .backup/.</p>" + form_button("/merge", "Merge conflict copies"))
     if other:
-        out.append(f"<h2>Handover</h2><p class='err'>{e(other.get('host', 'Another laptop'))} last ran PredictBot here "
-                   f"(started {e(other.get('started_utc', '?'))}, last seen {e(other.get('heartbeat_utc', '?'))}) and did "
-                   "not close cleanly.</p><ol><li>On that laptop, close the PredictBot window (Ctrl+C) or shut the "
-                   "laptop down.</li><li>Wait until OneDrive on both laptops shows <b>Up to date</b>.</li>"
-                   "<li>Check the Pending page shows no sync conflicts.</li><li>Then confirm below.</li></ol>"
-                   + form_button("/handover", "I have closed it there and OneDrive is up to date"))
+        who = e(other.get("host", "Another laptop"))
+        state = ("stopped cleanly" if other.get("released") else
+                 "<b class='err'>did not stop cleanly and may still be running</b>")
+        out.append(f"<h2>Handover</h2><p>{who} is the designated writer ({state}; started "
+                   f"{e(other.get('started_utc', '?'))}, last seen {e(other.get('heartbeat_utc', '?'))}). Only one "
+                   "laptop writes at a time; OneDrive cannot enforce that, so the switch is yours to confirm.</p>"
+                   f"<ol><li>On {who}, click <b>Stop PredictBot</b> (or Ctrl+C in its window).</li>"
+                   "<li>Wait until OneDrive shows <b>Up to date</b> on both laptops.</li>"
+                   "<li>Check this page shows no sync conflicts.</li></ol>"
+                   + form_button("/handover", f"Make {DF.host} the writer (backs up the records first)"))
     reason = blocked()
     if reason and not other and not conflicts:
         out.append(f"<p class='err'>Read-only: {e(reason)}</p>")
@@ -523,8 +527,9 @@ class Handler(BaseHTTPRequestHandler):
                                                 get("reviewer"))
                 return self.redirect("/performance", "Evidence review saved.")
             if u.path == "/handover":
-                DF.confirm_handover(now())
-                return self.redirect("/pending", f"Handover confirmed: {DF.host} now runs PredictBot.")
+                backup = DF.confirm_handover(now())
+                return self.redirect("/pending", f"{DF.host} is now the designated writer. Records backed up to "
+                                                 f"{backup.relative_to(DF.root)}.")
             if u.path == "/stop":
                 DF.release_session(now())
                 threading.Thread(target=SERVER.shutdown, daemon=True).start()
@@ -596,9 +601,8 @@ def main():
     DF = DataFolder(data_root(), host_name())
     other = DF.claim_session(now())
     if other:
-        print(f"Warning: {other.get('host')} last ran PredictBot on this data folder (last seen "
-              f"{other.get('heartbeat_utc')}) and did not close it. Writes are blocked until you confirm the "
-              "handover on the Pending page.")
+        print(f"{other.get('host')} is the designated writer. This laptop is read-only until you hand over on the "
+              "Pending page (after stopping PredictBot there and seeing OneDrive Up to date).")
     if not DF.write_block():
         for csv_path in sorted(DF.root.glob("pcbf-ledger*.csv")):
             added = workflow.import_pcbf_ledger(DF, csv_path, now())["imported"]

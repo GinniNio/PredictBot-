@@ -67,12 +67,15 @@
   // or a regional domain with the same name (oddsportal.ng, flashscore.co.uk).
   // Numbered look-alikes (oddsportal1.com) are NOT accepted: a 2026-10-05 DOM
   // audit found a different site structure, so it is not a verified mirror.
+  // Explicit allowlist: a listed host or its subdomain (www., m.). A brand
+  // name elsewhere in the hostname (oddsportal.evil.example, oddsportal1.com,
+  // unlisted regional domains) is never trusted; register a host only after a
+  // real capture from it has been checked.
   function hostMatches(source, hostname) {
-    const host = hostname.toLowerCase();
+    const host = String(hostname || '').toLowerCase().replace(/\.$/, '');
     return source.hosts.some((h) => {
       const base = h.replace(/^www\./, '');
-      const name = base.split('.')[0];
-      return host === base || host.endsWith('.' + base) || host.split('.').includes(name);
+      return host === base || host.endsWith('.' + base);
     });
   }
 

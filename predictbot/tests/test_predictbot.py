@@ -377,6 +377,13 @@ class OddsPortal(unittest.TestCase):
         self.assertEqual((q["outcomes"], q["odds"], q["bookmaker_count"], q["start_utc"], q["sport"]),
                          (["France", "Draw", "Belgium"], [1.478, 4.578, 6.23], 5, "2026-10-05T18:45Z", "soccer"))
         self.assertEqual(q["bookmakers"], "1xBet; bet365; Betsson; 22Bet; Stake.com")
+        # each book de-vigged on its own, then averaged: first book 1.50/4.75/6.50 -> 0.6467 home
+        books = [r[1:4] for r in rows]
+        expect = sum((1 / b[0]) / sum(1 / x for x in b) for b in books) / len(books)
+        self.assertAlmostEqual(q["probs"][0], expect)
+        self.assertAlmostEqual(sum(q["probs"]), 1.0)
+        with_b9 = odds_sources.quotes_from_walk(self.page(rows + [("Bet9ja", 1.40, 4.0, 5.5, 90.0)]))[0]
+        self.assertEqual(with_b9["bookmaker_count"], 5)                       # Bet9ja never benchmarks itself
         self.assertEqual(len(odds_sources.quotes_from_walk(self.page(rows))), 1)   # no Pinnacle row here
         self.assertIsNone(odds_sources.quote_problem(q))
         self.assertTrue(odds_sources.quote_problem(odds_sources.quotes_from_walk(self.page(rows[:4]))[0])

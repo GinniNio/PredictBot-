@@ -109,9 +109,12 @@ class DataFolder:
                     + ". Merge them on the Pending page before writing.")
         other = self.foreign_session()
         if other and not self.handover_confirmed:
-            return (f"{other.get('host', 'another laptop')} last ran PredictBot on this data folder "
-                    f"(last seen {other.get('heartbeat_utc', '?')}) and did not close it here. "
-                    "Follow the handover steps, then confirm on the Pending page.")
+            who, seen = other.get("host", "another laptop"), other.get("heartbeat_utc", "?")
+            if other.get("released"):
+                return (f"{who} is the designated writer (stopped cleanly at {seen}). Hand over on the Pending "
+                        "page once OneDrive shows Up to date on both laptops.")
+            return (f"{who} is the designated writer and did not stop cleanly (last seen {seen}): it may still be "
+                    "running. Stop it there, wait for OneDrive, then hand over on the Pending page.")
         return None
 
     def _check_writable(self) -> None:
@@ -217,9 +220,12 @@ class DataFolder:
         return _read_json(self.root / SESSION_FILE)
 
     def foreign_session(self) -> dict | None:
-        """The session marker of another laptop that has not closed cleanly."""
+        """The marker of another laptop: it is the designated writer until the
+        operator hands over here, whether or not it stopped cleanly. A
+        synced marker cannot guarantee exclusive writing (both laptops can
+        read a stale copy before OneDrive syncs), so the handover is explicit."""
         s = self.session()
-        if s and s.get("host") != self.host and not s.get("released"):
+        if s and s.get("host") != self.host:
             return s
         return None
 
@@ -256,12 +262,22 @@ class DataFolder:
             s.update(released=True, heartbeat_utc=_stamp(now or _now()))
             _write_atomic(self.root / SESSION_FILE, json.dumps(s, indent=1))
 
-    def confirm_handover(self, now: datetime | None = None) -> None:
-        """The operator closed the app on the other laptop and saw OneDrive
-        finish syncing. Take the folder over."""
+    def confirm_handover(self, now: datetime | None = None) -> Path:
+        """The operator stopped the app on the other laptop and saw OneDrive
+        finish syncing: this laptop becomes the designated writer. The record
+        files are backed up first. Returns the backup folder."""
+        stamp = (now or _now()).strftime("%Y%m%dT%H%M%S")
+        dest = self.root / ".backup" / f"handover-{stamp}-{re.sub(r'[^A-Za-z0-9_-]', '_', self.host)}"
+        dest.mkdir(parents=True, exist_ok=True)
+        for sub, name in sorted(set(FILES.values()) | EXTRA_SYNCED):
+            src = self.root / sub / name
+            if src.exists():
+                (dest / sub).mkdir(exist_ok=True)
+                shutil.copy2(src, dest / sub / name)
         self.handover_confirmed = True
         self._write_session(now)
         self.handover_confirmed = False
+        return dest
 
     def path(self, kind: str) -> Path:
         sub, name = FILES[kind]

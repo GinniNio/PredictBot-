@@ -143,8 +143,10 @@ def _visible_text(html: str) -> str:
 
 def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     """OddsPortal match page: the 'Bookmakers | 1 | X | 2 | Payout' table.
-    The benchmark is the average of every bookmaker row (betting exchanges
-    excluded), i.e. the 'oddsportal average' of the rulebook."""
+    The benchmark is the 'oddsportal average' of the rulebook, built from
+    every complete bookmaker row (exchanges and Bet9ja excluded): each row is
+    de-vigged proportionally, then the probabilities are averaged. `odds`
+    keeps the plain average of the prices for display."""
     url = (capture.get("source_url") or "").split("#")[0]
     if "/h2h/" not in url or "inplay-odds" in url:
         return []
@@ -160,8 +162,16 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     rows = [(m.group(1), [float(m.group(k)) for k in range(2, 2 + n)]) for m in row.finditer(table)]
     if not rows:
         return []
-    rows = [(name.strip(), odds) for name, odds in rows]
+    # Bet9ja is never part of its own benchmark.
+    rows = [(name.strip(), odds) for name, odds in rows if "bet9ja" not in name.lower()]
+    if not rows:
+        return []
     avg = [sum(r[1][k] for r in rows) / len(rows) for k in range(n)]
+    # Each bookmaker's margin is removed separately, then the probability
+    # vectors are averaged (operator's odds-source audit, 2026-10-06). A
+    # margin is never formed from prices taken across different books.
+    per_book = [[(1 / o) / sum(1 / x for x in odds) for o in odds] for _, odds in rows]
+    fair = [sum(v[k] for v in per_book) / len(per_book) for k in range(n)]
     kick = None
     km = re.search(r"\|(\d{2}) ([A-Za-z]{3}) (\d{4}),\|(\d{2}):(\d{2})\|", text)
     if km and utc_offset_minutes is not None and km.group(2).lower() in MONTHS:
@@ -175,9 +185,9 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     base = {"url": url, "league": "", "sport": OP_SPORT.get(sm.group(1) if sm else "", None),
             "captured_at_utc": taken, "quote_time_utc": taken, "start_utc": utc(kick), "outcomes": outcomes,
             "volume": None, "spread": None, "closed": False}
-    out = [_finish({**base, "source": "oddsportal", "probs": [1 / o for o in avg], "odds": [round(o, 3) for o in avg],
+    out = [_finish({**base, "source": "oddsportal", "probs": fair, "odds": [round(o, 3) for o in avg],
                     "bookmakers": "; ".join(r[0] for r in rows), "bookmaker_count": len(rows),
-                    "price_basis": f"average of {len(rows)} bookmakers", "depth": len(rows)})]
+                    "price_basis": f"mean of {len(rows)} bookmakers' de-vigged probabilities", "depth": len(rows)})]
     pin = next((r for r in rows if r[0].lower().startswith("pinnacle")), None)
     if pin:   # PCBF: Pinnacle first, "direct or via a comparison site"
         out.append(_finish({**base, "source": "pinnacle", "probs": [1 / o for o in pin[1]], "odds": pin[1],
@@ -373,7 +383,7 @@ def reply_fields(q: dict, order: list[int]) -> list[str]:
     captured quote exactly as it validates chat research."""
     prices = [1 / q["probs"][i] for i in order]
     if q["source"] == "oddsportal":
-        note = "oddsportal average of %d bookmakers%s" % (q["bookmaker_count"], "" if q["start_utc"] else
+        note = "oddsportal: mean of %d bookmakers' de-vigged probabilities%s" % (q["bookmaker_count"], "" if q["start_utc"] else
                                                            "; kickoff time not on page in UTC, matched by names + date")
         return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices), note]
     if q["source"] == "pinnacle":

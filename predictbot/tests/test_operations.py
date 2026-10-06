@@ -423,7 +423,11 @@ class TwoLaptops(unittest.TestCase):
 
         sync(self.hp, self.huawai)
         b = DataFolder(self.huawai, host="HUAWAI")
-        self.assertIsNone(b.claim_session(at("2026-10-03T15:00:00Z")))
+        marker = b.claim_session(at("2026-10-03T15:00:00Z"))   # HP stopped cleanly, but is still the writer
+        self.assertEqual((marker["host"], marker["released"]), ("HP", True))
+        self.assertIn("designated writer (stopped cleanly", b.write_block())
+        backup = b.confirm_handover(at("2026-10-03T15:00:00Z"))
+        self.assertTrue((backup / "selections" / "selections.csv").exists())
         self.assertIsNone(b.write_block())
         # the same capture (now in OneDrive) and the same reply pasted again: nothing new
         self.assertEqual(b.import_captures(self.hp / "captures"), 0)
@@ -437,7 +441,9 @@ class TwoLaptops(unittest.TestCase):
 
         sync(self.huawai, self.hp)
         a2 = DataFolder(self.hp, host="HP")
-        self.assertIsNone(a2.claim_session(later))
+        self.assertEqual(a2.claim_session(later)["host"], "HUAWAI")
+        a2.confirm_handover(later)
+        self.assertIsNone(a2.claim_session(later))             # the writer's own restart needs no handover
         for kind, key in (("selection", "selection_record_id"), ("capture", "capture_id"),
                           ("settlement", "selection_record_id")):
             ids = [r[key] for r in a2.read(kind)]
@@ -453,7 +459,7 @@ class TwoLaptops(unittest.TestCase):
         b = DataFolder(self.huawai, host="HUAWAI")
         other = b.claim_session(now)
         self.assertEqual(other["host"], "HP")
-        self.assertIn("did not close it here", b.write_block())
+        self.assertIn("did not stop cleanly", b.write_block())
         with self.assertRaises(InvalidRecord):
             workflow.record_rule(b, "pinnacle|tennis|MATCH_WINNER", "same as bet9ja", now)
         b.confirm_handover(now)                        # operator closed HP and saw OneDrive up to date
