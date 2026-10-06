@@ -543,7 +543,7 @@ def price_benchmark(captures: list[dict], fields: list[str], now: datetime, pack
                             + (" (quoted by chat, no order-book evidence)" if not meta else ""))
         if captured and abs(ts - captured) > MAX_PM_QUOTE_AGE:
             cautions.append("polymarket quote and Bet9ja capture more than 2h apart")
-    if book_total(prices) < 1:
+    if book_total(prices) < 0.999:   # an already de-vigged quote sums to 1 up to rounding: not a caution
         cautions.append(f"benchmark book {book_total(prices) * 100:.1f}% < 100%: rulebook de-vig understates edge")
     hard = [x for x in cautions if not x.startswith("benchmark book")]
     bench = "/".join(f"{p:.3f}" for p in prices)

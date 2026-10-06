@@ -382,6 +382,12 @@ class OddsPortal(unittest.TestCase):
         expect = sum((1 / b[0]) / sum(1 / x for x in b) for b in books) / len(books)
         self.assertAlmostEqual(q["probs"][0], expect)
         self.assertAlmostEqual(sum(q["probs"]), 1.0)
+        cand = pcbf.candidates_from_capture(walker("soccer", [("1x2", [1.5, 4.4, 6.5])], home="France", away="Belgium"), "h")[0]
+        cand["kickoff_utc"] = "2026-10-05T18:45Z"
+        q2, order = odds_sources.match_quote(cand, [q])
+        out = pcbf.price_benchmark(pcbf.capture_records(cand), odds_sources.reply_fields(q2, order), at("2026-10-05T16:50:00Z"),
+                                   meta=odds_sources.quote_meta(q2))
+        self.assertNotIn("benchmark book", out[0]["caution_flags"])           # sums to 1 up to rounding
         with_b9 = odds_sources.quotes_from_walk(self.page(rows + [("Bet9ja", 1.40, 4.0, 5.5, 90.0)]))[0]
         self.assertEqual(with_b9["bookmaker_count"], 5)                       # Bet9ja never benchmarks itself
         self.assertEqual(len(odds_sources.quotes_from_walk(self.page(rows))), 1)   # no Pinnacle row here
