@@ -11,6 +11,14 @@ async function activeTabId() {
 function describe(run) {
   if (!run) return 'No walk yet.';
   const c = run.counts || {};
+  if (run.mode === 'results') {
+    return [
+      `Results walk ${run.status}${run.message ? ': ' + run.message : ''}`,
+      run.targets_status,
+      `Pages ${run.cursor} of ${run.queued} visited: ${c.results || 0} final results, ${c.not_final || 0} not played or not completed, ${c.no_result || 0} without a result yet, ${c.failed || 0} failed.`,
+      c.truncated ? `${c.truncated} more over the page limit: run it again.` : '',
+    ].filter(Boolean).join('\n');
+  }
   return [
     `${run.status}${run.message ? ': ' + run.message : ''}`,
     `${run.source_key} from ${run.seed_url || '?'}`,
@@ -27,7 +35,8 @@ async function downloadRun() {
   const json = JSON.stringify(run);
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
   const stamp = (run.completed_at_utc || new Date().toISOString()).replace(/[:.]/g, '-');
-  await chrome.downloads.download({ url, filename: `public-odds-walk-${run.source_key || 'unknown'}-${stamp}.json`, saveAs: false });
+  const kind = run.mode === 'results' ? '-results' : '';
+  await chrome.downloads.download({ url, filename: `public-odds-walk-${run.source_key || 'unknown'}${kind}-${stamp}.json`, saveAs: false });
   await send({ type: 'MARK_DOWNLOADED' });
 }
 
@@ -37,6 +46,7 @@ async function refresh() {
   setStatus(describe(run));
   const running = run && run.status === 'RUNNING';
   $('walk').disabled = running;
+  $('results').disabled = running;
   $('stop').disabled = !running;
   $('resume').disabled = !run || !['INTERRUPTED', 'STOPPED'].includes(run.status) || run.cursor >= run.queued;
   if (run && ['COMPLETE', 'STOPPED'].includes(run.status) && !run.downloaded && run.cursor >= run.queued) await downloadRun();
@@ -48,6 +58,15 @@ $('walk').addEventListener('click', async () => {
     const response = await send({ type: 'START_PUBLIC_ODDS_WALK', tabId: await activeTabId(),
       maxEvents: Number($('max-events').value) || 100, onlyBet9ja: $('only-bet9ja').checked,
       scope: $('include-nonsports').checked ? 'all' : 'sports' });
+    if (!response.ok) throw new Error(response.error);
+    await refresh();
+  } catch (err) { setStatus(`Failed: ${err && err.message ? err.message : String(err)}`); }
+});
+$('results').addEventListener('click', async () => {
+  try {
+    setStatus('Asking the PredictBot app which finished games need a result...');
+    const response = await send({ type: 'START_RESULTS_WALK', tabId: await activeTabId(),
+      maxEvents: Number($('max-events').value) || 100 });
     if (!response.ok) throw new Error(response.error);
     await refresh();
   } catch (err) { setStatus(`Failed: ${err && err.message ? err.message : String(err)}`); }

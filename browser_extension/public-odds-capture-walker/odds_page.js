@@ -175,8 +175,29 @@
       && nameTokens(t.home).some((w) => seen.has(w)) && nameTokens(t.away).some((w) => seen.has(w)));
   }
 
+  // Results mode: a finished OddsPortal match shows 'Final result 5:4 OT
+  // (0:2, 3:2, 1:0, 1:0)' under the teams. FINAL with that text, NOT_FINAL
+  // when the header says the match was postponed, cancelled or similar,
+  // otherwise WAITING (not rendered yet, or not finished). The app reads
+  // the score; the walker only copies the text.
+  const KICKOFF_TEXT = /(\d{1,2}) ([A-Za-z]{3}) (\d{4}),\s*(\d{1,2}):(\d{2})/;
+  const NOT_PLAYED = /(?<![A-Za-z])(Postponed|Cancell?ed|Abandoned|Interrupted|Awarded|Walkover)(?![A-Za-z])/i;
+  function resultState(documentLike) {
+    const body = documentLike.body;
+    const text = cleanText((body && (body.innerText || body.textContent)) || '');
+    const kick = text.match(KICKOFF_TEXT);
+    const kickoffRaw = kick ? kick[0] : null;
+    const final = text.match(/Final\s+result\s*\d+\s*:\s*\d+[^()]{0,25}(?:\([^)]*\))?[^()\d]{0,12}/i);
+    if (final) return { state: 'FINAL', final_result_raw: final[0].trim(), kickoff_raw: kickoffRaw };
+    const header = kick ? text.slice(Math.max(0, kick.index - 200), kick.index + 200) : '';
+    const stop = header.match(NOT_PLAYED);
+    if (stop) return { state: 'NOT_FINAL', detail: stop[0], kickoff_raw: kickoffRaw };
+    return { state: 'WAITING', detail: kick ? 'no final result on the page yet' : 'page not rendered yet',
+      kickoff_raw: kickoffRaw };
+  }
+
   const api = { SCHEMA_VERSION, captureCurrentPage, discoverEventLinks, discoverListingLinks, withinDays, excerpt,
-    eventKey, sportOf, readiness, matchesTarget, nameTokens };
+    eventKey, sportOf, readiness, matchesTarget, nameTokens, resultState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PublicOddsPage = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -257,7 +257,8 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     home, away = title.group(1).strip(), title.group(2).strip()
     outcomes = [home, "Draw", away] if n == 3 else [home, away]
     taken = utc(parse_time(capture.get("captured_at_utc")))
-    base = {"url": url, "league": "", "sport": OP_SPORT.get(sm.group(1) if sm else "", None),
+    base = {"url": url, "page_url": capture.get("source_url") or url, "league": "",
+            "sport": OP_SPORT.get(sm.group(1) if sm else "", None),
             "captured_at_utc": taken, "quote_time_utc": taken, "start_utc": utc(kick), "outcomes": outcomes,
             "volume": None, "spread": None, "closed": False}
     out = [_finish({**base, "source": "oddsportal", "probs": fair, "odds": [round(o, 3) for o in avg],
@@ -275,7 +276,7 @@ def quotes_from_walk(run: dict, file_name: str = "") -> list[dict]:
     key = run.get("source_key")
     quotes = []
     for cap in run.get("captures") or []:
-        if cap.get("capture_status") != "CAPTURE_OK":
+        if cap.get("capture_status") != "CAPTURE_OK" or cap.get("role") == "result":
             continue
         if key == "polymarket" and cap.get("role") == "event":
             quotes.extend(polymarket_quotes(cap))

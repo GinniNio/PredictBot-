@@ -25,7 +25,7 @@ Stop it with the **Stop PredictBot** button (top right) before switching laptops
    - **Match review**: a benchmark event whose names only partly agree, or whose page has no kickoff time, or two events that both fit. Pick *Same game* or *Different*. If a higher-priority source is waiting for review, the fixture waits too, so a lower source never wins by default.
    - **Settlement rules to confirm** (below).
    - **No benchmark yet**: capture those sports on OddsPortal or Polymarket, or send them to a chat as a research pack (optional).
-   - **Settlement**: games on your settled tickets settle themselves. For the rest, create a settlement pack for finished games and paste the chat's results back.
+   - **Settlement**: finished games settle themselves (see **Results** below). Pending lists the ones still waiting and why. A settlement pack through a chat is only for what is left.
    - **Handover** and **OneDrive conflicts** when they occur.
 4. **Performance.** Forecast quality, paper results, actual wagers, and the written evidence review.
 
@@ -50,6 +50,13 @@ Order of preference (PCBF Mini, with Polymarket added by the operator on 2026-10
 **Polymarket evidence.** Each quote records its price basis. On every moneyline captured so far, the displayed price equals the bid/ask midpoint; a quote where it does not is labelled and cannot be PM_PAPER. Depth is judged on resting liquidity (≥ $5,000 on the thinnest leg) and spread (≤ 0.04); a quote with no liquidity figure is RESEARCH. There is no traded-volume rule: pre-match volume builds near kickoff, and a $5,000 floor rejected 597 of 627 feed quotes on 6 Oct (dropped 7 Oct). These thresholds and the 2h freshness limit are rules under evaluation, set in `odds_sources.py` and `pcbf.py`.
 
 **Settlement rules.** A benchmark must settle the way Bet9ja does. Pinnacle, OddsPortal and Oddschecker follow the standard convention for 1X2 (regulation time) and moneylines (overtime included). Where treatment varies, you confirm once per source, sport and market on the Pending page: tennis and table tennis retirement, cricket ties and no-results, MMA and boxing draws, and every Polymarket market. Until confirmed, those selections stay WATCH. A confirmation applies to future pricing; past records are not changed.
+
+**Results.** Every logged game (PICK, PM_PAPER, WATCH and RESEARCH) gets a result without a chat, from three sources, checked once it is 3 hours past kickoff and for up to 7 days:
+- **Your settled Bet9ja tickets** (see Bets).
+- **Polymarket**: when Opportunities loads, the app fetches the resolved markets of finished games it matched to Polymarket (`gamma-api.polymarket.com`, at most every 30 minutes) and saves each response as `captures/polymarket-results-<time>.json`. A winner priced 1 settles the game. A 50-50 resolution (cancelled or tied) is left for you.
+- **OddsPortal**: in the odds walker, **Walk results** visits the finished games' OddsPortal match pages and copies their `Final result` line, e.g. `5:4 OT (0:2, 3:2, 1:0, 1:0)`.
+
+Results are read on Bet9ja's terms. 1X2 settles on regulation time, so after overtime, extra time or penalties the regulation periods are added up (that example is a 4:4 draw). Moneylines include overtime. Retirements, walkovers, awarded, cancelled and abandoned games are never settled automatically. For tennis, table tennis, cricket, MMA and boxing, Polymarket results are used only after you confirm its rule on Pending, and OddsPortal results only when the game finished normally. If two sources disagree, nothing is settled and Pending says so. The settlement records which source and file settled each selection.
 
 **Provenance on every selection**: benchmark source, URL, the underlying bookmakers (OddsPortal lists every row it averaged), quote time, capture time, the capture file, price basis, market depth, settlement check, fair probability, min odds and app version.
 
@@ -112,7 +119,8 @@ Rows are never edited or deleted. When a newer app adds columns, a file is rewri
 |---|---|
 | `pcbf.py` | Pure core: rulebook de-vig and edge, tiers, settlement rules, rechecks, snapshot labels, forecast scoring, performance |
 | `odds_sources.py` | Captured pages and feed fetches to one quote format; matching and review grading |
-| `feeds.py` | Fetches Polymarket's public feed (the app's only network code) |
+| `feeds.py` | Fetches Polymarket's public feed and resolved results (the app's only network code) |
+| `results.py` | Reads final results: Polymarket resolutions and OddsPortal `Final result` lines (settlement: `workflow.settle_from_results`) |
 | `schemas.py` | Record definitions, versions, validation |
 | `storage.py` | Append-only files, write guard, versions, conflict merge, session marker |
 | `workflow.py` | The daily loop joining core and storage |

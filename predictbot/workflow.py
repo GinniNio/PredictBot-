@@ -7,11 +7,12 @@ from __future__ import annotations
 import csv
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import odds_sources
 import pcbf
+import results
 import schemas
 import tickets
 from storage import DataFolder
@@ -514,7 +515,7 @@ def walker_targets(df: DataFolder, now: datetime) -> dict:
                  "competition": r["c"]["competition"]}
                 for r in status["rows"] if r["state"] in ("no benchmark", "match review", "unresolved")]
     return {"schema_version": "predictbot-walker-targets.v1", "generated_at_utc": pcbf.utc(now),
-            "fixtures": fixtures}
+            "fixtures": fixtures, "results": result_targets(df, now)}
 
 
 # ------------------------------------------------------ Bet9ja ticket sync
@@ -662,3 +663,221 @@ def sync_tickets(df: DataFolder, now: datetime, extra_folders=(), captures=None,
         count[r["status"]] = count.get(r["status"], 0) + 1
     return {"tickets": tks, "legs": legs, "bets": len(new_bets), "settled": len(new_st), "counts": count,
             "problems": problems}
+
+
+# --------------------------------------------- results from benchmark sources
+
+RESULT_AFTER = timedelta(hours=3)   # look for a result this long after kickoff
+RESULT_LOOKBACK = timedelta(days=7)
+KICKOFF_SHIFT = timedelta(hours=12)  # a result page dated further from the logged kickoff is another match
+
+
+def due_results(df: DataFolder, now: datetime) -> dict:
+    """Unsettled logged games (PICK, PM_PAPER, WATCH, RESEARCH) that kicked
+    off between RESULT_LOOKBACK and RESULT_AFTER ago, by event."""
+    settled = {s["selection_record_id"] for s in df.read("settlement")}
+    groups: dict = {}
+    for s in df.read("selection"):
+        if s["tier"] == "REJECTED" or s["selection_record_id"] in settled or s.get("market") not in pcbf.MARKETS:
+            continue
+        k = parse_kick(s)
+        if not k or not (now - RESULT_LOOKBACK <= k <= now - RESULT_AFTER):
+            continue
+        g = groups.setdefault(_event(s["selection_id"]), {"sels": [], "kick": k, "sport": s["sport"],
+                                                           "market": s["market"], "event_name": s["event_name"]})
+        g["sels"].append(s)
+    return groups
+
+
+def _result_quotes(df: DataFolder, extra_folders, now: datetime) -> list[dict]:
+    since = now - RESULT_LOOKBACK - timedelta(days=1)
+    quotes = []
+    for path, raw in [*df.odds_walks(extra_folders, since), *df.feed_files(since)]:
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        if isinstance(data, dict):
+            quotes.extend(odds_sources.quotes_from_feed(data, path.name) if path.name.startswith("polymarket-feed-")
+                          else odds_sources.quotes_from_walk(data, path.name))
+    return quotes
+
+
+def result_matches(df: DataFolder, now: datetime, extra_folders=(), groups=None, quotes=None) -> dict:
+    """For each due game, the Polymarket and OddsPortal events it matches
+    exactly (or as accepted on Pending), with the order mapping Bet9ja's
+    positions to the source's. Ambiguous matches are left out."""
+    groups = due_results(df, now) if groups is None else groups
+    if not groups:
+        return {}
+    quotes = _result_quotes(df, extra_folders, now) if quotes is None else quotes
+    decisions = match_decisions(df)
+    out = {}
+    for ev, g in groups.items():
+        home, _, away = g["event_name"].partition(" v ")
+        n = pcbf.MARKETS[g["market"]]["outcomes"]
+        cand = {"event_id": ev.rsplit(":", 1)[0], "home": home, "away": away, "sport": g["sport"],
+                "kickoff_utc": pcbf.utc(g["kick"]), "outcomes": [None] * n}
+        found = {}
+        for m in odds_sources.find_matches(cand, quotes):
+            q = m["quote"]
+            d = (decisions.get((cand["event_id"], odds_sources.quote_key(q)))
+                 or decisions.get((cand["event_id"], odds_sources.event_key(q))))
+            if d == "reject" or (m["quality"] != "exact" and d != "accept"):
+                continue
+            if q["source"] in ("polymarket", "oddsportal"):
+                found.setdefault(q["source"], {})[odds_sources.event_key(q)] = (q, m["order"])
+        out[ev] = {src: next(iter(v.values())) for src, v in found.items() if len(v) == 1}
+    return out
+
+
+def _walk_results(df: DataFolder, extra_folders, now: datetime) -> dict:
+    """Final-result captures from the walker's results mode, by match URL
+    (without the #hash); the newest capture of a page wins."""
+    out = {}
+    for path, raw in df.odds_walks(extra_folders, now - RESULT_LOOKBACK):
+        if b'"result"' not in raw:
+            continue
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        offset = data.get("browser_utc_offset_minutes") if isinstance(data, dict) else None
+        for cap in (data.get("captures") or []) if isinstance(data, dict) else []:
+            if cap.get("role") != "result" or not cap.get("source_url"):
+                continue
+            key = cap["source_url"].split("#")[0]
+            if key not in out or cap.get("captured_at_utc", "") >= out[key]["captured_at_utc"]:
+                out[key] = {**cap, "file": path.name, "utc_offset": offset}
+    return out
+
+
+def _page_kickoff(raw: str, offset):
+    m = re.search(r"(\d{1,2}) ([A-Za-z]{3}) (\d{4}),\s*(\d{1,2}):(\d{2})", raw or "")
+    if not m or offset is None or m.group(2).lower() not in odds_sources.MONTHS:
+        return None
+    local = datetime(int(m.group(3)), odds_sources.MONTHS[m.group(2).lower()], int(m.group(1)),
+                     int(m.group(4)), int(m.group(5)))
+    return (local - timedelta(minutes=offset)).replace(tzinfo=timezone.utc)
+
+
+def settle_from_results(df: DataFolder, now: datetime, extra_folders=(), fetch: bool = True, opener=None) -> dict:
+    """Settle finished logged games from Polymarket's resolved markets and
+    the walker's OddsPortal result pages. A source is used only where its
+    settlement matches Bet9ja's: OddsPortal scores are read on Bet9ja's
+    terms (1X2 on regulation time); Polymarket soccer is 90 minutes plus
+    stoppage, its moneylines include overtime. Sports whose settlement
+    varies (tennis retirements, cricket, MMA, boxing) are settled from
+    Polymarket only once you have confirmed its rule on Pending, and from
+    OddsPortal only when the game finished normally. Two sources that
+    disagree settle nothing."""
+    import feeds
+    groups = due_results(df, now)
+    if not groups:
+        return {"settled": 0, "games": 0, "waiting": [], "problems": [], "fetch": None}
+    matches = result_matches(df, now, extra_folders, groups)
+    rules = confirmed_rules(df)
+    slug = lambda q: q["url"].rstrip("/").rsplit("/", 1)[-1]
+    def pm_rule(g):
+        check, _ = pcbf.settlement_check("polymarket", g["sport"], g["market"], rules)
+        variable = bool(pcbf.VARIABLE_RULES.get(g["market"], {}).get(g["sport"]))
+        if check == "differs" or (variable and check != "ok"):
+            return "Polymarket: settlement rule " + ("differs" if check == "differs" else "unconfirmed (Pending)")
+        return None
+
+    fetched = None
+    if fetch:
+        fetched = feeds.fetch_polymarket_results(df, now, [slug(m["polymarket"][0]) for ev, m in matches.items()
+                                                           if "polymarket" in m and not pm_rule(groups[ev])],
+                                                 opener=opener)
+    pm = {}
+    for path, raw in sorted(df.result_files(now - RESULT_LOOKBACK)):
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        for ev in (data.get("events") or []) if isinstance(data, dict) else []:
+            pm[ev.get("slug")] = {**ev, "file": path.name}
+    walked = _walk_results(df, extra_folders, now)
+    new_st, waiting, problems, games = [], [], [], 0
+    for ev, g in sorted(groups.items(), key=lambda kv: kv[1]["kick"]):
+        n = pcbf.MARKETS[g["market"]]["outcomes"]
+        variable = bool(pcbf.VARIABLE_RULES.get(g["market"], {}).get(g["sport"]))
+        found, why_not = {}, []
+        m = matches.get(ev, {})
+        if "polymarket" in m:
+            q, order = m["polymarket"]
+            e = pm.get(slug(q))
+            if pm_rule(g):
+                why_not.append(pm_rule(g))
+            elif e is None:
+                why_not.append("Polymarket: not fetched yet")
+            elif n == 3 and len(q["outcomes"]) != 3:
+                why_not.append("Polymarket: no 3-way market")
+            else:
+                name, why = results.polymarket_winner(e)
+                if name is None:
+                    why_not.append("Polymarket: " + why)
+                elif name not in q["outcomes"]:
+                    why_not.append(f"Polymarket: winner '{name}' not in the matched market")
+                else:
+                    found["polymarket"] = (order.index(q["outcomes"].index(name)), f"polymarket result {slug(q)}")
+        if "oddsportal" in m:
+            q, order = m["oddsportal"]
+            cap = walked.get(q["url"])
+            if cap is None:
+                why_not.append("OddsPortal: result page not walked yet")
+            else:
+                page_kick = _page_kickoff(cap.get("kickoff_raw"), cap.get("utc_offset"))
+                if page_kick and abs(page_kick - g["kick"]) > KICKOFF_SHIFT:
+                    why_not.append("OddsPortal: page shows a different match date")
+                elif not page_kick and "#" not in cap.get("source_url", ""):
+                    why_not.append("OddsPortal: page has no match date to check")
+                else:
+                    pos, why = results.oddsportal_result(cap.get("final_result_raw"), g["sport"], n, variable)
+                    if pos is None:
+                        why_not.append("OddsPortal: " + why)
+                    else:
+                        found["oddsportal"] = (order.index(pos), f"oddsportal result {q['url']}")
+        if not m:
+            why_not.append("no Polymarket or OddsPortal match")
+        idxs = {v[0] for v in found.values()}
+        if len(idxs) > 1:
+            problems.append((g["event_name"], "sources disagree: " + ", ".join(found)))
+            continue
+        if not found:
+            waiting.append((g["event_name"], g["sport"], pcbf.utc(g["kick"]), "; ".join(why_not)))
+            continue
+        idx, source = found.get("oddsportal") or found["polymarket"]
+        pos = (["1", "X", "2"] if n == 3 else ["1", "2"])[idx]
+        games += 1
+        for s in g["sels"]:
+            st, _cl, err = pcbf.settlement_and_closing(s, pos, None, now, source)
+            if st is None:
+                problems.append((g["event_name"], err))
+                break
+            new_st.append(st)
+    df.append("settlement", new_st)
+    return {"settled": len(new_st), "games": games, "waiting": waiting, "problems": problems, "fetch": fetched}
+
+
+def result_targets(df: DataFolder, now: datetime) -> list[dict]:
+    """Finished, unsettled games with an OddsPortal match page and no
+    walked result yet: the walker's results mode visits these."""
+    groups = due_results(df, now)
+    if not groups:
+        return []
+    walked = _walk_results(df, (), now)
+    out = []
+    for ev, m in result_matches(df, now, (), groups).items():
+        if "oddsportal" not in m:
+            continue
+        q, _ = m["oddsportal"]
+        cap = walked.get(q["url"])
+        if cap and results.parse_final(cap.get("final_result_raw")):
+            continue
+        g = groups[ev]
+        home, _, away = g["event_name"].partition(" v ")
+        out.append({"url": q.get("page_url") or q["url"], "sport": WALKER_SPORT.get(g["sport"], g["sport"].replace("_", "-")),
+                    "home": home, "away": away, "kickoff_utc": pcbf.utc(g["kick"])})
+    return sorted(out, key=lambda r: r["kickoff_utc"])

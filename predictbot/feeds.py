@@ -26,7 +26,9 @@ MAX_PAGES = 30
 EVENT_FIELDS = ("id", "slug", "title", "startTime", "live", "ended", "closed", "seriesSlug")
 MARKET_FIELDS = ("id", "question", "slug", "outcomes", "outcomePrices", "volume", "liquidity", "bestBid", "bestAsk",
                  "lastTradePrice", "spread", "gameStartTime", "closed", "active", "acceptingOrders",
-                 "sportsMarketType", "description", "updatedAt")
+                 "sportsMarketType", "description", "updatedAt", "umaResolutionStatus", "closedTime")
+RESULTS_EVERY = timedelta(minutes=30)   # at most one results fetch per 30 minutes
+RESULTS_BATCH = 20                      # slugs per request
 
 
 def _stamp(dt: datetime) -> str:
@@ -102,5 +104,55 @@ def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=
     df.save_capture(name, json.dumps({"schema_version": "polymarket-gamma-feed.v1", "fetched_at_utc": _stamp(now),
                                       "source": GAMMA_EVENTS, "requests": requests, "error": error,
                                       "note": "game events with moneyline markets only; other markets dropped",
+                                      "events": events}, ensure_ascii=False).encode("utf-8"))
+    return {"status": "fetched", "events": len(events), "file": name, "error": error}
+
+
+def last_results_fetch(df: DataFolder) -> datetime | None:
+    files = sorted((df.root / "captures").glob("polymarket-results-*.json"))
+    if not files:
+        return None
+    try:
+        return datetime.strptime(files[-1].stem[len("polymarket-results-"):], "%Y-%m-%dT%H-%M-%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def fetch_polymarket_results(df: DataFolder, now: datetime, slugs, force: bool = False, opener=None,
+                             pause: float = 0.3) -> dict:
+    """Fetch the named Polymarket events (finished games the app logged) and
+    save them as captures/polymarket-results-<time>.json, so every result
+    traces back to the response it came from. Same shape as a feed file."""
+    slugs = sorted({s for s in slugs if s})
+    if not slugs:
+        return {"status": "nothing to fetch", "events": 0, "file": None, "error": ""}
+    prev = last_results_fetch(df)
+    if not force and prev and now - prev < RESULTS_EVERY:
+        return {"status": "recent", "events": 0, "file": None, "error": "", "last": prev}
+    opener = opener or (lambda url: urllib.request.urlopen(
+        urllib.request.Request(url, headers={"User-Agent": "PredictBot (personal, read-only)"}), timeout=30))
+    events, requests, error = [], [], ""
+    for i in range(0, len(slugs), RESULTS_BATCH):
+        url = GAMMA_EVENTS + "?" + urllib.parse.urlencode([("slug", s) for s in slugs[i:i + RESULTS_BATCH]])
+        requests.append(url)
+        try:
+            with opener(url) as r:
+                batch = json.loads(r.read().decode("utf-8"))
+        except Exception as exc:  # network, HTTP or JSON: report, keep what we have
+            error = f"{type(exc).__name__}: {exc}"
+            break
+        for ev in batch if isinstance(batch, list) else []:
+            t = _trim(ev)
+            if t:
+                t["score"], t["period"] = ev.get("score"), ev.get("period")
+                events.append(t)
+        if pause and i + RESULTS_BATCH < len(slugs):
+            time.sleep(pause)
+    if not events and error:
+        return {"status": "failed", "events": 0, "file": None, "error": error}
+    name = f"polymarket-results-{now.astimezone(timezone.utc).strftime('%Y-%m-%dT%H-%M-%SZ')}.json"
+    df.save_capture(name, json.dumps({"schema_version": "polymarket-gamma-results.v1", "fetched_at_utc": _stamp(now),
+                                      "source": GAMMA_EVENTS, "requests": requests, "error": error,
+                                      "note": "finished games the app logged; moneyline markets with resolution status",
                                       "events": events}, ensure_ascii=False).encode("utf-8"))
     return {"status": "fetched", "events": len(events), "file": name, "error": error}

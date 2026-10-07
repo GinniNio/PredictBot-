@@ -54,7 +54,7 @@ test('matches OddsPortal links to Bet9ja fixtures by name and sport', () => {
 
 // ---------------------------------------------------- the background runner
 
-function loadWalker({ pages, targets, timing = { listing: 1, ready: 60, poll: 5, settleCap: 1 } }) {
+function loadWalker({ pages, targets, results = [], timing = { listing: 1, ready: 60, poll: 5, settleCap: 1 } }) {
   const store = {};
   const listeners = { updated: new Set(), message: null };
   const tab = { id: 7, url: null, exists: true };
@@ -62,7 +62,7 @@ function loadWalker({ pages, targets, timing = { listing: 1, ready: 60, poll: 5,
     console, setTimeout, clearTimeout, URL, Intl, Date, JSON, Promise, Map, Set, Object, String, Number, Math,
     WALKER_TIMING: timing,
     fetch: async () => (targets === null ? Promise.reject(new Error('refused'))
-      : { ok: true, json: async () => ({ fixtures: targets }) }),
+      : { ok: true, json: async () => ({ fixtures: targets, results }) }),
   };
   ctx.globalThis = ctx;
   ctx.importScripts = (...files) => files.forEach((f) =>
@@ -193,6 +193,57 @@ test('only one walk at a time', async () => {
   assert.match(second.error, /already running/);
   await w.send({ type: 'STOP_PUBLIC_ODDS_WALK' });
   await w.until((s) => s && s.status === 'STOPPED');
+});
+
+// ------------------------------------------------------------ results mode
+
+const resultPage = (header) => `<!doctype html><title>A - B Odds</title><body><div>Hockey</div>${header}`
+  + '<div>1X2</div><div>Home/Away</div></body>';
+
+test('resultState reads the final result, flags not-played games, waits otherwise', () => {
+  const doc = (html) => new JSDOM(html).window.document;
+  const ot = P.resultState(doc(resultPage('<div>06 Oct 2026,</div><div>23:00</div><div>Final result </div>'
+    + '<div>5:4 OT</div><div> (0:2, 3:2, 1:0, 1:0) </div>')));
+  assert.equal(ot.state, 'FINAL');
+  assert.equal(ot.final_result_raw, 'Final result 5:4 OT (0:2, 3:2, 1:0, 1:0)');
+  assert.match(ot.kickoff_raw, /^06 Oct 2026,\s*23:00$/);
+  assert.equal(P.resultState(doc(resultPage('<div>06 Oct 2026,</div><div>23:00</div><div>Postponed</div>'))).state, 'NOT_FINAL');
+  assert.equal(P.resultState(doc(resultPage('<div>06 Oct 2026,</div><div>23:00</div>'))).state, 'WAITING');
+  // the page's translation strings contain 'Final result' with no score: not a result
+  assert.equal(P.resultState(doc(resultPage('<script>{"final_result":"Final result","x":"y"}</script>'))).state, 'WAITING');
+});
+
+test('a results walk visits the pages the app lists and keeps each final result', async () => {
+  const done = U('hockey/h2h/kings-AAAAAAAA/panthers-BBBBBBBB/#6s6UtjWi');
+  const off = U('football/h2h/a-CCCCCCCC/b-DDDDDDDD/#x9');
+  const pages = {
+    [SEED]: '<body>OddsPortal</body>',
+    [P.eventKey(done)]: resultPage('<div>07 Oct 2026,</div><div>02:00</div><div>Final result 1:2 (1:0, 0:1, 0:1)</div>'),
+    [P.eventKey(off)]: resultPage('<div>07 Oct 2026,</div><div>19:00</div><div>Canceled</div>'),
+  };
+  const results = [{ url: done, sport: 'hockey', home: 'Los Angeles Kings', away: 'Florida Panthers', kickoff_utc: '2026-10-07T00:00Z' },
+    { url: off, sport: 'football', home: 'A', away: 'B', kickoff_utc: '2026-10-07T17:00Z' }];
+  const w = loadWalker({ pages, targets: [], results });
+  w.tab.url = SEED;
+  const start = await w.send({ type: 'START_RESULTS_WALK', tabId: 7, maxEvents: 50 });
+  assert.equal(start.ok, true, start.error);
+  const fin = await w.until((s) => s && s.status === 'COMPLETE');
+  assert.equal(fin.mode, 'results');
+  assert.equal(fin.counts.results, 1);
+  assert.equal(fin.counts.not_final, 1);
+  const run = (await w.send({ type: 'GET_PUBLIC_ODDS_RUN' })).run;
+  assert.equal(run.captures.length, 1);
+  assert.equal(run.captures[0].role, 'result');
+  assert.equal(run.captures[0].source_url, done);                 // with the match hash
+  assert.equal(run.captures[0].final_result_raw, 'Final result 1:2 (1:0, 0:1, 0:1)');
+});
+
+test('a results walk needs an OddsPortal tab and a list from the app', async () => {
+  const w = loadWalker({ pages: { 'https://polymarket.com/sports': '<body></body>' }, targets: [], results: [] });
+  w.tab.url = 'https://polymarket.com/sports';
+  assert.match((await w.send({ type: 'START_RESULTS_WALK', tabId: 7 })).error, /oddsportal\.com/);
+  w.tab.url = SEED;
+  assert.match((await w.send({ type: 'START_RESULTS_WALK', tabId: 7 })).error, /No finished games/);
 });
 
 test('allowlisted hosts only (unchanged)', () => {

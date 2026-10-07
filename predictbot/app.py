@@ -100,6 +100,9 @@ def review_banner() -> str:
             f"{pm}. The app never places bets.</div>")
 
 
+LAST_RESULTS: dict = {}   # the last automatic results pass, shown on Pending
+
+
 def update_now() -> str:
     """Import new captures and price them (Opportunities does this on load)."""
     imported = DF.import_captures(DOWNLOADS)
@@ -114,6 +117,12 @@ def update_now() -> str:
     t = workflow.sync_tickets(DF, now(), [DOWNLOADS])
     if t["bets"] or t["settled"]:
         msg.append(f"Bet9ja tickets: {t['bets']} bets linked, {t['settled']} selections settled")
+    res = workflow.settle_from_results(DF, now(), [DOWNLOADS])
+    LAST_RESULTS.update(res, at=now())
+    if res["games"]:
+        msg.append(f"results: {res['games']} finished games settled ({res['settled']} selections)")
+    if res["fetch"] and res["fetch"]["status"] == "failed":
+        msg.append(f"Polymarket results unavailable ({res['fetch']['error']})")
     r = workflow.auto_benchmark(DF, now(), [DOWNLOADS])
     events = {x["selection_id"].rsplit(":", 1)[0] for x in r["records"]}
     msg.append(f"{len(events)} fixtures priced from captured odds pages")
@@ -311,8 +320,25 @@ def page_pending(msg="") -> str:
                f"unsettled; {len({s['selection_id'].rsplit(':', 1)[0] for s in no_close})} without a closing price or "
                "pre-kickoff snapshot. Snapshots are stored automatically when the odds walker captured the same page "
                "again before kickoff.</p>"
+               "<p>Results arrive on their own: from your settled Bet9ja tickets, from Polymarket's resolved markets "
+               "(fetched when Opportunities loads), and from OddsPortal match pages when you click <b>Walk results</b> "
+               "in the odds walker (open any oddsportal.com page first; it visits only finished games still waiting). "
+               "A settlement pack is only for what is left.</p>"
+               + results_waiting()
                + form_button("/settlepack", "Create settlement pack"))
     return "".join(out)
+
+
+def results_waiting() -> str:
+    r = LAST_RESULTS
+    if not r:
+        return ""
+    rows = [[e(k.replace("T", " ")), e(sp), e(g), f"<span class='dim'>{e(why)}</span>"]
+            for g, sp, k, why in r["waiting"][:60]]
+    probs = "".join(f"<li>{e(g)}: {e(w)}</li>" for g, w in r["problems"][:20])
+    return (f"<h3>Waiting for a result ({len(r['waiting'])})</h3>"
+            + (table(["Kickoff UTC", "Sport", "Game", "Why not settled yet"], rows) if rows else "<p>None.</p>")
+            + (f"<p class='err'>Not settled automatically:</p><ul>{probs}</ul>" if probs else ""))
 
 
 def page_performance(msg="") -> str:

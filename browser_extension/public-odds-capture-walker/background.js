@@ -61,6 +61,7 @@ async function callPage(tabId, action, scope = 'sports', sourceKey = '') {
       if (actionName === 'discover') return P.discoverEventLinks(document, context.href, scopeName);
       if (actionName === 'listings') return P.discoverListingLinks(document, context.href);
       if (actionName === 'ready') return P.readiness(document, key, Date.now());
+      if (actionName === 'result') return P.resultState(document);
       return P.captureCurrentPage(document, context, actionName === 'capture-excerpt' ? 'excerpt' : 'full');
     },
     // chrome.scripting rejects undefined in args ("Value is unserializable").
@@ -81,6 +82,20 @@ async function waitReady(tabId, sourceKey) {
     await sleep(READY_POLL_MS);
   }
   return { state: 'NO_ODDS', detail: `no odds after ${READY_TIMEOUT_MS / 1000}s (${last.detail})` };
+}
+
+// Results mode: wait until the final result has rendered, or the page says
+// the match was not played, or the timeout passes.
+async function waitResult(tabId) {
+  const until = Date.now() + READY_TIMEOUT_MS;
+  let last = { state: 'WAITING', detail: 'not checked' };
+  while (Date.now() < until) {
+    await injectPageTools(tabId);
+    last = await callPage(tabId, 'result');
+    if (last.state !== 'WAITING') return last;
+    await sleep(READY_POLL_MS);
+  }
+  return { ...last, state: 'NO_RESULT', detail: `no final result after ${READY_TIMEOUT_MS / 1000}s (${last.detail})` };
 }
 
 // ------------------------------------------------------------------ storage
@@ -114,7 +129,7 @@ async function assembledRun() {
 function summary(run) {
   if (!run) return null;
   const stale = run.status === 'RUNNING' && Date.now() - Date.parse(run.updated_at_utc || 0) > STALE_MS;
-  return { run_id: run.run_id, status: stale ? 'INTERRUPTED' : run.status, message: run.message || '',
+  return { run_id: run.run_id, mode: run.mode || 'odds', status: stale ? 'INTERRUPTED' : run.status, message: run.message || '',
     source_key: run.source_key, seed_url: run.seed_url, counts: run.counts, cursor: run.cursor,
     queued: (run.queue || []).length, targets_status: run.targets_status || '', downloaded: !!run.downloaded,
     completed_at_utc: run.completed_at_utc || null };
@@ -122,14 +137,78 @@ function summary(run) {
 
 // -------------------------------------------------------------- the walk
 
-async function appTargets() {
+async function appTargetList() {
   for (const url of APP_TARGETS) {
     try {
       const r = await fetch(url, { cache: 'no-store' });
-      if (r.ok) return (await r.json()).fixtures || [];
+      if (r.ok) return await r.json();
     } catch (_) { /* app not running on this address */ }
   }
   return null;
+}
+
+async function appTargets() {
+  const t = await appTargetList();
+  return t ? t.fixtures || [] : null;
+}
+
+// Results mode: visit the finished games the app is still waiting on (it
+// lists their OddsPortal match pages) and copy each final result.
+async function beginResults(tabId, maxEvents) {
+  const s = summary(await loadRun());
+  if (s && s.status === 'RUNNING') throw new Error('A walk is already running. Stop it first, or wait for it to finish.');
+  const tab = await chrome.tabs.get(tabId);
+  const source = PublicOddsSources.findSource(tab.url || '');
+  if (!source || source.key !== 'oddsportal') throw new Error('Open any oddsportal.com page in this tab first.');
+  const list = await appTargetList();
+  if (list === null) throw new Error('The PredictBot app is not reachable on localhost:8000. Start it, then try again.');
+  const targets = list.results || [];
+  if (!targets.length) throw new Error('No finished games are waiting for an OddsPortal result.');
+  await clearOldCaptures();
+  const cap = Math.min(Number(maxEvents) || 10, MAX_CAPTURES);
+  const run = {
+    schema_version: 'public-odds-capture-walk.v1', walker_version: chrome.runtime.getManifest().version,
+    mode: 'results', run_id: Date.now().toString(36), status: 'RUNNING', capture_status: 'RUNNING',
+    source_key: 'oddsportal', started_at_utc: nowIso(), seed_url: tab.url, tab_id: tabId,
+    browser_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    browser_utc_offset_minutes: -new Date().getTimezoneOffset(),
+    targets_status: `${targets.length} finished games wait for a result`,
+    discovered_links: [], skipped: [], failures: [], cursor: 0,
+    queue: targets.slice(0, cap).map((t) => ({ url: t.url, label_raw: `${t.home} - ${t.away}`, target: t })),
+    counts: { discovered: targets.length, queued: 0, visited: 0, captured: 0, results: 0, not_final: 0, no_result: 0,
+              failed: 0, truncated: Math.max(0, targets.length - cap) },
+  };
+  run.counts.queued = run.queue.length;
+  await saveRun(run);
+  drive();
+  return summary(run);
+}
+
+async function visitOdds(run, target, source) {
+  const ready = await waitReady(run.tab_id, run.source_key);
+  run.counts.visited += 1;
+  if (ready.state === 'READY') {
+    await injectPageTools(run.tab_id);
+    const captured = await callPage(run.tab_id, source && source.excerptPattern ? 'capture-excerpt' : 'capture');
+    await storeCapture(run, { role: 'event', discovered_label_raw: target.label_raw, readiness: ready.detail, ...captured });
+  } else {
+    run.counts[ready.state === 'STARTED' ? 'started' : 'no_odds'] += 1;
+    run.skipped.push({ url: target.url, state: ready.state, detail: ready.detail, at_utc: nowIso() });
+  }
+}
+
+async function visitResult(run, target) {
+  const ready = await waitResult(run.tab_id);
+  run.counts.visited += 1;
+  if (ready.state === 'FINAL') {
+    await storeCapture(run, { role: 'result', capture_status: 'RESULT_OK', source_url: target.url,
+      captured_at_utc: nowIso(), final_result_raw: ready.final_result_raw, kickoff_raw: ready.kickoff_raw,
+      target: target.target || null });
+    run.counts.results += 1;
+  } else {
+    run.counts[ready.state === 'NOT_FINAL' ? 'not_final' : 'no_result'] += 1;
+    run.skipped.push({ url: target.url, state: ready.state, detail: ready.detail, at_utc: nowIso() });
+  }
 }
 
 async function begin(tabId, maxEvents, scope, onlyBet9ja) {
@@ -224,16 +303,8 @@ async function drive() {
       try {
         if (!await navigate(run.tab_id, target.url)) throw new Error('PAGE_LOAD_TIMEOUT');
         if (source && source.settleMs) await sleep(Math.min(source.settleMs, T.settleCap));
-        const ready = await waitReady(run.tab_id, run.source_key);
-        run.counts.visited += 1;
-        if (ready.state === 'READY') {
-          await injectPageTools(run.tab_id);
-          const captured = await callPage(run.tab_id, source && source.excerptPattern ? 'capture-excerpt' : 'capture');
-          await storeCapture(run, { role: 'event', discovered_label_raw: target.label_raw, readiness: ready.detail, ...captured });
-        } else {
-          run.counts[ready.state === 'STARTED' ? 'started' : 'no_odds'] += 1;
-          run.skipped.push({ url: target.url, state: ready.state, detail: ready.detail, at_utc: nowIso() });
-        }
+        if (run.mode === 'results') await visitResult(run, target);
+        else await visitOdds(run, target, source);
       } catch (err) {
         const msg = err && err.message ? err.message : String(err);
         if (/No tab with id|tab was closed|Tabs cannot be edited/i.test(msg)) {
@@ -293,6 +364,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'START_PUBLIC_ODDS_WALK') {
     reply(begin(message.tabId, message.maxEvents, message.scope || 'sports', message.onlyBet9ja !== false)
       .then((run) => ({ run })));
+    return true;
+  }
+  if (message.type === 'START_RESULTS_WALK') {
+    reply(beginResults(message.tabId, message.maxEvents).then((run) => ({ run })));
     return true;
   }
   if (message.type === 'GET_PUBLIC_ODDS_STATUS') { reply(loadRun().then((run) => ({ run: summary(run) }))); return true; }

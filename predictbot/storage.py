@@ -360,6 +360,10 @@ class DataFolder:
         """polymarket-feed-*.json files saved by feeds.py."""
         return self._files("polymarket-feed-*.json", (), since)
 
+    def result_files(self, since: datetime | None = None) -> list[tuple[Path, bytes]]:
+        """polymarket-results-*.json files saved by feeds.py."""
+        return self._files("polymarket-results-*.json", (), since)
+
     def save_capture(self, name: str, raw: bytes) -> Path:
         """Store a capture written by the app itself (e.g. a feed fetch)."""
         self._check_writable()
