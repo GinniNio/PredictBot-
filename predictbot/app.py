@@ -186,10 +186,40 @@ def page_opportunities(msg="") -> str:
                    "Polymarket-only and stays paper until an evidence review allows it.</p>")
     else:
         out.append("<p>No PICK or PM_PAPER opportunities for upcoming games. An empty shortlist is a valid result.</p>")
-    out.append(f"<details><summary>WATCH ({len(watch)}): valid prices below +3% or with a caution</summary>"
-               + table(OPP_HEAD[:10] + ["Cautions"], [opp_row(s, None, bets_for)[:10] + [e(s["caution_flags"])]
-                                                     for s in watch[:300]]) + "</details>")
+    watch.sort(key=watch_gap)
+    near = [s for n, s in enumerate(watch) if n < NEAR_TOP or watch_gap(s) <= NEAR_GAP]
+    far = watch[len(near):]
+    head = ["#"] + OPP_HEAD[:9] + ["Bet9ja must rise", "Benchmark", "Cautions"]
+    rows = lambda ss, start: [[str(n)] + watch_row(s, bets_for) for n, s in enumerate(ss, start)]
+    out.append(f"<h2>WATCH, closest to a PICK ({len(near)} of {len(watch)})</h2><p class='dim'>Ranked best first by "
+               "<i>Bet9ja must rise</i>: how much Bet9ja's price would have to go up to reach min odds (+3% edge); "
+               "0% means the edge is there and only a caution holds it back. The top "
+               f"{NEAR_TOP}, plus any within {NEAR_GAP:.0%}. Not bets: worth a recheck if Bet9ja's price moves.</p>"
+               + (table(head, rows(near, 1)) if near else "<p>None within reach today.</p>"))
+    if far:
+        out.append(f"<details><summary>Rest of WATCH ({len(far)}), further from a PICK</summary>" + table(head, rows(far[:300], len(near) + 1)) + "</details>")
     return "".join(out)
+
+
+NEAR_GAP = 0.05   # display only: WATCH rows within 5% of min odds are always shown
+NEAR_TOP = 10
+
+
+def watch_gap(s) -> float:
+    """How far Bet9ja's price must rise to reach min odds; 0 when the edge
+    already clears +3% and only a caution holds it back."""
+    try:
+        mn = float(s.get("min_odds") or float(s["fair_odds"]) * (1 + pcbf.PICK_EDGE))
+        return max(0.0, mn / float(s["bookmaker_odds"]) - 1)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return 9.0
+
+
+def watch_row(s, bets_for):
+    gap = watch_gap(s)
+    rise = "<b>0% (caution only)</b>" if gap == 0 else pct(gap)
+    r = opp_row(s, None, bets_for)
+    return r[:9] + [rise, r[9], e(s["caution_flags"])]
 
 
 def page_pending(msg="") -> str:
