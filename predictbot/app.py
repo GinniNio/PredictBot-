@@ -489,6 +489,14 @@ class Handler(BaseHTTPRequestHandler):
                  "/performance": lambda: page_performance(msg),
                  "/pack": lambda: page_pack("research"), "/settle": lambda: page_pack("settle"),
                  "/selections": lambda: page_selections(q), "/bets": lambda: page_bets(msg, (q.get("rid") or [""])[0])}
+        if u.path == "/walker-targets.json":     # read-only, for the odds walker extension
+            body = json.dumps(workflow.walker_targets(DF, now())).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if u.path not in pages:
             return self.send_error(404)
         try:

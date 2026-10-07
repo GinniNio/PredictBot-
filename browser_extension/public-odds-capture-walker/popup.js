@@ -1,34 +1,62 @@
-const walkButton = document.getElementById('walk');
-const downloadButton = document.getElementById('download');
-const maxEvents = document.getElementById('max-events');
-const includeNonsports = document.getElementById('include-nonsports');
-const status = document.getElementById('status');
-const setStatus = (message) => { status.textContent = message; };
+const $ = (id) => document.getElementById(id);
+const setStatus = (message) => { $('status').textContent = message; };
+const send = (message) => chrome.runtime.sendMessage(message);
 
-function downloadRun(run) {
-  const json = JSON.stringify(run, null, 2);
-  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-  const stamp = (run.completed_at_utc || new Date().toISOString()).replace(/[:.]/g, '-');
-  return chrome.downloads.download({ url, filename: `public-odds-walk-${run.source_key || 'unknown'}-${stamp}.json`, saveAs: false });
+async function activeTabId() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) throw new Error('No active tab found.');
+  return tab.id;
 }
 
-walkButton.addEventListener('click', async () => {
-  walkButton.disabled = true;
+function describe(run) {
+  if (!run) return 'No walk yet.';
+  const c = run.counts || {};
+  return [
+    `${run.status}${run.message ? ': ' + run.message : ''}`,
+    `${run.source_key} from ${run.seed_url || '?'}`,
+    run.targets_status,
+    `Pages ${run.cursor} of ${run.queued} visited: ${c.captured || 0} captured with odds (incl. start page), ${c.started || 0} already started, ${c.no_odds || 0} without odds, ${c.failed || 0} failed.`,
+    `Found ${c.discovered || 0} games; ${c.other_sport || 0} other sport, ${c.not_on_bet9ja || 0} not on Bet9ja, ${c.truncated || 0} over the page limit.`,
+  ].filter(Boolean).join('\n');
+}
+
+async function downloadRun() {
+  const response = await send({ type: 'GET_PUBLIC_ODDS_RUN' });
+  const run = response.run;
+  if (!run) return setStatus('No walk is stored yet.');
+  const json = JSON.stringify(run);
+  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  const stamp = (run.completed_at_utc || new Date().toISOString()).replace(/[:.]/g, '-');
+  await chrome.downloads.download({ url, filename: `public-odds-walk-${run.source_key || 'unknown'}-${stamp}.json`, saveAs: false });
+  await send({ type: 'MARK_DOWNLOADED' });
+}
+
+async function refresh() {
+  const response = await send({ type: 'GET_PUBLIC_ODDS_STATUS' });
+  const run = response.run;
+  setStatus(describe(run));
+  const running = run && run.status === 'RUNNING';
+  $('walk').disabled = running;
+  $('stop').disabled = !running;
+  $('resume').disabled = !run || !['INTERRUPTED', 'STOPPED'].includes(run.status) || run.cursor >= run.queued;
+  if (run && ['COMPLETE', 'STOPPED'].includes(run.status) && !run.downloaded && run.cursor >= run.queued) await downloadRun();
+}
+
+$('walk').addEventListener('click', async () => {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !tab.id) throw new Error('No active tab found.');
-    setStatus('Capturing seed page and walking validated event links...');
-    const response = await chrome.runtime.sendMessage({ type: 'START_PUBLIC_ODDS_WALK', tabId: tab.id, maxEvents: Number(maxEvents.value) || 10, scope: includeNonsports.checked ? 'all' : 'sports' });
+    setStatus('Reading the start page and listing games...');
+    const response = await send({ type: 'START_PUBLIC_ODDS_WALK', tabId: await activeTabId(),
+      maxEvents: Number($('max-events').value) || 100, onlyBet9ja: $('only-bet9ja').checked,
+      scope: $('include-nonsports').checked ? 'all' : 'sports' });
     if (!response.ok) throw new Error(response.error);
-    await downloadRun(response.run);
-    setStatus(`Saved ${response.run.captures.length} page captures; ${response.run.discovered_links.length} event links found; ${response.run.failures.length} failures.`);
-  } catch (err) {
-    setStatus(`Failed: ${err && err.message ? err.message : String(err)}`);
-  } finally { walkButton.disabled = false; }
+    await refresh();
+  } catch (err) { setStatus(`Failed: ${err && err.message ? err.message : String(err)}`); }
 });
-downloadButton.addEventListener('click', async () => {
-  const response = await chrome.runtime.sendMessage({ type: 'GET_PUBLIC_ODDS_RUN' });
-  if (!response.run) return setStatus('No completed run is stored yet.');
-  await downloadRun(response.run);
-  setStatus('Saved the last stored run.');
+$('stop').addEventListener('click', async () => { await send({ type: 'STOP_PUBLIC_ODDS_WALK' }); await refresh(); });
+$('resume').addEventListener('click', async () => {
+  const response = await send({ type: 'RESUME_PUBLIC_ODDS_WALK', tabId: await activeTabId() });
+  if (!response.ok) setStatus(`Failed: ${response.error}`); else await refresh();
 });
+$('download').addEventListener('click', downloadRun);
+refresh();
+setInterval(refresh, 1500);

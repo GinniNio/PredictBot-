@@ -197,6 +197,17 @@ class AutoBenchmark(unittest.TestCase):
         self.assertEqual([c["event_id"] for c in workflow.load_candidates(self.df, self.now)["accepted"]], ["bet9ja:77"])
         self.assertEqual(len(self.df.capture_files(since=self.now)), 1)
 
+    def test_walker_targets_list_unbenchmarked_bet9ja_fixtures(self):
+        soccer_day(self.tmp)
+        t = workflow.walker_targets(self.df, self.now)
+        self.assertEqual([(f["sport"], f["home"], f["away"]) for f in t["fixtures"]], [])   # quote waiting: not a target
+        (self.tmp / "captures" / "public-odds-walk-polymarket-2026-10-05T13-56.json").unlink()
+        t = workflow.walker_targets(self.df, self.now)
+        self.assertEqual([(f["sport"], f["home"], f["away"], f["kickoff_utc"]) for f in t["fixtures"]],
+                         [("football", "Italy", "Turkiye", "2026-10-05T18:00Z")])
+        workflow.auto_benchmark(self.df, self.now)
+        self.assertEqual(len(self.df.read("selection")), 0)                # reading targets wrote nothing
+
     def test_confirmed_rule_gives_pm_paper(self):
         soccer_day(self.tmp)
         workflow.record_rule(self.df, "polymarket|soccer|1X2_REGULATION", "same as bet9ja", self.now,

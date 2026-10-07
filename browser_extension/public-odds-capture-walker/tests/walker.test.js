@@ -1,0 +1,200 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const { JSDOM } = require('jsdom');
+const P = require('../odds_page.js');
+const R = require('../source_registry.js');
+
+// ------------------------------------------------------------- page helpers
+
+const TABLE = '<div>Bookmakers</div><div>1</div><div>X</div><div>2</div><div>Payout</div>'
+  + '<div>bet365</div><p>1.50</p><p>4.20</p><p>6.50</p><p>95.1%</p>';
+
+function matchPage(title, kickoff, withTable) {
+  return `<!doctype html><title>${title}</title><body><div>${kickoff}</div>${withTable ? TABLE : '<div>Loading</div>'}</body>`;
+}
+
+test('readiness: ready only once the bookmaker table has rendered', () => {
+  const now = new Date(2026, 9, 7, 15, 0).getTime();          // browser-local 7 Oct 15:00
+  const doc = (html) => new JSDOM(html).window.document;
+  assert.equal(P.readiness(doc(matchPage('A - B Odds', '07 Oct 2026,</div><div>19:00', true)), 'oddsportal', now).state, 'READY');
+  assert.equal(P.readiness(doc(matchPage('A - B Odds', '07 Oct 2026,</div><div>19:00', false)), 'oddsportal', now).state, 'WAITING');
+  assert.equal(P.readiness(doc(matchPage('[[EventName]] Odds', '', true)), 'oddsportal', now).state, 'WAITING');
+  const started = P.readiness(doc(matchPage('A - B Odds', '07 Oct 2026,</div><div>14:30', true)), 'oddsportal', now);
+  assert.equal(started.state, 'STARTED');
+  assert.match(started.detail, /14:30 has passed/);
+});
+
+test('one key per match page; sport from the URL', () => {
+  assert.equal(P.eventKey('https://www.oddsportal.com/tennis/h2h/a-AAAAAAAA/b-BBBBBBBB/#z7a2LFt4:home-away;2'),
+    P.eventKey('https://www.oddsportal.com/tennis/h2h/a-AAAAAAAA/b-BBBBBBBB/#z7a2LFt4'));
+  assert.equal(P.sportOf('https://www.oddsportal.com/basketball/h2h/x-AAAAAAAA/y-BBBBBBBB/', 'oddsportal'), 'basketball');
+  assert.equal(P.sportOf('https://www.flashscore.com/match/football/a-AAAAAAAA/b-BBBBBBBB/', 'flashscore'), 'football');
+});
+
+test('matches OddsPortal links to Bet9ja fixtures by name and sport', () => {
+  const targets = [
+    { sport: 'football', home: 'Belouizdad', away: 'Khenchela' },
+    { sport: 'tennis', home: 'Giovannini, Luisina', away: 'Karatancheva, Lia' },
+    { sport: 'basketball', home: 'BC Juventus Utena', away: 'CB Malaga' },
+  ];
+  const link = (url, label = '') => ({ url, label_raw: label });
+  assert.ok(P.matchesTarget(link('https://www.oddsportal.com/football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M',
+    '23:00CR Belouizdad-Khenchela'), targets, 'oddsportal'));
+  assert.ok(P.matchesTarget(link('https://www.oddsportal.com/tennis/h2h/giovannini-luisina-ruSbIQqA/karatancheva-lia-zqwKJ6Yd/'),
+    targets, 'oddsportal'));
+  assert.ok(!P.matchesTarget(link('https://www.oddsportal.com/football/h2h/mc-alger-AAAAAAAA/khenchela-BBBBBBBB/'), targets, 'oddsportal'));
+  assert.ok(!P.matchesTarget(link('https://www.oddsportal.com/basketball/h2h/cr-belouizdad-AAAAAAAA/khenchela-BBBBBBBB/'),
+    targets, 'oddsportal'));                                    // right names, wrong sport
+  assert.ok(!P.matchesTarget(link('https://www.oddsportal.com/basketball/h2h/bc-aris-AAAAAAAA/cb-san-pablo-burgos-BBBBBBBB/'),
+    targets, 'oddsportal'));                                    // shared 'BC' / 'CB' prefixes only
+});
+
+// ---------------------------------------------------- the background runner
+
+function loadWalker({ pages, targets, timing = { listing: 1, ready: 60, poll: 5, settleCap: 1 } }) {
+  const store = {};
+  const listeners = { updated: new Set(), message: null };
+  const tab = { id: 7, url: null, exists: true };
+  const ctx = {
+    console, setTimeout, clearTimeout, URL, Intl, Date, JSON, Promise, Map, Set, Object, String, Number, Math,
+    WALKER_TIMING: timing,
+    fetch: async () => (targets === null ? Promise.reject(new Error('refused'))
+      : { ok: true, json: async () => ({ fixtures: targets }) }),
+  };
+  ctx.globalThis = ctx;
+  ctx.importScripts = (...files) => files.forEach((f) =>
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), ctx, { filename: f }));
+  ctx.chrome = {
+    runtime: { getManifest: () => ({ version: 'test' }), onMessage: { addListener: (fn) => { listeners.message = fn; } } },
+    storage: { local: {
+      get: async (k) => (k === null ? { ...store } : { [k]: store[k] }),
+      set: async (o) => Object.assign(store, JSON.parse(JSON.stringify(o))),
+      remove: async (ks) => ks.forEach((k) => delete store[k]),
+    } },
+    tabs: {
+      get: async (id) => { if (!tab.exists || id !== tab.id) throw new Error(`No tab with id: ${id}.`); return { ...tab }; },
+      update: async (id, { url }) => {
+        if (!tab.exists) throw new Error(`No tab with id: ${id}.`);
+        tab.url = url;
+        if (pages.onVisit) pages.onVisit(url, tab);
+        setTimeout(() => listeners.updated.forEach((fn) => fn(id, { status: 'complete' })), 1);
+        return { ...tab };
+      },
+      onUpdated: { addListener: (fn) => listeners.updated.add(fn), removeListener: (fn) => listeners.updated.delete(fn) },
+    },
+    scripting: { executeScript: async ({ func, args }) => {
+      if (!tab.exists) throw new Error(`No tab with id: ${tab.id}.`);
+      if (!func) return [{ result: undefined }];
+      const html = pages[P.eventKey(tab.url)] || pages[tab.url];
+      const dom = new JSDOM(html, { url: tab.url });
+      ctx.window = { PublicOddsPage: ctx.PublicOddsPage };
+      ctx.document = dom.window.document;
+      ctx.location = { href: tab.url };
+      return [{ result: func(...args) }];
+    } },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8'), ctx, { filename: 'background.js' });
+  const send = (message) => new Promise((resolve) => listeners.message(message, {}, resolve));
+  const until = async (pred) => {
+    for (let i = 0; i < 400; i++) {
+      const s = (await send({ type: 'GET_PUBLIC_ODDS_STATUS' })).run;
+      if (pred(s)) return s;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error('timed out waiting for the walk');
+  };
+  return { tab, send, until, store };
+}
+
+const SEED = 'https://www.oddsportal.com/football/';
+const U = (path) => `https://www.oddsportal.com/${path}`;
+const later = new Date(Date.now() + 6 * 3600e3);
+const past = new Date(Date.now() - 3 * 3600e3);
+const stamp = (d) => `${String(d.getDate()).padStart(2, '0')} ${d.toLocaleString('en', { month: 'short' })} ${d.getFullYear()},</div><div>${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+function footballDay() {
+  const links = [
+    ['football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M', 'CR Belouizdad-Khenchela'],
+    ['football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M:over-under;2', 'same match, other tab'],
+    ['football/h2h/constantine-AAAAAAAA/biskra-BBBBBBBB/#x1', 'Constantine-Biskra'],
+    ['football/h2h/ben-aknoun-CCCCCCCC/el-biar-DDDDDDDD/#x2', 'Ben Aknoun-El Biar'],
+    ['football/h2h/mc-alger-EEEEEEEE/usm-alger-FFFFFFFF/#x3', 'not on Bet9ja'],
+    ['basketball/h2h/bc-nokia-GGGGGGGG/helsinki-HHHHHHHH/#x4', 'other sport'],
+  ];
+  const pages = { [SEED]: '<body>' + links.map(([p, l]) => `<a href="/${p}">${l}</a>`).join('') + '</body>' };
+  pages[P.eventKey(U(links[0][0]))] = matchPage('CR Belouizdad - Khenchela Odds', stamp(later), true);
+  pages[P.eventKey(U(links[2][0]))] = matchPage('Constantine - Biskra Odds', stamp(past), true);
+  pages[P.eventKey(U(links[3][0]))] = matchPage('Ben Aknoun - JS El Biar Odds', stamp(later), false);
+  const targets = [{ sport: 'football', home: 'Belouizdad', away: 'Khenchela' },
+    { sport: 'football', home: 'Constantine', away: 'Biskra' }, { sport: 'football', home: 'Ben Aknoun', away: 'Js El Biar' }];
+  return { pages, targets };
+}
+
+test('a walk visits only Bet9ja games, waits for odds, skips started matches', async () => {
+  const { pages, targets } = footballDay();
+  const w = loadWalker({ pages, targets });
+  w.tab.url = SEED;
+  const start = await w.send({ type: 'START_PUBLIC_ODDS_WALK', tabId: 7, maxEvents: 50, onlyBet9ja: true });
+  assert.equal(start.ok, true, start.error);
+  const done = await w.until((s) => s && s.status === 'COMPLETE');
+  assert.deepEqual({ ...done.counts }, { discovered: 5, queued: 3, visited: 3, captured: 2, started: 1, no_odds: 1, failed: 0,
+    truncated: 0, not_on_bet9ja: 1, other_sport: 1, duplicate: 1 });
+  assert.match(done.targets_status, /3 Bet9ja fixtures without a benchmark; 3 of 4 listed games match/);
+  const run = (await w.send({ type: 'GET_PUBLIC_ODDS_RUN' })).run;
+  assert.deepEqual(run.captures.map((c) => c.role), ['seed', 'event']);   // only the ready match is kept
+  assert.equal(run.captures[1].page_title, 'CR Belouizdad - Khenchela Odds');
+  assert.equal(run.capture_status, 'CAPTURE_OK');
+  assert.deepEqual(run.skipped.map((s) => s.state).sort(), ['NO_ODDS', 'STARTED']);
+  assert.equal(run.queue, undefined);
+});
+
+test('without the app it walks every game of the sport, and says so', async () => {
+  const { pages } = footballDay();
+  const w = loadWalker({ pages, targets: null });
+  w.tab.url = SEED;
+  await w.send({ type: 'START_PUBLIC_ODDS_WALK', tabId: 7, maxEvents: 2, onlyBet9ja: true });
+  const done = await w.until((s) => s && s.status === 'COMPLETE');
+  assert.match(done.targets_status, /app not reachable/);
+  assert.equal(done.counts.queued, 2);
+  assert.equal(done.counts.truncated, 2);                     // 4 football games, limit 2: reported, not hidden
+});
+
+test('a closed tab interrupts the walk; resume continues from the same page', async () => {
+  const { pages, targets } = footballDay();
+  let visits = 0;
+  pages.onVisit = (url, tab) => { visits += 1; if (visits === 2) tab.exists = false; };
+  const w = loadWalker({ pages, targets });
+  w.tab.url = SEED;
+  await w.send({ type: 'START_PUBLIC_ODDS_WALK', tabId: 7, maxEvents: 50, onlyBet9ja: true });
+  const stopped = await w.until((s) => s && s.status === 'INTERRUPTED');
+  assert.match(stopped.message, /tab was closed/);
+  assert.equal(stopped.counts.failed, 0);                       // no cascade of failures
+  const cursor = stopped.cursor;
+  w.tab.exists = true;
+  w.tab.id = 7;
+  const r = await w.send({ type: 'RESUME_PUBLIC_ODDS_WALK', tabId: 7 });
+  assert.equal(r.ok, true, r.error);
+  const done = await w.until((s) => s && s.status === 'COMPLETE');
+  assert.equal(done.cursor, 3);
+  assert.ok(cursor < 3);
+});
+
+test('only one walk at a time', async () => {
+  const { pages, targets } = footballDay();
+  const w = loadWalker({ pages, targets, timing: { listing: 1, ready: 300, poll: 50, settleCap: 1 } });
+  w.tab.url = SEED;
+  assert.equal((await w.send({ type: 'START_PUBLIC_ODDS_WALK', tabId: 7, maxEvents: 50 })).ok, true);
+  const second = await w.send({ type: 'START_PUBLIC_ODDS_WALK', tabId: 7, maxEvents: 50 });
+  assert.equal(second.ok, false);
+  assert.match(second.error, /already running/);
+  await w.send({ type: 'STOP_PUBLIC_ODDS_WALK' });
+  await w.until((s) => s && s.status === 'STOPPED');
+});
+
+test('allowlisted hosts only (unchanged)', () => {
+  assert.equal(R.findSource('https://oddsportal.evil.example/'), null);
+});

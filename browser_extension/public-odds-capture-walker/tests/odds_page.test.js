@@ -67,7 +67,7 @@ test('flashscore.info is a supported host', () => {
 
 test('background passes no undefined args to executeScript', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'background.js'), 'utf8');
-  assert.match(src, /async function callPage\(tabId, action, scope = 'sports'\)/);
+  assert.match(src, /args: \[String\(action\), scope == null \? 'sports' : String\(scope\), String\(sourceKey \|\| ''\)\]/);
   assert.doesNotMatch(src, /args: \[action, scope\]/);
 });
 

@@ -1,13 +1,16 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Public Odds Capture</title><style>
-body{width:350px;margin:0;padding:12px;font:13px system-ui;color:#111}h1{font-size:15px;margin:0 0 8px}p,.note{color:#444;line-height:1.4}button,input{width:100%;box-sizing:border-box;padding:9px;margin-top:8px}.note{background:#fff4e5;border:1px solid #edc56e;padding:8px;border-radius:4px;font-size:12px}#status{white-space:pre-wrap;margin-top:8px}
+body{width:360px;margin:0;padding:12px;font:13px system-ui;color:#111}h1{font-size:15px;margin:0 0 8px}p{color:#444;line-height:1.4;margin:6px 0}
+button,input[type=number]{width:100%;box-sizing:border-box;padding:9px;margin-top:8px}label{display:block;margin-top:8px}
+.row{display:flex;gap:6px}.row button{flex:1}#status{white-space:pre-wrap;margin-top:10px;font-size:12px;background:#f5f5f5;padding:8px;border-radius:4px}
 </style></head><body>
 <h1>Public Odds Capture Walker</h1>
-<p>Open a public pre-match page on a supported source, then start. On Polymarket, start at polymarket.com/sports: the walker visits every sport listing in its menu, then today's and tomorrow's matches.</p>
-<label>Maximum event pages <input id="max-events" type="number" min="1" max="300" value="100"></label>
+<p>Open an OddsPortal sport page (e.g. oddsportal.com/football/), then start. Keep the PredictBot app running so the walker visits only games Bet9ja offers. Polymarket needs no walk: the app reads its feed.</p>
+<label>Maximum match pages <input id="max-events" type="number" min="1" max="300" value="100"></label>
+<label><input id="only-bet9ja" type="checkbox" checked> Only games Bet9ja offers (needs the PredictBot app running)</label>
 <label><input id="include-nonsports" type="checkbox"> Include Polymarket non-sports markets</label>
-<button id="walk">Capture current page and walk events</button>
-<button id="download">Download last run</button>
-<div class="note">Ready for automatic event-link discovery: Betfair Exchange, Polymarket, Oddschecker US and BetExplorer. OddsPortal and Flashscore remain evidence-first until their public event routes are captured.</div>
-<div id="status"></div><script src="popup.js"></script>
+<button id="walk">Start walk from this page</button>
+<div class="row"><button id="stop">Stop</button><button id="resume">Resume</button></div>
+<button id="download">Download last walk</button>
+<div id="status">Checking for a walk in progress...</div><script src="popup.js"></script>
 </body></html>

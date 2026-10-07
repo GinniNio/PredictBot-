@@ -1,10 +1,27 @@
 {
   "manifest_version": 3,
   "name": "PredictBot Public Odds Capture Walker",
-  "version": "0.2.3",
-  "description": "Captures public, user-opened odds pages and follows only validated public event links. It does not log in, place bets, submit forms, or call private APIs.",
-  "action": { "default_popup": "popup.html" },
-  "background": { "service_worker": "background.js" },
-  "permissions": ["activeTab", "scripting", "tabs", "downloads", "storage", "unlimitedStorage"],
-  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'" }
+  "version": "0.3.0",
+  "description": "Captures public odds pages from a user-opened OddsPortal (or other supported) page, waits for the odds to render, skips started matches and, with the PredictBot app running, visits only games Bet9ja offers. It does not log in, place bets or submit forms.",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "downloads",
+    "storage",
+    "unlimitedStorage"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ]
 }

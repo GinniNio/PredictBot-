@@ -497,3 +497,20 @@ def record_evidence_review(df: DataFolder, decision: str, summary: str, now: dat
     if not any(r["review_id"] == rec["review_id"] for r in df.read("evidence_review")):
         df.append("evidence_review", [rec])
     return rec
+
+
+WALKER_SPORT = {"soccer": "football", "ice_hockey": "hockey", "table_tennis": "table-tennis",
+                "american_football": "american-football"}
+
+
+def walker_targets(df: DataFolder, now: datetime) -> dict:
+    """Read-only list for the odds walker: today's eligible Bet9ja fixtures
+    that still have no benchmark, so it visits only games Bet9ja offers.
+    Sports use the odds sites' URL names (soccer -> football)."""
+    status = day_status(df, now)
+    fixtures = [{"sport": WALKER_SPORT.get(r["c"]["sport"], r["c"]["sport"].replace("_", "-")),
+                 "home": r["c"]["home"], "away": r["c"]["away"], "kickoff_utc": r["c"]["kickoff_utc"],
+                 "competition": r["c"]["competition"]}
+                for r in status["rows"] if r["state"] in ("no benchmark", "match review", "unresolved")]
+    return {"schema_version": "predictbot-walker-targets.v1", "generated_at_utc": pcbf.utc(now),
+            "fixtures": fixtures}
