@@ -813,43 +813,85 @@ PRICES_IN_NOTE = re.compile(r"(\d+(?:\.\d+)?(?:\s*/\s*\d+(?:\.\d+)?){1,2})")
 
 
 def from_pcbf_row(row: dict, now: datetime) -> tuple[dict, dict]:
-    """Convert one PCBF Mini v1.3 ledger row into (capture record, selection
-    record). The edge is recomputed only when the full benchmark market is
-    recoverable from the row; otherwise the row is REJECTED as unverifiable."""
+    """Convert one PCBF Mini ledger row (v1.3, or v1.4 with market,
+    selection_index, benchmark_source and benchmark_odds columns) into
+    (capture record, selection record). The app recomputes the edge and tier
+    itself from the full benchmark market; the chat's own tier is kept in the
+    note for comparison. Without a recoverable market the row is REJECTED."""
     sel_text = row.get("selection", "")
-    three_way = "3-way" in sel_text or row.get("sport") == "soccer"
-    n = 3 if three_way else 2
-    idx = 0 if "(home" in sel_text else (n - 1 if "(away" in sel_text else (1 if sel_text.lower().startswith("draw") else 0))
-    market = THREE_WAY if three_way else ("MONEYLINE_INC_OT" if "OT" in sel_text else "MATCH_WINNER")
-    event_id = f"pcbf:{row['record_id']}"
+    if row.get("market") in MARKETS:
+        market = row["market"]
+    else:
+        three_way = "3-way" in sel_text or row.get("sport") == "soccer"
+        market = THREE_WAY if three_way else ("MONEYLINE_INC_OT" if "OT" in sel_text else "MATCH_WINNER")
+    n = MARKETS[market]["outcomes"]
+    if str(row.get("selection_index", "")).strip().isdigit() and int(row["selection_index"]) < n:
+        idx = int(row["selection_index"])
+    else:
+        idx = 0 if "(home" in sel_text else (n - 1 if "(away" in sel_text else (1 if sel_text.lower().startswith("draw") else 0))
+    # v1.4 rows also key on game, selection and benchmark time, so a chat that
+    # restarts its record numbering cannot hide a new row behind an old ID.
+    key = [row["record_id"]] + ([row.get("game", ""), sel_text, row.get("benchmark_time", "")] if row.get("market") else [])
+    event_id = f"pcbf:{row['record_id']}" if len(key) == 1 else "pcbf:" + stable_id("ev", *key)[3:]
+    chat_tier = (row.get("tier") or "").strip().upper()
     cap = {
-        "capture_id": stable_id("cap", "pcbf-ledger", row["record_id"]),
-        "captured_at_utc": utc(parse_time(row.get("benchmark_time"))), "source": "bet9ja (from PCBF ledger)",
+        "capture_id": stable_id("cap", "pcbf-ledger", *key),
+        "captured_at_utc": utc(parse_time(row.get("bet9ja_captured_utc") or row.get("benchmark_time"))) or utc(now),
+        "source": "bet9ja (from PCBF ledger)",
         "source_url": "", "sport": row.get("sport", ""), "competition": row.get("competition", ""),
         "event_id": event_id, "event_name": row.get("game", ""), "kickoff_utc": utc(parse_time(row.get("kickoff_utc"))),
         "market": market, "selection_id": f"{event_id}:{market}:{idx}", "selection": sel_text,
         "odds_decimal": f"{float(row['bet9ja_odds']):.2f}", "raw_payload_hash": "pcbf-ledger-row",
-        "market_key": "", "market_outcomes": "", "market_odds": "", "selection_index": str(idx),
-        "country": "", "kickoff_basis": "from PCBF ledger", "capture_file": "pcbf-ledger.csv",
+        "market_key": "", "market_outcomes": "", "market_odds": row.get("bet9ja_market_odds", ""),
+        "selection_index": str(idx), "country": "", "kickoff_basis": "from PCBF ledger", "capture_file": "pcbf-ledger.csv",
     }
     bench = None
-    m = PRICES_IN_NOTE.search(row.get("note", ""))
-    if m:
-        bench = parse_prices(m.group(1).replace("/", " / "), n)
-    base = {"selection_record_id": stable_id("sel", "pcbf-ledger", row["record_id"]),
+    if row.get("benchmark_odds"):
+        bench = parse_prices(row["benchmark_odds"].replace("/", " / "), n)
+    else:
+        m = PRICES_IN_NOTE.search(row.get("note", ""))
+        if m:
+            bench = parse_prices(m.group(1).replace("/", " / "), n)
+    note = "; ".join(x for x in (row.get("note", ""), f"chat said {chat_tier}" if chat_tier else "") if x)
+    base = {"selection_record_id": stable_id("sel", "pcbf-ledger", *key),
             "capture_id": cap["capture_id"], "priced_at_utc": utc(now),
             "benchmark_timestamp_utc": utc(parse_time(row.get("benchmark_time"))),
             "selection_id": cap["selection_id"], "event_name": cap["event_name"], "sport": cap["sport"],
             "competition": cap["competition"], "kickoff_utc": cap["kickoff_utc"], "market": market,
             "selection": sel_text, "selection_index": str(idx), "bookmaker_odds": cap["odds_decimal"],
-            "market_odds": "", "benchmark_url": row.get("benchmark_url", ""), "research_note": row.get("note", ""),
-            "pack_id": "", "origin": f"pcbf-ledger {row['record_id']}"}
+            "market_odds": cap["market_odds"], "benchmark_url": row.get("benchmark_url", ""), "research_note": note,
+            "pack_id": "", "origin": f"pcbf-ledger {row['record_id']}", "price_basis": "quoted by chat",
+            "benchmark_bookmakers": row.get("benchmark_bookmakers", ""), "app_version": APP_VERSION}
     if not bench:
-        rec = {**base, "benchmark_source": "", "benchmark_odds": "", "fair_odds": row.get("fair_odds", ""),
-               "edge_pct": row.get("edge", ""), "tier": "REJECTED", "validation_status": "INVALID",
-               "rejection_reason": "benchmark market not recorded: edge cannot be recomputed",
+        research = chat_tier == "RESEARCH"
+        rec = {**base, "benchmark_source": "", "benchmark_odds": "", "fair_odds": "" if research else row.get("fair_odds", ""),
+               "edge_pct": "" if research else row.get("edge", ""), "tier": "RESEARCH" if research else "REJECTED",
+               "validation_status": "NO_BENCHMARK" if research else "INVALID",
+               "rejection_reason": ("no benchmark: " + (row.get("note") or "chat found none")) if research
+               else "benchmark market not recorded: edge cannot be recomputed",
                "caution_flags": "", "stake_notional": ""}
         return cap, rec
+    fair, e = edge(float(row["bet9ja_odds"]), bench, idx)
+    url = row.get("benchmark_url", "").lower()
+    source = canonical_source(row.get("benchmark_source") or next((s for s in BENCHMARK_SOURCES if s in url), "unknown"))
+    ts, kickoff = parse_time(row.get("benchmark_time")), parse_time(row.get("kickoff_utc"))
+    cautions = []
+    if ts and row.get("date") and utc(ts)[:10] != row["date"]:
+        cautions.append("STALE: benchmark not from the pricing day")
+    if ts and kickoff and ts >= kickoff:
+        cautions.append("benchmark after kickoff")
+    check, check_note = settlement_check(source, row.get("sport", ""), market)
+    if check == "unconfirmed":
+        cautions.append(check_note)
+    if source == "polymarket":
+        cautions.append("polymarket price is not a verified bid/ask midpoint (quoted by chat, no order-book evidence)")
+    tier = tier_for(e, cautions)
+    rec = {**base, "benchmark_source": source, "benchmark_odds": "/".join(f"{p:.3f}" for p in bench),
+           "fair_odds": f"{fair:.3f}", "edge_pct": f"{e:.4f}", "tier": tier, "validation_status": "VALID",
+           "rejection_reason": "", "caution_flags": "; ".join(cautions), "settlement_check": check,
+           "fair_prob": f"{fair_probability(bench, idx):.4f}", "min_odds": f"{min_odds(fair_probability(bench, idx)):.2f}",
+           "stake_notional": str(NOTIONAL_STAKE) if tier == "PICK" else ""}
+    return cap, rec
     fair, e = edge(float(row["bet9ja_odds"]), bench, idx)
     url = row.get("benchmark_url", "").lower()
     source = next((s for s in BENCHMARK_SOURCES if s in url), "unknown")

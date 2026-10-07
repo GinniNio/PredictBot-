@@ -503,6 +503,70 @@ class PolymarketFeed(unittest.TestCase):
         self.assertEqual(odds_sources.side_match("Saint Vincent and the Grenadines", "St. Vincent and the Grenadines"), "exact")
 
 
+class ChatWorkflowDocs(unittest.TestCase):
+    """predictbot/chat/: the rulebook's Python block must run and agree with the
+    app, and a ledger in its columns must import and be recomputed."""
+    DOCS = Path(__file__).resolve().parent.parent / "chat"
+
+    def test_rulebook_block_runs_and_matches_the_app(self):
+        import re as _re
+        text = (self.DOCS / "PCBF-MINI-v1.4.md").read_text(encoding="utf-8")
+        block = _re.search(r"## Python block.*?```python\n(.*?)```", text, _re.S).group(1)
+        ns = {}
+        exec(block, ns)                      # its own asserts must pass
+        books = [[1.50, 4.75, 6.50], [1.48, 4.50, 6.00], [1.48, 4.30, 6.30], [1.47, 4.64, 6.35], [1.46, 4.70, 6.00]]
+        fair = [sum(pcbf.devig_prop(b)[k] for b in books) / len(books) for k in range(3)]
+        self.assertEqual(ns["edge"](1.60, ns["oddsportal_market"](books), 0), pcbf.edge(1.60, [1 / x for x in fair], 0))
+        self.assertEqual(ns["min_odds"](3.275), pcbf.min_odds(1 / 3.275))
+        header = _re.search(r"## Ledger.*?```\n(.*?)\n```", text, _re.S).group(1).split(",")
+        self.assertIn("benchmark_odds", header)
+        self.assertIn("selection_index", header)
+
+    def test_v14_ledger_imports_and_is_recomputed(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            df = DataFolder(tmp, host="HP")
+            text = (self.DOCS / "PCBF-MINI-v1.4.md").read_text(encoding="utf-8")
+            import re as _re
+            header = _re.search(r"## Ledger.*?```\n(.*?)\n```", text, _re.S).group(1).split(",")
+            rows = [
+                dict(record_id="20261007-001", date="2026-10-07", tier="PICK", sport="soccer", competition="Friendly",
+                     game="France v Belgium", kickoff_utc="2026-10-07T18:45Z", market="1X2_REGULATION",
+                     selection="France (home)", selection_index="0", bet9ja_odds="1.65",
+                     bet9ja_market_odds="1.65/4.40/6.50", benchmark_source="oddsportal",
+                     benchmark_odds="1.561/4.900/6.526", benchmark_url="https://www.oddsportal.com/x",
+                     benchmark_time="2026-10-07T10:00Z"),
+                dict(record_id="20261007-002", date="2026-10-07", tier="PICK", sport="tennis", competition="ATP",
+                     game="Broska, Florian v Neumayer, Lukas", kickoff_utc="2026-10-07T12:00Z", market="MATCH_WINNER",
+                     selection="Broska, Florian", selection_index="0", bet9ja_odds="3.80", benchmark_source="polymarket",
+                     benchmark_odds="3.390/1.418", benchmark_url="https://polymarket.com/sports/atp/x",
+                     benchmark_time="2026-10-07T10:05Z"),
+                dict(record_id="20261007-003", date="2026-10-07", tier="RESEARCH", sport="tennis", competition="UTR",
+                     game="A v B", kickoff_utc="2026-10-07T12:00Z", market="MATCH_WINNER", selection="A",
+                     selection_index="0", bet9ja_odds="2.10", note="not on Pinnacle, OddsPortal or Polymarket"),
+            ]
+            p = tmp / "pcbf-ledger-2026-10-07.csv"
+            with p.open("w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=header)
+                w.writeheader()
+                w.writerows(rows)
+            got = workflow.import_pcbf_ledger(df, p, at("2026-10-07T11:00:00Z"))["imported"]
+            self.assertEqual([r["tier"] for r in got], ["PICK", "WATCH", "RESEARCH"])
+            self.assertEqual((got[0]["edge_pct"], got[0]["benchmark_source"], got[0]["min_odds"]), ("0.0570", "oddsportal", "1.61"))
+            self.assertIn("chat said PICK", got[1]["research_note"])          # the chat's label, kept for comparison
+            self.assertIn("no order-book evidence", got[1]["caution_flags"])
+            self.assertEqual(workflow.import_pcbf_ledger(df, p, at("2026-10-07T11:05:00Z"))["imported"], [])
+            # a new chat session that reuses record_id 001 for another game is still imported
+            rows[0].update(game="Italy v Turkiye", selection="Italy (home)")
+            with p.open("w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=header)
+                w.writeheader()
+                w.writerow(rows[0])
+            self.assertEqual(len(workflow.import_pcbf_ledger(df, p, at("2026-10-07T11:10:00Z"))["imported"]), 1)
+        finally:
+            shutil.rmtree(tmp)
+
+
 class TwoLaptops(unittest.TestCase):
     """Acceptance: start a session on one laptop, sync, continue on the other,
     and every record is still there exactly once."""

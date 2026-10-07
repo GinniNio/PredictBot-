@@ -1,0 +1,6 @@
+Follow the attached PCBF-MINI-v1.4.md exactly. It is the only rulebook; ignore every older PCBF version (v1.1-v1.3, v13-v16, Master, Lite, adapter cards).
+Use your code tool for every calculation: run the rulebook's Python block first and confirm its self-checks pass. If you cannot run code, stop and say so.
+Use web search for benchmarks and news.
+Attached: today's Bet9ja capture files and the ledger (pcbf-ledger.csv, may be empty).
+Run the workflow now. Do not ask whether to continue. Zero PICKs is a valid result.
+Then give me the output in the order of the run prompt, and the updated ledger CSV to download.

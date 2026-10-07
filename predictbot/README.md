@@ -117,4 +117,5 @@ Rows are never edited or deleted. When a newer app adds columns, a file is rewri
 | `workflow.py` | The daily loop joining core and storage |
 | `tickets.py` | Bet9ja ticket P&L from bet captures |
 | `app.py` | Thin stdlib web interface |
+| `chat/` | Optional: the PCBF Mini v1.4 rulebook and prompts for running the whole workflow in a chat, to compare with the app |
 | `tests/` | `python -m unittest discover -s predictbot/tests` |
