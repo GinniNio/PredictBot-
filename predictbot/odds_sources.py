@@ -21,7 +21,7 @@ import re
 import unicodedata
 from datetime import timedelta
 
-from pcbf import parse_time, utc
+from pcbf import devig_power, devig_prop, parse_time, utc
 
 # Depth is judged on resting liquidity and the bid/ask spread. There is no
 # traded-volume rule: pre-match volume builds near kickoff, and a $5,000
@@ -238,10 +238,14 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     if not rows:
         return []
     avg = [sum(r[1][k] for r in rows) / len(rows) for k in range(n)]
-    # Each bookmaker's margin is removed separately, then the probability
-    # vectors are averaged (operator's odds-source audit, 2026-10-06). A
-    # margin is never formed from prices taken across different books.
-    per_book = [[(1 / o) / sum(1 / x for x in odds) for o in odds] for _, odds in rows]
+    # Each bookmaker's margin is removed separately with the rulebook's
+    # cautious de-vig (the lower of proportional and power per outcome), then
+    # the probabilities are averaged (audit 2026-10-06; caution kept per
+    # bookmaker, operator 2026-10-07). A margin is never formed from prices
+    # taken across different books. The result sums to just under 1, and the
+    # rulebook's edge() returns it unchanged (its power de-vig leaves a book
+    # under 100% as it is, and edge() takes the lower estimate).
+    per_book = [[min(a, b) for a, b in zip(devig_prop(odds), devig_power(odds))] for _, odds in rows]
     fair = [sum(v[k] for v in per_book) / len(per_book) for k in range(n)]
     kick = None
     km = re.search(r"\|(\d{2}) ([A-Za-z]{3}) (\d{4}),\|(\d{2}):(\d{2})\|", text)
@@ -258,7 +262,7 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
             "volume": None, "spread": None, "closed": False}
     out = [_finish({**base, "source": "oddsportal", "probs": fair, "odds": [round(o, 3) for o in avg],
                     "bookmakers": "; ".join(r[0] for r in rows), "bookmaker_count": len(rows),
-                    "price_basis": f"mean of {len(rows)} bookmakers' de-vigged probabilities", "depth": len(rows)})]
+                    "price_basis": f"mean of {len(rows)} bookmakers' cautious de-vigged probabilities", "depth": len(rows)})]
     pin = next((r for r in rows if r[0].lower().startswith("pinnacle")), None)
     if pin:   # PCBF: Pinnacle first, "direct or via a comparison site"
         out.append(_finish({**base, "source": "pinnacle", "probs": [1 / o for o in pin[1]], "odds": pin[1],
@@ -459,7 +463,7 @@ def reply_fields(q: dict, order: list[int]) -> list[str]:
     captured quote exactly as it validates chat research."""
     prices = [1 / q["probs"][i] for i in order]
     if q["source"] == "oddsportal":
-        note = "oddsportal: mean of %d bookmakers' de-vigged probabilities%s" % (q["bookmaker_count"], "" if q["start_utc"] else
+        note = "oddsportal: mean of %d bookmakers' cautious de-vigged probabilities%s" % (q["bookmaker_count"], "" if q["start_utc"] else
                                                            "; kickoff time not on page in UTC, matched by names + date")
         return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices), note]
     if q["source"] == "pinnacle":

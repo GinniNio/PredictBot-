@@ -515,8 +515,16 @@ class ChatWorkflowDocs(unittest.TestCase):
         ns = {}
         exec(block, ns)                      # its own asserts must pass
         books = [[1.50, 4.75, 6.50], [1.48, 4.50, 6.00], [1.48, 4.30, 6.30], [1.47, 4.64, 6.35], [1.46, 4.70, 6.00]]
-        fair = [sum(pcbf.devig_prop(b)[k] for b in books) / len(books) for k in range(3)]
-        self.assertEqual(ns["edge"](1.60, ns["oddsportal_market"](books), 0), pcbf.edge(1.60, [1 / x for x in fair], 0))
+        run = {"source_key": "oddsportal", "browser_utc_offset_minutes": 240, "captures": [{
+            "capture_status": "CAPTURE_OK", "captured_at_utc": "2026-10-05T16:47:00Z",
+            "source_url": "https://www.oddsportal.com/football/h2h/a-AAAAAAAA/b-BBBBBBBB/",
+            "page_title": "France - Belgium Odds, Predictions & H2H | OddsPortal",
+            "html": "<body><div>05 Oct 2026,</div><div>22:45</div><div>Bookmakers</div><div>1</div><div>X</div><div>2</div>"
+                    "<div>Payout</div>" + "".join(f"<div>b{i}</div><p>{a}</p><p>{x}</p><p>{c}</p><p>95.0%</p>"
+                                                    for i, (a, x, c) in enumerate(books)) + "<div>My coupon</div></body>"}]}
+        app_odds = [1 / p for p in odds_sources.quotes_from_walk(run)[0]["probs"]]
+        for k, price in enumerate((1.60, 4.40, 6.50)):
+            self.assertEqual(ns["edge"](price, ns["oddsportal_market"](books), k), pcbf.edge(price, app_odds, k))
         self.assertEqual(ns["min_odds"](3.275), pcbf.min_odds(1 / 3.275))
         header = _re.search(r"## Ledger.*?```\n(.*?)\n```", text, _re.S).group(1).split(",")
         self.assertIn("benchmark_odds", header)

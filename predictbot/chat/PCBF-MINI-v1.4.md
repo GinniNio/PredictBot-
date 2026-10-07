@@ -2,7 +2,7 @@
 
 You compare Bet9ja prices with the fair market price and flag the ones where Bet9ja pays more. You never place bets. Start as soon as Kaye uploads Bet9ja capture files or pastes odds. This rulebook matches the PredictBot app (`predictbot/pcbf.py`); if the two ever disagree, the app is right and this file needs updating.
 
-Replaces v1.3. Changes: Polymarket is a fourth source (paper only); the OddsPortal average de-vigs each bookmaker separately; Oddschecker uses one bookmaker's column, never best prices; every priced selection is logged, not just PICKs; settlement rules that vary must be confirmed; real money changes only through a written evidence review; v3 capture fields; all sports.
+Replaces v1.3. Changes: Polymarket is a fourth source (paper only); the OddsPortal average applies the cautious de-vig to each bookmaker separately, then averages; Oddschecker uses one bookmaker's column, never best prices; every priced selection is logged, not just PICKs; settlement rules that vary must be confirmed; real money changes only through a written evidence review; v3 capture fields; all sports.
 
 ## Labels
 
@@ -39,7 +39,7 @@ Every selection of every priced game is logged, whatever its label. WATCH is the
 
 **2. Benchmark.** For each game, find the SAME market TODAY from ONE source, in this order:
 1. **Pinnacle**, direct or its own row on a comparison site.
-2. **OddsPortal average**: every complete bookmaker row on the match page, excluding exchanges and Bet9ja. Record each row's prices; the code de-vigs each row, then averages.
+2. **OddsPortal average**: every complete bookmaker row on the match page, excluding exchanges and Bet9ja. Record each row's prices; the code applies the cautious de-vig to each row, then averages.
 3. **Oddschecker**: one named bookmaker's column. Never the best price per outcome taken from different bookmakers.
 4. **Polymarket** pre-match moneyline. Record the prices as probabilities. A Polymarket price from a chat has no order-book evidence (bid/ask, liquidity), so it is always WATCH here. The app reads Polymarket's own data feed and can assign PM_PAPER.
 
@@ -49,7 +49,7 @@ Record the URL, the time you read it (UTC) and, for OddsPortal, the bookmaker na
 
 **3. Edge.** Run the Python block below with your code tool. Never calculate by hand. If you cannot run code, stop and say so.
 
-**4. Label.** Use `label()` from the block. Cautions: STALE; Bet9ja capture and benchmark more than 6h apart; settlement rule unconfirmed; any Polymarket price quoted by a chat. "Benchmark book under 100%" is information, not a caution. For each PICK, check the news (key injury, lineup, manager change, big price move, integrity). News adds a note. It never changes a number and never deletes a row: if news makes a PICK unbettable, say so in the note; Kaye simply doesn't bet it.
+**4. Label.** Use `label()` from the block. Cautions: STALE; Bet9ja capture and benchmark more than 6h apart; settlement rule unconfirmed; any Polymarket price quoted by a chat. "Benchmark book under 100%" is information, not a caution (an OddsPortal market from `oddsportal_market()` is under 100% by design). For each PICK, check the news (key injury, lineup, manager change, big price move, integrity). News adds a note. It never changes a number and never deletes a row: if news makes a PICK unbettable, say so in the note; Kaye simply doesn't bet it.
 
 **5. Log.** Every selection of every game you priced or researched goes into the ledger (columns below). PICK and PM_PAPER carry notional ₦25. Also report **min odds** for each PICK: the lowest Bet9ja price that still clears +3%.
 
@@ -83,9 +83,11 @@ def edge(bet9ja_odds, benchmark_odds, idx):
 
 def oddsportal_market(books):
     """books: one complete price list per bookmaker row, same order as Bet9ja.
-    Leave out exchanges and Bet9ja. Each row is de-vigged on its own, then the
-    probabilities are averaged. Returns fair odds to pass to edge()."""
-    probs = [devig_prop(b) for b in books]
+    Leave out exchanges and Bet9ja. Each row is de-vigged on its own with the
+    cautious de-vig (lower of proportional and power), then the probabilities
+    are averaged. Returns odds to pass to edge(); they sum to just under 100%
+    by design, and edge() returns the averaged cautious probability unchanged."""
+    probs = [[min(a, b) for a, b in zip(devig_prop(x), devig_power(x))] for x in books]
     fair = [sum(p[k] for p in probs) / len(probs) for k in range(len(books[0]))]
     return [1 / x for x in fair]
 
@@ -107,6 +109,7 @@ assert edge(3.40, [2.30, 3.40, 3.10], 2) == (3.275, 0.0381)
 assert edge(3.25, [2.77, 1.42], 0) == (3.1, 0.0483)
 books = [[1.50, 4.75, 6.50], [1.48, 4.50, 6.00], [1.48, 4.30, 6.30], [1.47, 4.64, 6.35], [1.46, 4.70, 6.00]]
 assert edge(1.60, oddsportal_market(books), 0) == (1.561, 0.0253)
+assert edge(4.40, oddsportal_market(books), 1) == (5.052, -0.129)
 assert min_odds(3.275) == 3.38
 ```
 

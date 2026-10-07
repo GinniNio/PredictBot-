@@ -380,9 +380,10 @@ class OddsPortal(unittest.TestCase):
         self.assertEqual(q["bookmakers"], "1xBet; bet365; Betsson; 22Bet; Stake.com")
         # each book de-vigged on its own, then averaged: first book 1.50/4.75/6.50 -> 0.6467 home
         books = [r[1:4] for r in rows]
-        expect = sum((1 / b[0]) / sum(1 / x for x in b) for b in books) / len(books)
-        self.assertAlmostEqual(q["probs"][0], expect)
-        self.assertAlmostEqual(sum(q["probs"]), 1.0)
+        cautious = [[min(a, b) for a, b in zip(pcbf.devig_prop(x), pcbf.devig_power(x))] for x in books]
+        for k in range(3):
+            self.assertAlmostEqual(q["probs"][k], sum(c[k] for c in cautious) / len(cautious))
+        self.assertLess(sum(q["probs"]), 1.0)                  # caution kept: draws and longshots priced longer
         cand = pcbf.candidates_from_capture(walker("soccer", [("1x2", [1.5, 4.4, 6.5])], home="France", away="Belgium"), "h")[0]
         cand["kickoff_utc"] = "2026-10-05T18:45Z"
         q2, order = odds_sources.match_quote(cand, [q])
