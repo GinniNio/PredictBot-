@@ -123,7 +123,9 @@ def min_odds(fair_prob: float, required_edge: float = PICK_EDGE) -> float:
     return math.ceil((1 + required_edge) / fair_prob * 100 - 1e-9) / 100
 
 
-BANNED_WORDS = re.compile(r"\b(russia|russian|belarus|iran)\b", re.I)
+BANNED_WORDS = re.compile(r"\b(russia|russian|belarus|belarusian|iran|iranian|vtb united league|khl)\b", re.I)   # VTB / KHL: Russian leagues
+# Russian-based leagues listed under neutral names on Bet9ja: (sport, competition label).
+BANNED_COMPETITIONS = {("basketball", "united league")}
 BANNED_COMPETITION_COUNTRIES = {"turkey", "turkiye", "bulgaria", "united arab emirates", "uae",
                                 "russia", "belarus", "iran"}
 YOUTH = re.compile(r"\b(u\s?-?\d{2}|under[\s-]?\d{2}|youth|juniors?|reserves?|amateur|"
@@ -361,7 +363,8 @@ def screen(c: dict, now: datetime) -> str | None:
     text = f"{c['competition']} {c['home']} {c['away']}"
     if VIRTUAL.search(text) or VIRTUAL.search(c.get("country", "")):
         return "virtual / simulated event"
-    if BANNED_WORDS.search(text) or c.get("country", "").lower() in BANNED_COMPETITION_COUNTRIES:
+    if (BANNED_WORDS.search(text) or c.get("country", "").lower() in BANNED_COMPETITION_COUNTRIES
+            or (c.get("sport"), c["competition"].strip().lower()) in BANNED_COMPETITIONS):
         return "excluded country or competition"
     team_suffix = c.get("sport") not in INDIVIDUAL_SPORTS and (YOUTH_SUFFIX.search(c["home"]) or YOUTH_SUFFIX.search(c["away"]))
     if YOUTH.search(f"{text} {c.get('country', '')}") or team_suffix:

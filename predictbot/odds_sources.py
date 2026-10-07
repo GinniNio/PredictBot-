@@ -335,7 +335,10 @@ def _surname(bet9ja_name: str) -> str:
     return toks[0] if toks else ""
 
 
-TEAM_NOISE = {"fc", "cf", "sc", "ac", "afc", "club", "de", "the", "fk", "sk", "if", "bk", "cd", "ca", "sv"}
+TEAM_NOISE = {"fc", "cf", "sc", "ac", "afc", "club", "de", "the", "fk", "sk", "if", "bk", "cd", "ca", "sv",
+              # basketball, hockey, volleyball and handball club prefixes and suffixes
+              "bc", "cb", "kk", "kc", "bkc", "basket", "baskets", "basketball", "basketbol", "hc", "hk", "vc", "hb",
+              "volley", "handball", "feminin", "women", "w"}
 # Words shared by many unrelated teams: a match on these alone proves nothing.
 GENERIC = {"united", "city", "town", "real", "sporting", "athletic", "atletico", "county", "rovers", "wanderers",
            "st", "saint", "san", "santa", "inter", "dynamo", "dinamo", "olympic", "racing", "national", "women",

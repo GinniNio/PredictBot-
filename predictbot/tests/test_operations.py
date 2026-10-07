@@ -499,6 +499,19 @@ class PolymarketFeed(unittest.TestCase):
         with self.assertRaises(InvalidRecord):
             feeds.fetch_polymarket(self.df, self.now, opener=FakeFeed([self.events()]), pause=0)
 
+    def test_club_prefixes_do_not_match_different_teams(self):
+        self.assertIsNone(odds_sources.side_match("BC Juventus Utena", "BC Aris Thessaloniki"))
+        self.assertIsNone(odds_sources.side_match("CB Malaga", "CB San Pablo Burgos"))
+        self.assertIsNone(odds_sources.side_match("Tango Bourges Basket", "Derthona Basket"))
+        self.assertEqual(odds_sources.side_match("BC Aris Thessaloniki", "Aris Thessaloniki"), "exact")
+
+    def test_russian_leagues_screened(self):
+        c = pcbf.candidates_from_capture(walker("basketball", [("2_way", [1.3, 3.4])], home="Zenit Saint Petersburg",
+                                                away="Parma Permsky Kray", comp="VTB United League"), "h")[0]
+        self.assertEqual(pcbf.screen(c, at("2026-10-05T09:00:00Z")), "excluded country or competition")
+        c["competition"] = "United League"                    # Bet9ja's label for the VTB League
+        self.assertEqual(pcbf.screen(c, at("2026-10-05T09:00:00Z")), "excluded country or competition")
+
     def test_saint_abbreviation(self):
         self.assertEqual(odds_sources.side_match("Saint Vincent and the Grenadines", "St. Vincent and the Grenadines"), "exact")
 
