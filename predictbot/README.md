@@ -20,11 +20,12 @@ Stop it with the **Stop PredictBot** button (top right) before switching laptops
    - **Coverage by sport**: fixtures captured, with usable prices, screened out by the rulebook, benchmarked, unresolved (with reasons), on the shortlist.
    - **Shortlist**: PICK and PM_PAPER for upcoming games, with **min odds**: the lowest Bet9ja price that still clears +3% at the fair probability.
    - **Recheck**: type the Bet9ja price you see just before betting. The app stores the initial and rechecked odds and recomputes the edge and tier. Below min odds, skip it.
+   - **Your bets, automatically**: open and settled bet captures are read on every load. A ticket leg on a game and side the app logged before the bet becomes a bet record when it is staked as a single (the singles part of a system ticket; accumulator-only legs are reported on the Bets page, not counted). Settled legs settle every logged selection of that game (a lost 1X2 leg needs the score to tell draw from away). Nothing is entered by hand; the manual form on Bets is only for a bet with no capture.
 3. **Pending.** Everything waiting on you:
    - **Match review**: a benchmark event whose names only partly agree, or whose page has no kickoff time, or two events that both fit. Pick *Same game* or *Different*. If a higher-priority source is waiting for review, the fixture waits too, so a lower source never wins by default.
    - **Settlement rules to confirm** (below).
    - **No benchmark yet**: capture those sports on OddsPortal or Polymarket, or send them to a chat as a research pack (optional).
-   - **Settlement**: create a settlement pack for finished games and paste the chat's results back.
+   - **Settlement**: games on your settled tickets settle themselves. For the rest, create a settlement pack for finished games and paste the chat's results back.
    - **Handover** and **OneDrive conflicts** when they occur.
 4. **Performance.** Forecast quality, paper results, actual wagers, and the written evidence review.
 
@@ -115,7 +116,7 @@ Rows are never edited or deleted. When a newer app adds columns, a file is rewri
 | `schemas.py` | Record definitions, versions, validation |
 | `storage.py` | Append-only files, write guard, versions, conflict merge, session marker |
 | `workflow.py` | The daily loop joining core and storage |
-| `tickets.py` | Bet9ja ticket P&L from bet captures |
+| `tickets.py` | Bet9ja ticket P&L and leg parsing from bet captures (linking and settlement: `workflow.sync_tickets`) |
 | `app.py` | Thin stdlib web interface |
 | `chat/` | Optional: the PCBF Mini v1.4 rulebook and prompts for running the whole workflow in a chat, to compare with the app |
 | `tests/` | `python -m unittest discover -s predictbot/tests` |

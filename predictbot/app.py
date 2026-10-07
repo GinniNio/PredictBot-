@@ -111,6 +111,9 @@ def update_now() -> str:
         msg.append(f"Polymarket feed: {f['events']} upcoming games" + (f" (partial: {f['error']})" if f["error"] else ""))
     elif f["status"] == "failed":
         msg.append(f"Polymarket feed unavailable ({f['error']}); using earlier fetches")
+    t = workflow.sync_tickets(DF, now(), [DOWNLOADS])
+    if t["bets"] or t["settled"]:
+        msg.append(f"Bet9ja tickets: {t['bets']} bets linked, {t['settled']} selections settled")
     r = workflow.auto_benchmark(DF, now(), [DOWNLOADS])
     events = {x["selection_id"].rsplit(":", 1)[0] for x in r["records"]}
     msg.append(f"{len(events)} fixtures priced from captured odds pages")
@@ -402,35 +405,50 @@ def page_selections(query) -> str:
 
 
 def page_bets(msg="", rid="") -> str:
-    sels = [s for s in DF.read("selection") if s["tier"] != "REJECTED"][-300:]
-    opts = "".join(f"<option value='{e(s['selection_record_id'])}'{' selected' if s['selection_record_id'] == rid else ''}>"
-                   f"{e(s['tier'])} {e(s['event_name'])}: {e(s['selection'])} @ {e(s['bookmaker_odds'])}</option>"
-                   for s in reversed(sels))
+    sync = workflow.sync_tickets(DF, now(), [DOWNLOADS], write=not blocked())
+    sels = {s["selection_record_id"]: s for s in DF.read("selection")}
     bets = DF.read("bet")
-    form = ("<form method='post' action='/bet' class='bet'><h2>Record an actual bet</h2>"
-            f"<select name='selection_record_id'>{opts}</select>"
-            "<input name='stake' placeholder='stake NGN' required> <input name='odds' placeholder='odds taken' required> "
-            f"<input name='placed' value='{pcbf.utc(now())}'> <input name='ticket' placeholder='Bet9ja ticket ID'> "
-            "<button>Save bet</button></form><p class='dim'>Only selections already logged can carry a bet.</p>")
-    bt = table(["Placed", "Stake", "Odds", "Ticket", "Selection record"],
-               [[e(b["placed_at_utc"]), e(b["stake"]), e(b["bookmaker_odds"]), e(b["ticket_reference"]),
-                 f"<code>{e(b['selection_record_id'])}</code>"] for b in reversed(bets)])
-    caps = []
-    for path, raw in DF.capture_files([DOWNLOADS]):
-        try:
-            d = json.loads(raw.decode("utf-8"))
-        except ValueError:
-            continue
-        if isinstance(d, dict) and str(d.get("schema_version", "")).startswith(("bet9ja-ticket", "bet9ja-settled")):
-            caps.append((path, d))
-    tk = tickets.all_tickets(caps)
+    bt = table(["Placed", "Game", "Selection", "Stake", "Odds", "Tier then", "Ticket", "How"],
+               [[e(b["placed_at_utc"]), e(sels.get(b["selection_record_id"], {}).get("event_name", "?")),
+                 e(sels.get(b["selection_record_id"], {}).get("selection", "?")), e(b["stake"]),
+                 e(b["bookmaker_odds"]), e(sels.get(b["selection_record_id"], {}).get("tier", "?")),
+                 e(b["ticket_reference"]), "<span class='dim'>" + ("ticket capture" if b.get("note", "").startswith("auto")
+                                                                    else "entered by hand") + "</span>"]
+                for b in reversed(bets)])
+    c = sync["counts"]
+    order = ["linked", "linked (new)", "accumulator only", "bet placed before the app priced it", "side not logged",
+             "selection not understood", "odds, stake or time unreadable", "game not logged", "other market"]
+    counts = ", ".join(f"{c[k]} {k}" for k in order if c.get(k))
+    unl = [l for l in sync["legs"] if l["record"] and not l["status"].startswith("linked")]
+    probs = "".join(f"<li>ticket {e(t)}, {e(g)}: {e(w)}</li>" for t, g, w in sync["problems"][:20])
+    head = ("<h2>Bets (linked automatically)</h2><p>Every open and settled bet capture in Downloads or the data folder "
+            "is read when Opportunities loads. A leg on a game and side the app logged becomes a bet when it is staked "
+            "as a single (the singles part of a system ticket); settled legs settle that game's logged selections. "
+            "Nothing needs entering by hand.</p>"
+            f"<p>{len(sync['tickets'])} tickets, {len(sync['legs'])} legs: {e(counts) or 'none'}.</p>"
+            + ("<p class='err'>Data folder is read-only, so nothing new was recorded (see Pending).</p>" if blocked() else "")
+            + (f"<p>Not settled from tickets:</p><ul>{probs}</ul>" if probs else ""))
+    acc = table(["Placed", "Ticket", "Game", "Selection", "Odds", "Why not a bet"],
+                [[e(l["placed"]), e(l["ticket"]), e(l["game"]), e(l["selection"]), e(l["odds"]), e(l["status"])]
+                 for l in unl[:100]]) if unl else ""
+    tk = sync["tickets"]
     s = tickets.summary(tk)
-    rec = (f"<h2>Bet9ja tickets (from open / settled bet captures)</h2><p>{s['settled']} settled tickets: staked "
+    rec = (f"<h2>Bet9ja tickets (all bets, whole tickets)</h2><p>{s['settled']} settled tickets: staked "
            f"{num(s['staked'], 0)}, returned {num(s['returned'], 0)} (calculated), P&amp;L <b>{num(s['pnl'], 0)}</b>"
            f"{' (' + pct(float(s['roi']), 0) + ')' if s['roi'] is not None else ''}. {s['open']} open, "
            f"{num(s['open_staked'], 0)} staked. {s['won_below_stake']} of {s['won_marked']} 'won' tickets returned "
            "less than their stake.</p>") if tk else "<p class='dim'>No Bet9ja ticket captures found.</p>"
-    return (f"<p class='msg'>{e(msg)}</p>" if msg else "") + form + bt + rec
+    opts = "".join(f"<option value='{e(x['selection_record_id'])}'{' selected' if x['selection_record_id'] == rid else ''}>"
+                   f"{e(x['tier'])} {e(x['event_name'])}: {e(x['selection'])} @ {e(x['bookmaker_odds'])}</option>"
+                   for x in reversed([x for x in sels.values() if x["tier"] != "REJECTED"][-300:]))
+    form = ("<details" + (" open" if rid else "") + "><summary>Enter a bet by hand (only if it has no ticket capture)"
+            "</summary><form method='post' action='/bet' class='bet'>"
+            f"<select name='selection_record_id'>{opts}</select>"
+            "<input name='stake' placeholder='stake NGN' required> <input name='odds' placeholder='odds taken' required> "
+            f"<input name='placed' value='{pcbf.utc(now())}'> <input name='ticket' placeholder='Bet9ja ticket ID'> "
+            "<button>Save bet</button></form></details>")
+    return ((f"<p class='msg'>{e(msg)}</p>" if msg else "") + head + bt
+            + ("<h2>Legs on logged games that are not bets</h2>" + acc if acc else "") + rec + form)
 
 
 # ------------------------------------------------------------------ server

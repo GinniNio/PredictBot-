@@ -13,6 +13,7 @@ from pathlib import Path
 import odds_sources
 import pcbf
 import schemas
+import tickets
 from storage import DataFolder
 
 
@@ -514,3 +515,150 @@ def walker_targets(df: DataFolder, now: datetime) -> dict:
                 for r in status["rows"] if r["state"] in ("no benchmark", "match review", "unresolved")]
     return {"schema_version": "predictbot-walker-targets.v1", "generated_at_utc": pcbf.utc(now),
             "fixtures": fixtures}
+
+
+# ------------------------------------------------------ Bet9ja ticket sync
+
+TICKET_SCHEMAS = ("bet9ja-ticket-capture", "bet9ja-settled-bets")
+MAX_LEAD = timedelta(days=7)        # a bet is linked to a game kicking off within a week of placing it
+PRICE_SLACK = timedelta(minutes=2)  # ticket times are whole minutes
+
+
+def ticket_captures(df: DataFolder, extra_folders=()) -> list:
+    out = []
+    for path, raw in df.capture_files(extra_folders):
+        if not any(k.encode() in raw for k in TICKET_SCHEMAS):
+            continue
+        try:
+            d = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        if isinstance(d, dict) and str(d.get("schema_version", "")).startswith(TICKET_SCHEMAS):
+            out.append((path, d))
+    return out
+
+
+def _result_pos(res: str, idx: int, n: int, score) -> tuple[str | None, str | None]:
+    """Leg outcome -> result position for settlement_and_closing, or a reason."""
+    outcomes = ["1", "X", "2"] if n == 3 else ["1", "2"]
+    if res == "VOID":
+        return "VOID", None
+    if res == "WON":
+        return outcomes[idx], None
+    if n == 2:
+        return outcomes[1 - idx], None
+    if not score:
+        return None, "lost 1X2 leg without a score"
+    pos = "1" if score[0] > score[1] else ("X" if score[0] == score[1] else "2")
+    if pos == outcomes[idx]:
+        return None, f"lost leg but score {score[0]}:{score[1]} says it won"
+    return pos, None
+
+
+def _bet_rank(s: dict, placed, now):
+    """Prefer a priced row; then the latest priced before the bet, else the earliest after."""
+    p = pcbf.parse_time(s["priced_at_utc"]) or now
+    before = placed is None or p <= placed
+    return (s["tier"] not in schemas.PRICED_TIERS, not before, -p.timestamp() if before else p.timestamp())
+
+
+def sync_tickets(df: DataFolder, now: datetime, extra_folders=(), captures=None, write: bool = True) -> dict:
+    """Link legs of captured Bet9ja tickets to logged selections and settle
+    from settled legs, so nothing is entered by hand. A leg counts as a bet
+    only when it is staked as a single (the rulebook is singles only); legs
+    that are only in accumulators are reported, not recorded. Idempotent.
+    write=False reports what would be linked without recording it."""
+    tks = tickets.all_tickets(ticket_captures(df, extra_folders) if captures is None else captures)
+    sels = [s for s in df.read("selection") if s["tier"] != "REJECTED"]
+    by_names: dict = {}
+    for s in sels:
+        home, _, away = (s.get("event_name") or "").partition(" v ")
+        by_names.setdefault((tickets.norm_name(home), tickets.norm_name(away)), []).append(s)
+    bets = df.read("bet")
+    linked = {(b["ticket_reference"], b["selection_record_id"]) for b in bets}
+    settled = {s["selection_record_id"] for s in df.read("settlement")}
+    new_bets, new_st, legs, problems = [], [], [], []
+    for t in tks:
+        placed = tickets.placed_utc(t["placed_raw"])
+        single = tickets.single_stake(t)
+        for leg in t["legs"]:
+            home, away, kick = tickets.split_fixture(leg.get("fixture_and_time_raw"), placed)
+            row = {"ticket": t["id"], "placed": pcbf.utc(placed), "game": f"{home} v {away}" if home else
+                   leg.get("fixture_and_time_raw", ""), "market": leg.get("market_raw", ""),
+                   "selection": leg.get("selection", ""), "odds": str(leg.get("odds") or ""),
+                   "result": tickets.leg_result(leg) or "", "record": "", "status": ""}
+            legs.append(row)
+            key = tickets.market_key(leg.get("market_raw"))
+            named = by_names.get((tickets.norm_name(home), tickets.norm_name(away)), [])
+            pool = [s for s in named if pcbf.market_for(s["sport"], key, pcbf.MARKETS[s["market"]]["outcomes"])
+                    == s["market"]]
+            kicks = {}
+            for s in pool:
+                k = parse_kick(s)
+                ok = k and (not placed or placed <= k <= placed + MAX_LEAD) and (not kick or abs(k - kick) <= timedelta(hours=3))
+                if ok:
+                    kicks.setdefault(_event(s["selection_id"]), (k, []))[1].append(s)
+            if not kicks:
+                row["status"] = ("other market" if (named and not pool) or key not in pcbf.MAIN_KEYS
+                                 else "game not logged")
+                continue
+            ev, (k, group) = min(kicks.items(), key=lambda kv: kv[1][0])
+            n = pcbf.MARKETS[group[0]["market"]]["outcomes"]
+            idx = tickets.side_index(leg.get("selection"), home, away, n)
+            if idx is None:
+                row["status"] = "selection not understood"
+                continue
+            same = [s for s in group if str(s.get("selection_index")) == str(idx)]
+            sel = min(same, key=lambda s: _bet_rank(s, placed, now)) if same else None
+            if sel is None:
+                row["status"] = "side not logged"
+            elif placed and (pcbf.parse_time(sel["priced_at_utc"]) or now) > placed + PRICE_SLACK:
+                row["status"] = "bet placed before the app priced it"
+            else:
+                row["record"] = sel["selection_record_id"]
+                ids = {s["selection_record_id"] for s in same}
+                if any((t["id"], i) in linked for i in ids):
+                    row["status"] = "linked"
+                elif single is None:
+                    row["status"] = "accumulator only"
+                else:
+                    try:
+                        odds = float(leg.get("odds"))
+                    except (TypeError, ValueError):
+                        odds = 0
+                    if odds <= 1 or not placed or single <= 0:
+                        row["status"] = "odds, stake or time unreadable"
+                    else:
+                        rec = {"bet_id": schemas.stable_id("bet", "ticket", t["id"], sel["selection_record_id"]),
+                               "selection_record_id": sel["selection_record_id"], "placed_at_utc": pcbf.utc(placed),
+                               "stake": f"{single:.2f}", "bookmaker_odds": f"{odds:g}", "currency": "NGN",
+                               "ticket_reference": t["id"],
+                               "note": "auto from Bet9ja ticket capture" + (" (singles in a system ticket)"
+                                                                           if t["buckets"] else "")}
+                        new_bets.append(rec)
+                        linked.add((t["id"], sel["selection_record_id"]))
+                        row["status"] = "linked (new)"
+            res = tickets.leg_result(leg)
+            if res:
+                pos, why = _result_pos(res, idx, n, tickets.leg_score(leg))
+                if pos is None:
+                    problems.append((t["id"], row["game"], why))
+                    continue
+                for s in group:
+                    rid = s["selection_record_id"]
+                    if rid in settled:
+                        continue
+                    st, _cl, err = pcbf.settlement_and_closing(s, pos, None, now, f"bet9ja ticket {t['id']}")
+                    if st is None:
+                        problems.append((t["id"], row["game"], err))
+                        break
+                    new_st.append(st)
+                    settled.add(rid)
+    if write:
+        df.append("bet", new_bets)
+        df.append("settlement", new_st)
+    count = {}
+    for r in legs:
+        count[r["status"]] = count.get(r["status"], 0) + 1
+    return {"tickets": tks, "legs": legs, "bets": len(new_bets), "settled": len(new_st), "counts": count,
+            "problems": problems}
