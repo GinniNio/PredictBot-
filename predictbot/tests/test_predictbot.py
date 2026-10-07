@@ -301,7 +301,7 @@ class Polymarket(unittest.TestCase):
                                                           "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z",
                                                           bid=0.12, ask=1.0))[0]
         self.assertEqual(odds_sources.quote_problem(inplay), "captured after the event started (in-play price)")
-        self.assertTrue(odds_sources.quote_problem(thin).startswith("thin market"))
+        self.assertIsNone(odds_sources.quote_problem(thin))      # low traded volume alone is not a problem (no volume rule)
         self.assertTrue(odds_sources.quote_problem(wide).startswith("wide market"))
         self.assertTrue(wide["price_basis"].startswith("displayed price (differs"))
         shallow = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.5", "0.5"], "90000",
@@ -321,13 +321,14 @@ class Polymarket(unittest.TestCase):
         self.assertIsNone(odds_sources.match_quote(self.cand, qs))
 
 
-def poly_soccer(home, away, yes, vols, start, taken):
+def poly_soccer(home, away, yes, vols, start, taken, liquidity="90000"):
     qs = [f"Will {home} win on 2026-10-05?", f"Will {home} vs. {away} end in a draw?", f"Will {away} win on 2026-10-05?"]
     parts = []
     for q, p, v in zip(qs, yes, vols):
         parts.append('{"question":"%s","outcomes":["Yes","No"],"outcomePrices":["%s","%s"],"volume":"%s",'
                      '"active":true,"closed":false,"sportsMarketType":"moneyline","bestBid":%.3f,"bestAsk":%.3f,'
                      '"gameStartTime":"%s"}' % (q, p, round(1 - p, 3), v, p - 0.005, p + 0.005, start))
+        parts[-1] = parts[-1].replace('{"question":"%s",' % q, '{"question":"%s","liquidity":"%s",' % (q, liquidity))
     html = "<script>" + ",".join(parts).replace('"', '\\"') + "</script>"
     return {"source_key": "polymarket", "captures": [{"role": "event", "capture_status": "CAPTURE_OK",
             "captured_at_utc": taken, "source_url": "https://polymarket.com/sports/unl/unl-ita-tur-2026-10-05", "html": html}]}

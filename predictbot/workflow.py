@@ -339,6 +339,7 @@ def coverage(df: DataFolder, status: dict, now: datetime) -> list[dict]:
         key = r["reason"] if r["state"] in ("screened out", "unresolved") else r["state"]
         key = re.sub(r"\(found: .*\)", "", key).strip()
         key = re.sub(r"(thin|wide|shallow) market:.*", r"\1 market", key)   # group by kind, not by amount
+        key = re.sub(r"market depth unknown:.*", "market depth unknown", key)
         key = re.sub(r"only \d+ bookmakers listed.*", "too few bookmakers", key)
         bucket = "screen_reasons" if r["state"] == "screened out" else "reasons"
         d["screened_out" if r["state"] == "screened out" else "unresolved"] += 1

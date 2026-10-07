@@ -379,13 +379,13 @@ class ReviewRegressions(unittest.TestCase):
     def test_research_fixture_shows_as_unresolved(self):
         soccer_day(self.tmp)
         run = json.loads((self.tmp / "captures" / "public-odds-walk-polymarket-2026-10-05T13-56.json").read_text())
-        run["captures"][0]["html"] = run["captures"][0]["html"].replace('\\"volume\\":\\"52110\\"', '\\"volume\\":\\"900\\"')
+        run["captures"][0]["html"] = run["captures"][0]["html"].replace('\\"liquidity\\":\\"90000\\"', '\\"liquidity\\":\\"900\\"', 1)
         (self.tmp / "captures" / "public-odds-walk-polymarket-2026-10-05T13-56.json").write_text(json.dumps(run))
         recs = workflow.auto_benchmark(self.df, at("2026-10-05T14:00:00Z"))["records"]
         self.assertEqual({r["tier"] for r in recs}, {"RESEARCH"})
         row = workflow.day_status(self.df, at("2026-10-05T14:00:00Z"))["rows"][0]
         self.assertEqual(row["state"], "unresolved")
-        self.assertIn("thin market", row["reason"])
+        self.assertIn("shallow market", row["reason"])
 
     def test_review_decision_survives_recapture(self):
         q = Matching.soccer_quote(None, "Manchester United", "Leeds United")

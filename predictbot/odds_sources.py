@@ -23,9 +23,12 @@ from datetime import timedelta
 
 from pcbf import parse_time, utc
 
-MIN_POLYMARKET_VOLUME = 5000.0     # USD traded on the moneyline; thinner = RESEARCH
+# Depth is judged on resting liquidity and the bid/ask spread. There is no
+# traded-volume rule: pre-match volume builds near kickoff, and a $5,000
+# volume floor rejected 597 of 627 feed quotes on 6 Oct (operator decision,
+# 7 Oct 2026). Rules under evaluation.
 MAX_POLYMARKET_SPREAD = 0.04       # best ask - best bid; wider = RESEARCH
-MIN_POLYMARKET_LIQUIDITY = 5000.0  # USD resting liquidity on the thinnest leg; shallower = RESEARCH
+MIN_POLYMARKET_LIQUIDITY = 5000.0  # USD resting liquidity on the thinnest leg; shallower or unknown = RESEARCH
 SOURCE_PRIORITY = ("pinnacle", "oddsportal", "oddschecker", "polymarket")   # PCBF Mini order
 KICKOFF_TOLERANCE = timedelta(hours=3)
 
@@ -300,11 +303,11 @@ def quote_problem(q: dict) -> str | None:
         return None
     if q["source"] != "polymarket":
         return None
-    if q["volume"] < MIN_POLYMARKET_VOLUME:
-        return f"thin market: ${q['volume']:,.0f} traded < ${MIN_POLYMARKET_VOLUME:,.0f}"
     if q["spread"] is not None and q["spread"] > MAX_POLYMARKET_SPREAD:
         return f"wide market: bid/ask spread {q['spread']:.2f} > {MAX_POLYMARKET_SPREAD:.2f}"
-    if q.get("depth") is not None and q["depth"] < MIN_POLYMARKET_LIQUIDITY:
+    if q.get("depth") is None:
+        return "market depth unknown: no liquidity figure"
+    if q["depth"] < MIN_POLYMARKET_LIQUIDITY:
         return f"shallow market: ${q['depth']:,.0f} liquidity < ${MIN_POLYMARKET_LIQUIDITY:,.0f}"
     if any(p <= 0 or p >= 1 for p in q["probs"]):
         return "price at 0 or 1"
