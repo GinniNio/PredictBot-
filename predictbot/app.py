@@ -189,7 +189,7 @@ def page_opportunities(msg="") -> str:
     watch.sort(key=watch_gap)
     near = [s for n, s in enumerate(watch) if n < NEAR_TOP or watch_gap(s) <= NEAR_GAP]
     far = watch[len(near):]
-    head = ["#"] + OPP_HEAD[:9] + ["Bet9ja must rise", "Benchmark", "Cautions"]
+    head = ["Rank"] + OPP_HEAD[:9] + ["Bet9ja must rise", "Benchmark", "Cautions"]
     rows = lambda ss, start: [[str(n)] + watch_row(s, bets_for) for n, s in enumerate(ss, start)]
     out.append(f"<h2>WATCH, closest to a PICK ({len(near)} of {len(watch)})</h2><p class='dim'>Ranked best first by "
                "<i>Bet9ja must rise</i>: how much Bet9ja's price would have to go up to reach min odds (+3% edge); "
