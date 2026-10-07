@@ -530,6 +530,14 @@ class ChatWorkflowDocs(unittest.TestCase):
         self.assertIn("benchmark_odds", header)
         self.assertIn("selection_index", header)
 
+    def test_gemini_skill_carries_the_same_block(self):
+        import re as _re
+        rulebook = (self.DOCS / "PCBF-MINI-v1.4.md").read_text(encoding="utf-8")
+        skill = (self.DOCS / "GEMINI-SKILL.md").read_text(encoding="utf-8")
+        block = _re.search(r"## Python block.*?```python\n(.*?)```", rulebook, _re.S).group(1)
+        self.assertIn(block, skill)
+        exec(_re.search(r"```python\n(.*?)```", skill.split("## Instructions", 1)[1], _re.S).group(1), {})
+
     def test_v14_ledger_imports_and_is_recomputed(self):
         tmp = Path(tempfile.mkdtemp())
         try:
