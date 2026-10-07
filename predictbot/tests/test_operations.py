@@ -35,6 +35,16 @@ class Rules(unittest.TestCase):
         self.assertEqual(pcbf.settlement_check("polymarket", "soccer", "1X2_REGULATION", rules)[0], "ok")
         self.assertEqual(pcbf.settlement_check("Pinnacle (via chat)", "tennis", "MATCH_WINNER", rules)[0], "differs")
 
+    def test_pinnacle_via_an_aggregator_is_not_a_benchmark(self):
+        cand = pcbf.candidates_from_capture(walker("soccer", [("1x2", [1.47, 4.05, 6.60])], home="Belouizdad",
+                                                   away="Khenchela"), "h")[0]
+        out = pcbf.price_benchmark(pcbf.capture_records(cand), ["pinnacle", "https://footballnation.eu/match/x/808403/",
+                                                                "2026-10-05T10:20Z", "1.46 / 4.50 / 7.80"], at("2026-10-05T10:25:00Z"))
+        self.assertEqual({r["tier"] for r in out}, {"RESEARCH"})
+        self.assertIn("footballnation.eu is not pinnacle.com", out[0]["rejection_reason"])
+        self.assertTrue(pcbf.benchmark_host_ok("https://www.oddsportal.com/football/h2h/x"))
+        self.assertFalse(pcbf.benchmark_host_ok("https://oddsportal.com.evil.example/x"))
+
     def test_rule_that_differs_rejects(self):
         cand = pcbf.candidates_from_capture(walker("tennis", [("match_winner", [2.10, 1.73])], home="Medvedev, Daniil",
                                                    away="Djokovic, Novak"), "h")[0]
@@ -561,6 +571,14 @@ class ChatWorkflowDocs(unittest.TestCase):
         block = _re.search(r"## Python block.*?```python\n(.*?)```", rulebook, _re.S).group(1)
         self.assertIn(block, skill)
         exec(_re.search(r"```python\n(.*?)```", skill.split("## Instructions", 1)[1], _re.S).group(1), {})
+
+    def test_gemini_skill_is_current(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_gemini_skill", self.DOCS / "build_gemini_skill.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertEqual(mod.build(), (self.DOCS / "GEMINI-SKILL.md").read_text(encoding="utf-8"),
+                         "run predictbot/chat/build_gemini_skill.py after editing the rulebook or run prompt")
 
     def test_v14_ledger_imports_and_is_recomputed(self):
         tmp = Path(tempfile.mkdtemp())

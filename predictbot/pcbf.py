@@ -25,6 +25,9 @@ BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker", "polymarket")   # 
 # Polymarket-only opportunities are a separate paper tier (PM_PAPER) until an
 # evidence review allows them as PICKs (operator, 2026-10-06). These are
 # rules under evaluation, not settled policy.
+# The only pages a benchmark may come from (rulebook v1.4.1). A "Pinnacle"
+# price quoted on a preview or aggregator page is not a benchmark.
+BENCHMARK_HOSTS = ("pinnacle.com", "oddsportal.com", "oddschecker.com", "polymarket.com")
 MAX_PM_QUOTE_AGE = timedelta(hours=2)   # Polymarket quote vs Bet9ja capture
 CLOSE_WINDOW = timedelta(minutes=5)    # a quote this close to kickoff counts as the closing price
 
@@ -94,6 +97,11 @@ VARIABLE_RULES = {"MATCH_WINNER": {"tennis": "retirement / walkover treatment",
 def canonical_source(source: str) -> str:
     s = str(source or "").lower()
     return next((b for b in BENCHMARK_SOURCES if b in s), s)
+
+
+def benchmark_host_ok(url: str) -> bool:
+    host = re.sub(r"^https?://", "", str(url or "").strip().lower()).split("/")[0].split(":")[0]
+    return any(host == h or host.endswith("." + h) for h in BENCHMARK_HOSTS)
 
 
 def rule_key(source: str, sport: str, market: str) -> str:
@@ -410,10 +418,10 @@ def selection_name(c: dict, i: int) -> str:
 PACK_RULES = """TASK, START NOW WITHOUT ASKING QUESTIONS: use web search to find a benchmark price for every fixture listed below, then reply with ONLY the lines in the format at the end. No summary, no edges, no questions.
 
 You are the research step of PCBF Mini v1.3. The app does all arithmetic: do NOT calculate edges or fair odds.
-For each fixture, find the SAME market TODAY from ONE source, in this order: Pinnacle (direct or via a comparison site); else oddsportal average; else oddschecker best prices; else Polymarket (pre-match moneyline only; convert each price to decimal odds = 1 / price, e.g. 69c -> 1.449).
+For each fixture, find the SAME market TODAY from ONE source, in this order: Pinnacle (pinnacle.com, or Pinnacle's own row on an OddsPortal or Oddschecker match page; never a preview, tipster or aggregator page quoting Pinnacle); else the oddsportal average; else one named bookmaker's column on oddschecker; else Polymarket (pre-match moneyline only; convert each price to decimal odds = 1 / price, e.g. 69c -> 1.449).
 Same settlement as stated on the line. A page dated a previous day is stale: you may give it, but say so in the note.
 Match prices by team/player NAME, never by position (US sites often list the away side first). Give prices in the SAME ORDER as the line.
-Use only these four sources; any other site (Betmonitor, Oddsator, Matchstat, etc.) = NONE. Reply NONE for any fixture, league or participant with a named integrity concern. Add a short news note (injury, manager change, big price move) where relevant.
+Use only pinnacle.com, oddsportal.com, oddschecker.com and polymarket.com; any other site (Betmonitor, Oddsator, Matchstat, Football Nation, WagerBeasts, StatsBet, AgentBets, etc.) = NONE. Give the time you read each page, per line; never one time for all lines. Reply NONE for any fixture, league or participant with a named integrity concern. Add a short news note (injury, manager change, big price move) where relevant.
 Never invent prices, URLs, times or news. Unknown = NONE.
 
 Reply with ONLY these lines, one per fixture:
@@ -513,6 +521,10 @@ def price_benchmark(captures: list[dict], fields: list[str], now: datetime, pack
         return [record(c, "RESEARCH", reason=f"benchmark source '{fields[0]}' not Pinnacle/oddsportal/oddschecker/Polymarket",
                        note=note, url=url) for c in captures]
     check, check_note = settlement_check(source, captures[0]["sport"], captures[0]["market"], rules)
+    if url.lower().startswith("http") and not benchmark_host_ok(url):
+        site = re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
+        return [record(c, "RESEARCH", reason=f"benchmark page {site} is not pinnacle.com, oddsportal.com, oddschecker.com "
+                                                "or polymarket.com", note=note, url=url) for c in captures]
     reason = None
     if not url.lower().startswith("http"):
         reason = "missing source URL"
@@ -875,6 +887,12 @@ def from_pcbf_row(row: dict, now: datetime) -> tuple[dict, dict]:
                else "benchmark market not recorded: edge cannot be recomputed",
                "caution_flags": "", "stake_notional": ""}
         return cap, rec
+    if row.get("market") and row.get("benchmark_url") and not benchmark_host_ok(row["benchmark_url"]):
+        site = re.sub(r"^https?://(www\.)?", "", row["benchmark_url"]).split("/")[0]
+        rec = {**base, "benchmark_source": "", "benchmark_odds": "", "fair_odds": "", "edge_pct": "", "tier": "RESEARCH",
+               "validation_status": "NO_BENCHMARK", "caution_flags": "", "stake_notional": "",
+               "rejection_reason": f"no benchmark: page {site} is not pinnacle.com, oddsportal.com, oddschecker.com or polymarket.com"}
+        return cap, rec
     fair, e = edge(float(row["bet9ja_odds"]), bench, idx)
     url = row.get("benchmark_url", "").lower()
     source = canonical_source(row.get("benchmark_source") or next((s for s in BENCHMARK_SOURCES if s in url), "unknown"))
@@ -896,6 +914,12 @@ def from_pcbf_row(row: dict, now: datetime) -> tuple[dict, dict]:
            "fair_prob": f"{fair_probability(bench, idx):.4f}", "min_odds": f"{min_odds(fair_probability(bench, idx)):.2f}",
            "stake_notional": str(NOTIONAL_STAKE) if tier == "PICK" else ""}
     return cap, rec
+    if row.get("market") and row.get("benchmark_url") and not benchmark_host_ok(row["benchmark_url"]):
+        site = re.sub(r"^https?://(www\.)?", "", row["benchmark_url"]).split("/")[0]
+        rec = {**base, "benchmark_source": "", "benchmark_odds": "", "fair_odds": "", "edge_pct": "", "tier": "RESEARCH",
+               "validation_status": "NO_BENCHMARK", "caution_flags": "", "stake_notional": "",
+               "rejection_reason": f"no benchmark: page {site} is not pinnacle.com, oddsportal.com, oddschecker.com or polymarket.com"}
+        return cap, rec
     fair, e = edge(float(row["bet9ja_odds"]), bench, idx)
     url = row.get("benchmark_url", "").lower()
     source = next((s for s in BENCHMARK_SOURCES if s in url), "unknown")

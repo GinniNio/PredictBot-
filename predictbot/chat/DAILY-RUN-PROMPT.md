@@ -1,4 +1,4 @@
-Run PCBF Mini v1.4 on the Bet9ja fixtures below and give me today's PICKs.
+Run PCBF Mini v1.4.1 on the Bet9ja fixtures below and give me today's PICKs.
 
 The attached PCBF-MINI-v1.4.md is the only rulebook. Ignore every older PCBF version.
 Zero PICKs is a valid result. Do not stretch to fill a table. Do not ask whether to continue.
@@ -26,8 +26,8 @@ TWO SOURCES THAT NEVER MIX
    Pundit and tipster picks are opinion, not benchmarks. Three sites repeating one take count as one source.
 
 STEPS
-1. Parse every capture file. Count games per sport. Apply the rulebook's step 1 skip list, counting each reason.
-2. For each remaining game, find a same-day benchmark in the rulebook's source order. Record source, URL, time read (UTC), the full market, and for OddsPortal the bookmaker rows.
+1. Parse every attached capture file, every sport. Count games per sport. Apply the rulebook's step 1 skip list, counting each reason. Screen youth / reserve / semi-pro only from names in the capture, never from your own knowledge of a league.
+2. For each remaining game, find a same-day benchmark in the rulebook's source order, on pinnacle.com, oddsportal.com, oddschecker.com or polymarket.com only. A Pinnacle price counts only from pinnacle.com or Pinnacle's own row on OddsPortal or Oddschecker, never from a preview or aggregator page. Record source, URL, the time you read that page (UTC, per row), the full market, and for OddsPortal the bookmaker rows.
 3. Check settlement against the list above. Unconfirmed variable rule: caution. Different rule: REJECTED.
 4. Run the Python block for every selection of every priced game. For EPL/LaLiga/Serie A/Bundesliga/Ligue 1, also run(model, home, away) if the files are attached.
 5. Label with label(). Run a news check on every PICK.
@@ -39,7 +39,7 @@ OUTPUT (this order, nothing else)
    If none: "No PICKs this batch."
 2. WATCH table: same columns, the 10 highest edges. All WATCH rows go in the ledger regardless.
 3. RESEARCH: up to 5 games with no benchmark, one line each: game, Bet9ja prices, why no benchmark was found. A news note may follow, as a note only: no rating, no probability.
-4. Counts line per sport: games received / benchmarked / screened out (reasons) / no benchmark / rejected. Then: settled PICKs so far: N.
+4. Counts line for every sport in every attached file: games received / benchmarked / screened out (reasons) / no benchmark / rejected. Then: settled PICKs so far: N.
 5. Updated pcbf-ledger.csv as a download, in the rulebook's columns, one row per selection.
 
 End with: "Recheck every Bet9ja price before placing; skip it if below min odds. No real money without a written evidence review."
