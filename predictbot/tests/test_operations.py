@@ -228,6 +228,31 @@ class AutoBenchmark(unittest.TestCase):
                          ("PM_PAPER", "ok", "midpoint (bid/ask)"))
         self.assertEqual(workflow.coverage(self.df, workflow.day_status(self.df, self.now), self.now)[0]["shortlist"], 1)
 
+    def test_shortlist_drops_rows_within_60_minutes_of_kickoff(self):
+        soccer_day(self.tmp)
+        workflow.record_rule(self.df, "polymarket|soccer|1X2_REGULATION", "same as bet9ja", self.now)
+        home = workflow.auto_benchmark(self.df, self.now)["records"][0]
+        self.assertEqual(home["tier"], "PM_PAPER")
+        # priced at 14:00 for an 18:00 kickoff; judged again when the page is shown
+        self.assertTrue(workflow.bettable(home, at("2026-10-05T17:00:00Z")))
+        self.assertFalse(workflow.bettable(home, at("2026-10-05T17:01:00Z")))
+        shortlist = lambda t: workflow.coverage(self.df, workflow.day_status(self.df, t), t)[0]["shortlist"]
+        self.assertEqual((shortlist(at("2026-10-05T16:59:00Z")), shortlist(at("2026-10-05T17:01:00Z"))), (1, 0))
+
+    def test_earlier_day_captures_flagged_and_left_out_of_coverage(self):
+        soccer_day(self.tmp)
+        old = walker("soccer", [("1x2", [2.0, 3.3, 3.6])], home="Gamma", away="Delta", fid="78")
+        old["captured_at_utc"] = old["results"][0]["captured_at_utc"] = "2026-10-04T10:00:00.000Z"
+        old["results"][0]["fixtures"][0]["kickoff_utc_derived"] = "2026-10-04T18:00:00.000Z"
+        (self.tmp / "captures" / "bet9ja-allsports-walk-soccer-2026-10-04T10-00-00-000Z.json").write_text(json.dumps(old))
+        status = workflow.day_status(self.df, self.now)
+        self.assertEqual(len(status["rows"]), 2)                       # still loaded (two-day window)
+        self.assertEqual(workflow.earlier_captures(status, self.now),
+                         {"fixtures": 1, "earlier_games": 1, "oldest_utc": "2026-10-04T10:00Z",
+                          "oldest_file": "bet9ja-allsports-walk-soccer-2026-10-04T10-00-00-000Z.json"})
+        cov = workflow.coverage(self.df, status, self.now)
+        self.assertEqual((cov[0]["captured"], cov[0]["screened_out"]), (1, 0))
+
     def test_evidence_review_can_allow_polymarket_picks(self):
         soccer_day(self.tmp)
         workflow.record_rule(self.df, "polymarket|soccer|1X2_REGULATION", "same as bet9ja", self.now)

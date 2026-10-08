@@ -133,12 +133,12 @@ def update_now() -> str:
     return "; ".join(msg) + "."
 
 
-def coverage_table(status) -> str:
+def coverage_table(status, t=None) -> str:
     rows = []
     cols = ("captured", "usable", "screened_out", "benchmarked", "unresolved", "shortlist")
     tot = dict.fromkeys(cols, 0)
     top = lambda d: ", ".join(f"{n} {r}" for r, n in sorted(d.items(), key=lambda kv: -kv[1])[:3])
-    for d in workflow.coverage(DF, status, now()):
+    for d in workflow.coverage(DF, status, t or now()):
         for k in cols:
             tot[k] += d[k]
         rows.append([e(d["sport"]), *[d[k] for k in cols], f"<span class='dim'>{e(top(d['reasons']))}</span>",
@@ -175,16 +175,26 @@ OPP_HEAD = ["Tier", "Kickoff UTC", "Sport", "Game", "Selection", "Bet9ja", "Min 
 
 def page_opportunities(msg="") -> str:
     note = update_now()
-    status = workflow.day_status(DF, now(), [DOWNLOADS])
+    t = now()
+    status = workflow.day_status(DF, t, [DOWNLOADS])
     sels = DF.read("selection")
     rcs = workflow.latest_rechecks(DF)
     bets_for = {b["selection_record_id"] for b in DF.read("bet")}
-    upcoming = [s for s in sels if (workflow.parse_kick(s) or now()) > now()]
+    upcoming = [s for s in sels if workflow.bettable(s, t)]
+    too_late = sorted([s for s in sels if s["tier"] in ("PICK", "PM_PAPER", "WATCH") and not workflow.bettable(s, t)
+                       and (workflow.parse_kick(s) or t) > t], key=lambda s: s["kickoff_utc"])
     short = sorted([s for s in upcoming if s["tier"] in ("PICK", "PM_PAPER")], key=lambda s: s["kickoff_utc"])
     watch = sorted([s for s in upcoming if s["tier"] == "WATCH"], key=lambda s: -float(s["edge_pct"] or -9))
     pending = sum(1 for r in status["rows"] if r["state"] == "match review")
-    out = [f"<p class='msg'>{e(msg)}</p>" if msg else "", f"<p>{e(note)}</p>", review_banner(),
-           "<h2>Coverage by sport</h2>", coverage_table(status)]
+    old = workflow.earlier_captures(status, t)
+    out = [f"<p class='msg'>{e(msg)}</p>" if msg else "",
+           f"<p><b>Checked at {e(pcbf.utc(t)[11:16])} UTC.</b> {e(note)}</p>", review_banner()]
+    if old["fixtures"]:
+        out.append(f"<p class='err'>{old['fixtures']} fixtures come from captures taken before today (oldest "
+                   f"{e(old['oldest_utc'][:16].replace('T', ' '))} UTC, {e(old['oldest_file'])}); "
+                   f"{old['earlier_games']} of them were played on an earlier day and are left out of the coverage "
+                   "table. Move old capture files out of captures/ if they should not count.</p>")
+    out += ["<h2>Coverage by sport</h2>", coverage_table(status, t)]
     if pending:
         out.append(f"<p><a href='/pending'>{pending} fixtures wait for a match review</a></p>")
     out.append(f"<h2>Shortlist ({len(short)})</h2>")
@@ -195,6 +205,13 @@ def page_opportunities(msg="") -> str:
                    "Polymarket-only and stays paper until an evidence review allows it.</p>")
     else:
         out.append("<p>No PICK or PM_PAPER opportunities for upcoming games. An empty shortlist is a valid result.</p>")
+    if too_late:
+        out.append(f"<details><summary>{len(too_late)} priced rows kick off within 60 minutes: too late under the "
+                   "rulebook, not bets</summary>"
+                   + table(["Tier", "Kickoff UTC", "Sport", "Game", "Selection", "Bet9ja", "Edge"],
+                           [[f"<b class='{s['tier']}'>{s['tier']}</b>", e(s["kickoff_utc"].replace("T", " ")),
+                             e(s["sport"]), e(s["event_name"]), e(s["selection"]), e(s["bookmaker_odds"]),
+                             pct(float(s["edge_pct"] or 0))] for s in too_late]) + "</details>")
     watch.sort(key=watch_gap)
     near = [s for n, s in enumerate(watch) if n < NEAR_TOP or watch_gap(s) <= NEAR_GAP]
     far = watch[len(near):]
