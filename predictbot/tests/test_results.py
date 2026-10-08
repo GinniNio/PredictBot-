@@ -113,6 +113,20 @@ class SettleFromResults(unittest.TestCase):
         again = self.run_results([])
         self.assertEqual(again["settled"], 0)
 
+    def test_offline_fetch_waits_before_retrying(self):
+        import feeds
+        def down(url):
+            self.calls.append(url)
+            raise OSError("network unreachable")
+        groups = workflow.due_results(self.df, NOW)
+        self.assertTrue(groups)
+        slugs = ["soc-alp-bet-2026-10-07"]
+        self.assertEqual(feeds.fetch_polymarket_results(self.df, NOW, slugs, opener=down)["status"], "failed")
+        self.assertEqual(feeds.fetch_polymarket_results(self.df, NOW, slugs, opener=down)["status"], "recent")
+        self.assertEqual(len(self.calls), 1)                         # no second wait on a dead network
+        later = NOW + feeds.RETRY_AFTER
+        self.assertEqual(feeds.fetch_polymarket_results(self.df, later, slugs, opener=self.opener([]))["status"], "fetched")
+
     def test_unresolved_and_50_50_wait(self):
         r = self.run_results([soccer_event("soc-alp-bet-2026-10-07", "Alpha FC", "Beta United", [0.9, 0.05, 0.05], False),
                               {"slug": "bk-din-cob-2026-10-07", "tags": [{"slug": "basketball"}],

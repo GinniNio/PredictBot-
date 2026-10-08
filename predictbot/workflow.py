@@ -226,22 +226,45 @@ def import_pcbf_ledger(df: DataFolder, csv_path, now: datetime) -> dict:
     return {"imported": sels}
 
 
+_QUOTE_CACHE: dict = {}   # (path, size, mtime) -> quotes parsed from that file
+
+
+def _quotes_in(paths) -> list[dict]:
+    """Quotes from walker captures and feed files. Walk files run to tens of
+    MB, so each file is parsed once per app run and kept in memory; a file
+    that changes on disk (size or time) is parsed again. The same file in
+    Downloads and in captures/ counts once."""
+    quotes, seen = [], set()
+    for path in paths:
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        if (path.name, st.st_size) in seen:
+            continue
+        seen.add((path.name, st.st_size))
+        key = (str(path), st.st_size, st.st_mtime_ns)
+        if key not in _QUOTE_CACHE:
+            try:
+                data = json.loads(path.read_bytes().decode("utf-8"))
+            except (OSError, UnicodeDecodeError, ValueError):
+                data = None
+            if not isinstance(data, dict):
+                parsed = []
+            elif path.name.startswith("polymarket-feed-"):
+                parsed = odds_sources.quotes_from_feed(data, path.name)
+            else:
+                parsed = odds_sources.quotes_from_walk(data, path.name)
+            _QUOTE_CACHE[key] = parsed
+        quotes.extend(dict(q) for q in _QUOTE_CACHE[key])
+    return quotes
+
+
 def benchmark_quotes(df: DataFolder, extra_folders=(), now: datetime | None = None) -> list[dict]:
     """Quotes from walker captures and saved Polymarket feed fetches."""
     since = (now - RECENT) if now else None
-    quotes = []
-    for path, raw in [*df.odds_walks(extra_folders, since), *df.feed_files(since)]:
-        try:
-            data = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
-            continue
-        if not isinstance(data, dict):
-            continue
-        if path.name.startswith("polymarket-feed-"):
-            quotes.extend(odds_sources.quotes_from_feed(data, path.name))
-        else:
-            quotes.extend(odds_sources.quotes_from_walk(data, path.name))
-    return quotes
+    return _quotes_in(df.paths("public-odds-walk-*.json", extra_folders, since)
+                      + df.paths("polymarket-feed-*.json", (), since))
 
 
 def rules_text(quotes: list[dict]) -> dict:
@@ -527,9 +550,7 @@ PRICE_SLACK = timedelta(minutes=2)  # ticket times are whole minutes
 
 def ticket_captures(df: DataFolder, extra_folders=()) -> list:
     out = []
-    for path, raw in df.capture_files(extra_folders):
-        if not any(k.encode() in raw for k in TICKET_SCHEMAS):
-            continue
+    for path, raw in df.ticket_files(extra_folders):
         try:
             d = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
@@ -691,16 +712,8 @@ def due_results(df: DataFolder, now: datetime) -> dict:
 
 def _result_quotes(df: DataFolder, extra_folders, now: datetime) -> list[dict]:
     since = now - RESULT_LOOKBACK - timedelta(days=1)
-    quotes = []
-    for path, raw in [*df.odds_walks(extra_folders, since), *df.feed_files(since)]:
-        try:
-            data = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
-            continue
-        if isinstance(data, dict):
-            quotes.extend(odds_sources.quotes_from_feed(data, path.name) if path.name.startswith("polymarket-feed-")
-                          else odds_sources.quotes_from_walk(data, path.name))
-    return quotes
+    return _quotes_in(df.paths("public-odds-walk-*.json", extra_folders, since)
+                      + df.paths("polymarket-feed-*.json", (), since))
 
 
 def result_matches(df: DataFolder, now: datetime, extra_folders=(), groups=None, quotes=None) -> dict:
@@ -735,9 +748,7 @@ def _walk_results(df: DataFolder, extra_folders, now: datetime) -> dict:
     """Final-result captures from the walker's results mode, by match URL
     (without the #hash); the newest capture of a page wins."""
     out = {}
-    for path, raw in df.odds_walks(extra_folders, now - RESULT_LOOKBACK):
-        if b'"result"' not in raw:
-            continue
+    for path, raw in df._read_unique(df.paths("public-odds-walk-*-results-*.json", extra_folders, now - RESULT_LOOKBACK)):
         try:
             data = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):

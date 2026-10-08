@@ -28,6 +28,13 @@ MARKET_FIELDS = ("id", "question", "slug", "outcomes", "outcomePrices", "volume"
                  "lastTradePrice", "spread", "gameStartTime", "closed", "active", "acceptingOrders",
                  "sportsMarketType", "description", "updatedAt", "umaResolutionStatus", "closedTime")
 RESULTS_EVERY = timedelta(minutes=30)   # at most one results fetch per 30 minutes
+RETRY_AFTER = timedelta(minutes=10)     # after a failed fetch (offline?), wait before trying again
+_FAILED: dict = {}                      # (data folder, kind) -> time of the last failed fetch
+
+
+def _backing_off(df: DataFolder, kind: str, now: datetime) -> bool:
+    t = _FAILED.get((str(df.root), kind))
+    return t is not None and now - t < RETRY_AFTER
 RESULTS_BATCH = 20                      # slugs per request
 
 
@@ -68,6 +75,8 @@ def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=
     prev = last_fetch(df)
     if not force and prev and now - prev < FEED_EVERY:
         return {"status": "recent", "events": 0, "file": None, "error": "", "last": prev}
+    if not force and _backing_off(df, "feed", now):
+        return {"status": "recent", "events": 0, "file": None, "error": "", "last": prev}
     opener = opener or (lambda url: urllib.request.urlopen(
         urllib.request.Request(url, headers={"User-Agent": "PredictBot (personal, read-only)"}), timeout=30))
     until = now + HORIZON
@@ -99,7 +108,9 @@ def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=
         if pause:
             time.sleep(pause)
     if not events and error:
+        _FAILED[(str(df.root), "feed")] = now
         return {"status": "failed", "events": 0, "file": None, "error": error}
+    _FAILED.pop((str(df.root), "feed"), None)
     name = f"polymarket-feed-{now.astimezone(timezone.utc).strftime('%Y-%m-%dT%H-%M-%SZ')}.json"
     df.save_capture(name, json.dumps({"schema_version": "polymarket-gamma-feed.v1", "fetched_at_utc": _stamp(now),
                                       "source": GAMMA_EVENTS, "requests": requests, "error": error,
@@ -129,6 +140,8 @@ def fetch_polymarket_results(df: DataFolder, now: datetime, slugs, force: bool =
     prev = last_results_fetch(df)
     if not force and prev and now - prev < RESULTS_EVERY:
         return {"status": "recent", "events": 0, "file": None, "error": "", "last": prev}
+    if not force and _backing_off(df, "results", now):
+        return {"status": "recent", "events": 0, "file": None, "error": "", "last": prev}
     opener = opener or (lambda url: urllib.request.urlopen(
         urllib.request.Request(url, headers={"User-Agent": "PredictBot (personal, read-only)"}), timeout=30))
     events, requests, error = [], [], ""
@@ -149,7 +162,9 @@ def fetch_polymarket_results(df: DataFolder, now: datetime, slugs, force: bool =
         if pause and i + RESULTS_BATCH < len(slugs):
             time.sleep(pause)
     if not events and error:
+        _FAILED[(str(df.root), "results")] = now
         return {"status": "failed", "events": 0, "file": None, "error": error}
+    _FAILED.pop((str(df.root), "results"), None)
     name = f"polymarket-results-{now.astimezone(timezone.utc).strftime('%Y-%m-%dT%H-%M-%SZ')}.json"
     df.save_capture(name, json.dumps({"schema_version": "polymarket-gamma-results.v1", "fetched_at_utc": _stamp(now),
                                       "source": GAMMA_EVENTS, "requests": requests, "error": error,

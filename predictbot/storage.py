@@ -373,9 +373,17 @@ class DataFolder:
         os.replace(tmp, p)
         return p
 
-    def _files(self, pattern, extra_folders, since):
+    def ticket_files(self, extra_folders=()) -> list[tuple[Path, bytes]]:
+        """Open and settled bet captures only (never the large walk files)."""
+        return self._read_unique(self.paths("bet9ja-open-bets-*.json", extra_folders)
+                                 + self.paths("bet9ja-settled-bets-*.json", extra_folders))
+
+    def paths(self, pattern, extra_folders=(), since: datetime | None = None) -> list[Path]:
+        """Matching files in captures/ and any extra folders, without reading
+        them. `since` skips files whose name dates them more than a day
+        earlier (bet captures are always kept)."""
         cutoff = (since - timedelta(days=1)).strftime("%Y-%m-%d") if since else None
-        seen, out = set(), []
+        out = []
         for folder in [self.root / "captures", *map(Path, extra_folders)]:
             if not folder.exists():
                 continue
@@ -383,12 +391,22 @@ class DataFolder:
                 m = FILE_DATE.search(p.name)
                 if cutoff and m and m.group(1) < cutoff and not p.name.startswith(("bet9ja-open-bets", "bet9ja-settled")):
                     continue
-                raw = p.read_bytes()
-                h = hashlib.sha256(raw).hexdigest()
-                if h not in seen:
-                    seen.add(h)
-                    out.append((p, raw))
+                out.append(p)
         return out
+
+    @staticmethod
+    def _read_unique(paths) -> list[tuple[Path, bytes]]:
+        seen, out = set(), []
+        for p in paths:
+            raw = p.read_bytes()
+            h = hashlib.sha256(raw).hexdigest()
+            if h not in seen:
+                seen.add(h)
+                out.append((p, raw))
+        return out
+
+    def _files(self, pattern, extra_folders, since):
+        return self._read_unique(self.paths(pattern, extra_folders, since))
 
     def import_captures(self, folder) -> int:
         """Copy new bet9ja-*.json and public-odds-walk-*.json files from e.g. Downloads into captures/,
