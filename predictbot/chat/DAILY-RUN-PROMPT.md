@@ -1,4 +1,4 @@
-Run PCBF Mini v1.4.1 on the Bet9ja fixtures below and give me today's PICKs.
+Run PCBF Mini v1.4.2 on the Bet9ja fixtures below and give me today's PICKs.
 
 The attached PCBF-MINI-v1.4.md is the only rulebook. Ignore every older PCBF version.
 Zero PICKs is a valid result. Do not stretch to fill a table. Do not ask whether to continue.
@@ -18,7 +18,7 @@ WHAT EACH LABEL MEANS (rulebook "Labels")
 - RESEARCH = no usable benchmark. Logged with the reason. No probability, fair odds or edge.
 - REJECTED = failed a data check. Logged with the reason.
 - Polymarket quoted by you is always WATCH (no order-book evidence). PM_PAPER is assigned only by the app.
-- Real money: none. Only a written evidence review by me changes that. Report settled PICKs so far: N (review point 200).
+- Real money: none. Only a written evidence review by me changes that. Report settled PICKs so far: N, counted from the attached ledger (review point 200). If the attached ledger has no rows, write "see app"; never guess or write 0.
 
 TWO SOURCES THAT NEVER MIX
 1. Numbers come only from code: the Python block on benchmark prices, plus the football model column when its files are attached. A team not in the model's params: "not in model". Never substitute or estimate.
@@ -26,7 +26,7 @@ TWO SOURCES THAT NEVER MIX
    Pundit and tipster picks are opinion, not benchmarks. Three sites repeating one take count as one source.
 
 STEPS
-1. Parse every attached capture file, every sport. Count games per sport. Apply the rulebook's step 1 skip list, counting each reason. Screen youth / reserve / semi-pro only from names in the capture, never from your own knowledge of a league.
+1. Parse every attached capture file, every sport. Count games per sport. Apply the rulebook's step 1 skip list, counting each reason. Judge "already started" and "within 60 minutes" against the current UTC time when you run this step, not the capture time, and state that time. Screen youth / reserve / semi-pro only from names in the capture, never from your own knowledge of a league.
 2. For each remaining game, find a same-day benchmark in the rulebook's source order, on pinnacle.com, oddsportal.com, oddschecker.com or polymarket.com only. A Pinnacle price counts only from pinnacle.com or Pinnacle's own row on OddsPortal or Oddschecker, never from a preview or aggregator page. Record source, URL, the time you read that page (UTC, per row), the full market, and for OddsPortal the bookmaker rows.
 3. Check settlement against the list above. Unconfirmed variable rule: caution. Different rule: REJECTED.
 4. Run the Python block for every selection of every priced game. For EPL/LaLiga/Serie A/Bundesliga/Ligue 1, also run(model, home, away) if the files are attached.
@@ -39,7 +39,7 @@ OUTPUT (this order, nothing else)
    If none: "No PICKs this batch."
 2. WATCH table: same columns, the 10 highest edges. All WATCH rows go in the ledger regardless.
 3. RESEARCH: up to 5 games with no benchmark, one line each: game, Bet9ja prices, why no benchmark was found. A news note may follow, as a note only: no rating, no probability.
-4. Counts line for every sport in every attached file: games received / benchmarked / screened out (reasons) / no benchmark / rejected. Then: settled PICKs so far: N.
+4. Counts line for every sport in every attached file: games received / benchmarked / screened out (reasons) / no benchmark / rejected. Then: screened at HH:MM UTC; settled PICKs so far: N (or "see app").
 5. Updated pcbf-ledger.csv as a download, in the rulebook's columns, one row per selection.
 
 End with: "Recheck every Bet9ja price before placing; skip it if below min odds. No real money without a written evidence review."

@@ -7,10 +7,11 @@ HERE = Path(__file__).resolve().parent
 
 def build() -> str:
     rb = (HERE / "PCBF-MINI-v1.4.md").read_text(encoding="utf-8")
-    version = rb.splitlines()[0].replace("# ", "").split(" (")[0]          # e.g. PCBF Mini v1.4.1
+    version = rb.splitlines()[0].replace("# ", "").split(" (")[0]          # e.g. PCBF Mini v1.4.2
     body = rb[rb.index("## Labels"):].replace("Kaye", "the user")
     run = (HERE / "DAILY-RUN-PROMPT.md").read_text(encoding="utf-8")
-    out = run[run.index("OUTPUT (this order, nothing else)"):run.index("FIXTURES BEGIN")].strip()
+    head = "OUTPUT (this order, nothing else)"
+    out = run[run.index(head) + len(head):run.index('End with: "Recheck')].strip()
     instructions = f"""You run {version}: compare Bet9ja prices with the fair market price and flag the ones where Bet9ja pays more. You never place bets. Start as soon as the user uploads Bet9ja capture files or pastes odds. Process every attached file and every sport. Do not ask whether to continue. Zero PICKs is a valid result; do not stretch to fill a table.
 
 Before anything else, run the Python block below with your code tool and confirm its self-checks pass. Use code for every calculation. If you cannot run code, stop and say so. Use web search for benchmarks and news.
@@ -21,7 +22,7 @@ CONFIRMED SETTLEMENT RULES (anything not listed is unconfirmed): none yet. The u
 
 {body.strip()}
 
-## Output
+## Output (this order, nothing else)
 {out}
 
 End with: "Recheck every Bet9ja price before placing; skip it if below min odds. No real money without a written evidence review."
