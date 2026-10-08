@@ -346,11 +346,14 @@ def coverage(df: DataFolder, status: dict, now: datetime) -> list[dict]:
     sels = df.read("selection")
     shortlist = {}
     for s in sels:
-        k = parse_kick(s)
-        if s["tier"] in ("PICK", "PM_PAPER") and (k is None or k > now):
+        if s["tier"] in ("PICK", "PM_PAPER") and bettable(s, now):
             shortlist.setdefault(s["sport"], set()).add(_event(s["selection_id"]))
     out = {}
+    today = day_start(now)
     for r in status["rows"]:
+        k = pcbf.parse_time(r["c"].get("kickoff_utc"))
+        if k is not None and k < today:
+            continue   # an earlier day's game from an older capture: not part of today's picture
         sp = r["c"]["sport"]
         d = out.setdefault(sp, {"sport": sp, "captured": 0, "usable": 0, "screened_out": 0, "benchmarked": 0,
                                 "unresolved": 0, "reasons": {}, "screen_reasons": {},
@@ -374,6 +377,30 @@ def coverage(df: DataFolder, status: dict, now: datetime) -> list[dict]:
 
 def parse_kick(s: dict):
     return pcbf.parse_time(s.get("kickoff_utc"))
+
+
+def bettable(s: dict, now: datetime) -> bool:
+    """Still at least 60 minutes before kickoff, judged at `now` (when the page
+    is shown), not when the row was priced. Unknown kickoff stays listed."""
+    k = parse_kick(s)
+    return k is None or k - now >= pcbf.MIN_LEAD
+
+
+def day_start(now: datetime) -> datetime:
+    return now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def earlier_captures(status: dict, now: datetime) -> dict:
+    """Fixtures loaded from captures taken before today (UTC): how many, how
+    many of those games were played on an earlier day, and the oldest file."""
+    cutoff = pcbf.utc(day_start(now))
+    old = [r["c"] for r in status["rows"] if (r["c"].get("captured_at_utc") or cutoff) < cutoff]
+    today = day_start(now)
+    played = sum(1 for c in old if (pcbf.parse_time(c.get("kickoff_utc")) or today) < today)
+    oldest = min(old, key=lambda c: c["captured_at_utc"]) if old else None
+    return {"fixtures": len(old), "earlier_games": played,
+            "oldest_utc": oldest["captured_at_utc"] if oldest else "",
+            "oldest_file": (oldest.get("capture_file") or "") if oldest else ""}
 
 
 def auto_benchmark(df: DataFolder, now: datetime, extra_folders=()) -> dict:
