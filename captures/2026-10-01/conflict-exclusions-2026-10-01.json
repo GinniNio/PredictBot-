@@ -1,0 +1,199 @@
+{
+  "excluded_fixture_ids": [
+    "bxf_18eaaeddf0c6ceb9",
+    "bxf_637487ff88db138b",
+    "bxf_85f2163975bad425",
+    "bxf_9dd1cac915fcc7d5"
+  ],
+  "excluded_fixtures_raw": [
+    {
+      "captured_at_utc": "2026-10-01T10:02:56.555Z",
+      "competition": "U21 EURO Qualification",
+      "date_heading_raw": "Thu 1 Oct",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_9dd1cac915fcc7d5",
+      "kickoff_raw": "16:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 23,
+        "D": 10,
+        "H": 1.08
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 1.08
+        },
+        {
+          "label": "D",
+          "price": 10
+        },
+        {
+          "label": "A",
+          "price": 23
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Latvia U21",
+        "home": "Greece U21"
+      },
+      "region": "International Youth",
+      "resolved_source_competition_id": "7167226",
+      "source_batch_index": 16,
+      "source_competition_ids_in_batch": [
+        "7167226"
+      ],
+      "source_competitions_raw_in_batch": [
+        "U21 EURO Qualification"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-10-01T10:02:56.555Z",
+      "competition": "U21 EURO Qualification",
+      "date_heading_raw": "Thu 1 Oct",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_637487ff88db138b",
+      "kickoff_raw": "17:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.38,
+        "D": 3.3,
+        "H": 2.88
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.88
+        },
+        {
+          "label": "D",
+          "price": 3.3
+        },
+        {
+          "label": "A",
+          "price": 2.38
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Montenegro U21",
+        "home": "Macedonia U21"
+      },
+      "region": "International Youth",
+      "resolved_source_competition_id": "7167226",
+      "source_batch_index": 16,
+      "source_competition_ids_in_batch": [
+        "7167226"
+      ],
+      "source_competitions_raw_in_batch": [
+        "U21 EURO Qualification"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-10-01T10:02:56.555Z",
+      "competition": "Serie A",
+      "date_heading_raw": "Sun 11 Oct",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_18eaaeddf0c6ceb9",
+      "kickoff_raw": "21:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.9,
+        "D": 3.15,
+        "H": 2.4
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.4
+        },
+        {
+          "label": "D",
+          "price": 3.15
+        },
+        {
+          "label": "A",
+          "price": 2.9
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Leones Futbol Club",
+        "home": "Libertad Loja"
+      },
+      "region": "Ecuador",
+      "resolved_source_competition_id": "7869263",
+      "source_batch_index": 117,
+      "source_competition_ids_in_batch": [
+        "7869263"
+      ],
+      "source_competitions_raw_in_batch": [
+        "Serie A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    },
+    {
+      "captured_at_utc": "2026-10-01T10:02:56.555Z",
+      "competition": "Serie A",
+      "date_heading_raw": "Sun 11 Oct",
+      "duplicate_status": "NEW",
+      "fixture_id": "bxf_85f2163975bad425",
+      "kickoff_raw": "21:00",
+      "kickoff_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "kickoff_utc": null,
+      "market_family": "1X2",
+      "market_line": "",
+      "offered_odds": {
+        "A": 2.7,
+        "D": 2.9,
+        "H": 2.7
+      },
+      "outcomes": [
+        {
+          "label": "H",
+          "price": 2.7
+        },
+        {
+          "label": "D",
+          "price": 2.9
+        },
+        {
+          "label": "A",
+          "price": 2.7
+        }
+      ],
+      "parser_version": "bet9ja-capture-parser@1.0.0",
+      "participants": {
+        "away": "Emelec",
+        "home": "Guayaquil City"
+      },
+      "region": "Ecuador",
+      "resolved_source_competition_id": "7869263",
+      "source_batch_index": 117,
+      "source_competition_ids_in_batch": [
+        "7869263"
+      ],
+      "source_competitions_raw_in_batch": [
+        "Serie A"
+      ],
+      "sport": "SOCCER",
+      "status": "PRE_MATCH"
+    }
+  ],
+  "reason": "LEDGER_BATCH_CONFLICT_UNCHANGED_NATURAL_KEY"
+}

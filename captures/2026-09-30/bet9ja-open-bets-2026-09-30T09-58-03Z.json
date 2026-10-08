@@ -1,0 +1,2780 @@
+{
+  "capture_id": "cap_20260930095803210_21bdd4b9",
+  "capture_status": "CAPTURE_PARTIAL",
+  "capture_status_reasons": [
+    "MYBETS_SELECTOR_PROFILE_ACTIVE",
+    "LIVE_VIRTUAL_ZOOM_DETECTION_UNCONFIRMED_FOR_MYBETS_PROFILE",
+    "STAKE_RETURN_FIELD_MAPPING_CONFIRMED_ONLY_FOR_SYSTEM_TICKETS",
+    "TICKET_TYPE_DETECTION_LIMITED_TO_SYSTEM_TABLE_PRESENCE",
+    "PAGINATION_STOPPED_NO_FURTHER_NUMBERED_PAGE"
+  ],
+  "captured_at_utc": "2026-09-30T09:58:03.210Z",
+  "coverage": {
+    "duplicate_tickets_skipped": 0,
+    "legs_parsed": 134,
+    "legs_seen": 134,
+    "pages_available": 5,
+    "pages_visited": 5,
+    "pagination_automated": true,
+    "tickets_expected_excluded": 0,
+    "tickets_parsed": 25,
+    "tickets_seen": 25,
+    "tickets_unresolved": 0,
+    "visible_page_only": false
+  },
+  "excluded_tickets": [],
+  "page_results": [
+    {
+      "legs_parsed": 31,
+      "legs_seen": 31,
+      "page_fingerprint": "300158235,300175680,300198553,300290460,300300374",
+      "page_number": 1,
+      "ticket_containers_seen": 5,
+      "tickets_expected_excluded": 0,
+      "tickets_parsed": 5,
+      "tickets_unresolved": 0
+    },
+    {
+      "legs_parsed": 23,
+      "legs_seen": 23,
+      "page_fingerprint": "2786997003,299297994,299992351,300036248,300135325",
+      "page_number": 2,
+      "ticket_containers_seen": 5,
+      "tickets_expected_excluded": 0,
+      "tickets_parsed": 5,
+      "tickets_unresolved": 0
+    },
+    {
+      "legs_parsed": 27,
+      "legs_seen": 27,
+      "page_fingerprint": "0356216313,0356314557,1028233739,207176816,278685859",
+      "page_number": 3,
+      "ticket_containers_seen": 5,
+      "tickets_expected_excluded": 0,
+      "tickets_parsed": 5,
+      "tickets_unresolved": 0
+    },
+    {
+      "legs_parsed": 31,
+      "legs_seen": 31,
+      "page_fingerprint": "028439799,02845184983,0284596242,035604605,87365804692",
+      "page_number": 4,
+      "ticket_containers_seen": 5,
+      "tickets_expected_excluded": 0,
+      "tickets_parsed": 5,
+      "tickets_unresolved": 0
+    },
+    {
+      "legs_parsed": 22,
+      "legs_seen": 22,
+      "page_fingerprint": "0006975005,000709892,15351866250,407926440,407942713",
+      "page_number": 5,
+      "ticket_containers_seen": 5,
+      "tickets_expected_excluded": 0,
+      "tickets_parsed": 5,
+      "tickets_unresolved": 0
+    }
+  ],
+  "page_title": "Bet9ja Nigeria Sport Betting, Premier League Odds, Casino, Bet",
+  "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+  "schema_version": "bet9ja-ticket-capture.v1",
+  "source_url": "https://sports.bet9ja.com/myBets/",
+  "tickets": [
+    {
+      "bet9ja_ticket_id": "300300374",
+      "bet9ja_ticket_id_raw": "ID: B9VY300300374TJ-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Andrade Da Silva, Lucas - Olivieri, Genaro Alberto29 Sep 18:10",
+          "fixture_id": "bxf_b68d88d5981d1e31",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.71,
+          "odds_raw": "1.71",
+          "selection": "Olivieri, Genaro Alberto",
+          "selection_raw": "Olivieri, Genaro Alberto",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Mouilleron-Le-Captif, France Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "0:2 Durasovic, Viktor - Blanchet, Ugo29 Sep 19:20",
+          "fixture_id": "bxf_75a1e68ed5dd6632",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.31,
+          "odds_raw": "1.31",
+          "selection": "Blanchet, Ugo",
+          "selection_raw": "Blanchet, Ugo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Justo, Guido Ivan - Roncadelli, Franco30 Sep 14:00",
+          "fixture_id": "bxf_f16de55d26f7edc1",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.75,
+          "odds_raw": "1.75",
+          "selection": "Justo, Guido Ivan",
+          "selection_raw": "Justo, Guido Ivan",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Ribeiro, Eduardo - Sakamoto, Pedro30 Sep 14:00",
+          "fixture_id": "bxf_83b9353ea35a2f72",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.52,
+          "odds_raw": "1.52",
+          "selection": "Ribeiro, Eduardo",
+          "selection_raw": "Ribeiro, Eduardo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Heredia, Samuel - Schiessl, Joao Eduardo30 Sep 14:40",
+          "fixture_id": "bxf_043ece6ad1976126",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.6,
+          "odds_raw": "1.60",
+          "selection": "Schiessl, Joao Eduardo",
+          "selection_raw": "Schiessl, Joao Eduardo",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 17:38",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 574.55,
+      "potential_return_raw": "574.55",
+      "stake_buckets": [
+        {
+          "combination_count": 10,
+          "fold_size": 2,
+          "total_stake": "90.00",
+          "unit_stake": "9.00"
+        },
+        {
+          "combination_count": 10,
+          "fold_size": 3,
+          "total_stake": "90.00",
+          "unit_stake": "9.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 180.00",
+        "Max Win: 574.55"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeDoubles109.0090.00Trebles109.0090.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 180,
+      "total_stake_raw": "180.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "300290460",
+      "bet9ja_ticket_id_raw": "ID: B9VY300290460X2-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "0:0 Andrade Da Silva, Lucas - Olivieri, Genaro AlbertoLIVEInteruption",
+          "fixture_id": "bxf_ff9b53c634335a32",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.71,
+          "odds_raw": "1.71",
+          "selection": "Olivieri, Genaro Alberto",
+          "selection_raw": "Olivieri, Genaro Alberto",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Mouilleron-Le-Captif, France Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "0:2 Durasovic, Viktor - Blanchet, Ugo29 Sep 19:20",
+          "fixture_id": "bxf_75a1e68ed5dd6632",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.31,
+          "odds_raw": "1.31",
+          "selection": "Blanchet, Ugo",
+          "selection_raw": "Blanchet, Ugo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Justo, Guido Ivan - Roncadelli, Franco30 Sep 14:00",
+          "fixture_id": "bxf_f16de55d26f7edc1",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.75,
+          "odds_raw": "1.75",
+          "selection": "Justo, Guido Ivan",
+          "selection_raw": "Justo, Guido Ivan",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Ribeiro, Eduardo - Sakamoto, Pedro30 Sep 14:00",
+          "fixture_id": "bxf_83b9353ea35a2f72",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.52,
+          "odds_raw": "1.52",
+          "selection": "Ribeiro, Eduardo",
+          "selection_raw": "Ribeiro, Eduardo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Heredia, Samuel - Schiessl, Joao Eduardo30 Sep 14:40",
+          "fixture_id": "bxf_043ece6ad1976126",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.6,
+          "odds_raw": "1.60",
+          "selection": "Schiessl, Joao Eduardo",
+          "selection_raw": "Schiessl, Joao Eduardo",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 17:38",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 276.15,
+      "potential_return_raw": "276.15",
+      "stake_buckets": [
+        {
+          "combination_count": 5,
+          "fold_size": 1,
+          "total_stake": "175.00",
+          "unit_stake": "35.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 175.00",
+        "Max Win: 276.15"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles535.00175.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Singles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 175,
+      "total_stake_raw": "175.00",
+      "unit_stake": 35,
+      "unit_stake_raw": "35.00"
+    },
+    {
+      "bet9ja_ticket_id": "300198553",
+      "bet9ja_ticket_id_raw": "ID: B9VY300198553UV-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Pereira, Jose - Alves, Mateus29 Sep 16:20",
+          "fixture_id": "bxf_04a6ee75a974d239",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner(market result: 1:2)",
+          "odds": 1.07,
+          "odds_raw": "1.07",
+          "selection": "2",
+          "selection_raw": "2",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Durasovic, Viktor - Blanchet, Ugo29 Sep 19:20",
+          "fixture_id": "bxf_8afd22f2d81357de",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.31,
+          "odds_raw": "1.31",
+          "selection": "Blanchet, Ugo",
+          "selection_raw": "Blanchet, Ugo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Levivier, Constance - Fouhety, Chloe29 Sep 20:00",
+          "fixture_id": "bxf_281cbde3a75a72c7",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.14,
+          "odds_raw": "1.14",
+          "selection": "Fouhety, Chloe",
+          "selection_raw": "Fouhety, Chloe",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Williams, Kriti - Orzechowski, Athena29 Sep 20:00",
+          "fixture_id": "bxf_8d367cf860a9467c",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.17,
+          "odds_raw": "1.17",
+          "selection": "Orzechowski, Athena",
+          "selection_raw": "Orzechowski, Athena",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Potenza, Luca - Montes-de la Torre, Inaki30 Sep 12:25",
+          "fixture_id": "bxf_9c85dbb87e615914",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.34,
+          "odds_raw": "1.34",
+          "selection": "Montes-de la Torre, Inaki",
+          "selection_raw": "Montes-de la Torre, Inaki",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Butvilas, Edas - Geerts, Michael30 Sep 14:00",
+          "fixture_id": "bxf_fdce6f860fbd4172",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.19,
+          "odds_raw": "1.19",
+          "selection": "Butvilas, Edas",
+          "selection_raw": "Butvilas, Edas",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Miguel, Luis Guto - Mena, Facundo30 Sep 14:45",
+          "fixture_id": "bxf_5a629fbfaf8f2afb",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.75,
+          "odds_raw": "1.75",
+          "selection": "Mena, Facundo",
+          "selection_raw": "Mena, Facundo",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 17:36",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 827.86,
+      "potential_return_raw": "827.86",
+      "stake_buckets": [
+        {
+          "combination_count": 35,
+          "fold_size": 4,
+          "total_stake": "315.00",
+          "unit_stake": "9.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 315.00",
+        "Max Win: 827.86"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStake4 Folds359.00315.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 315,
+      "total_stake_raw": "315.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "300175680",
+      "bet9ja_ticket_id_raw": "ID: B9VY300175680FT-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Pereira, Jose - Alves, MateusEnded",
+          "fixture_id": "bxf_c796f0bbfd36500f",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner(market result: 1:2)",
+          "odds": 1.07,
+          "odds_raw": "1.07",
+          "selection": "2",
+          "selection_raw": "2",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Durasovic, Viktor - Blanchet, UgoEnded",
+          "fixture_id": "bxf_27a07e19906c243d",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.31,
+          "odds_raw": "1.31",
+          "selection": "Blanchet, Ugo",
+          "selection_raw": "Blanchet, Ugo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Levivier, Constance - Fouhety, ChloeEnded",
+          "fixture_id": "bxf_56872f3d13cf7cd9",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.14,
+          "odds_raw": "1.14",
+          "selection": "Fouhety, Chloe",
+          "selection_raw": "Fouhety, Chloe",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Williams, Kriti - Orzechowski, AthenaEnded",
+          "fixture_id": "bxf_c393a0d013e6a5ec",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.17,
+          "odds_raw": "1.17",
+          "selection": "Orzechowski, Athena",
+          "selection_raw": "Orzechowski, Athena",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Potenza, Luca - Montes-de la Torre, Inaki30 Sep 12:25",
+          "fixture_id": "bxf_9c85dbb87e615914",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.34,
+          "odds_raw": "1.34",
+          "selection": "Montes-de la Torre, Inaki",
+          "selection_raw": "Montes-de la Torre, Inaki",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Butvilas, Edas - Geerts, Michael30 Sep 14:00",
+          "fixture_id": "bxf_fdce6f860fbd4172",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.19,
+          "odds_raw": "1.19",
+          "selection": "Butvilas, Edas",
+          "selection_raw": "Butvilas, Edas",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Miguel, Luis Guto - Mena, Facundo30 Sep 14:45",
+          "fixture_id": "bxf_5a629fbfaf8f2afb",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.75,
+          "odds_raw": "1.75",
+          "selection": "Mena, Facundo",
+          "selection_raw": "Mena, Facundo",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 17:36",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 308.96,
+      "potential_return_raw": "308.96",
+      "stake_buckets": [
+        {
+          "combination_count": 21,
+          "fold_size": 2,
+          "total_stake": "189.00",
+          "unit_stake": "9.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 189.00",
+        "Max Win: 308.96"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeDoubles219.00189.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Doubles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 189,
+      "total_stake_raw": "189.00",
+      "unit_stake": 9,
+      "unit_stake_raw": "9.00"
+    },
+    {
+      "bet9ja_ticket_id": "300158235",
+      "bet9ja_ticket_id_raw": "ID: B9VY300158235QN-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Pereira, Jose - Alves, MateusEnded",
+          "fixture_id": "bxf_c796f0bbfd36500f",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner(market result: 1:2)",
+          "odds": 1.06,
+          "odds_raw": "1.06",
+          "selection": "2",
+          "selection_raw": "2",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Durasovic, Viktor - Blanchet, UgoEnded",
+          "fixture_id": "bxf_27a07e19906c243d",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.31,
+          "odds_raw": "1.31",
+          "selection": "Blanchet, Ugo",
+          "selection_raw": "Blanchet, Ugo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Levivier, Constance - Fouhety, ChloeEnded",
+          "fixture_id": "bxf_56872f3d13cf7cd9",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.14,
+          "odds_raw": "1.14",
+          "selection": "Fouhety, Chloe",
+          "selection_raw": "Fouhety, Chloe",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Williams, Kriti - Orzechowski, AthenaEnded",
+          "fixture_id": "bxf_c393a0d013e6a5ec",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.17,
+          "odds_raw": "1.17",
+          "selection": "Orzechowski, Athena",
+          "selection_raw": "Orzechowski, Athena",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Potenza, Luca - Montes-de la Torre, Inaki30 Sep 12:25",
+          "fixture_id": "bxf_9c85dbb87e615914",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.34,
+          "odds_raw": "1.34",
+          "selection": "Montes-de la Torre, Inaki",
+          "selection_raw": "Montes-de la Torre, Inaki",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Butvilas, Edas - Geerts, Michael30 Sep 14:00",
+          "fixture_id": "bxf_fdce6f860fbd4172",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.19,
+          "odds_raw": "1.19",
+          "selection": "Butvilas, Edas",
+          "selection_raw": "Butvilas, Edas",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Miguel, Luis Guto - Mena, Facundo30 Sep 14:45",
+          "fixture_id": "bxf_5a629fbfaf8f2afb",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.75,
+          "odds_raw": "1.75",
+          "selection": "Mena, Facundo",
+          "selection_raw": "Mena, Facundo",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 17:35",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 651.84,
+      "potential_return_raw": "651.84",
+      "stake_buckets": [
+        {
+          "combination_count": 35,
+          "fold_size": 3,
+          "total_stake": "315.00",
+          "unit_stake": "9.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 315.00",
+        "Max Win: 651.84"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeTrebles359.00315.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Trebles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 315,
+      "total_stake_raw": "315.00",
+      "unit_stake": 9,
+      "unit_stake_raw": "9.00"
+    },
+    {
+      "bet9ja_ticket_id": "300135325",
+      "bet9ja_ticket_id_raw": "ID: B9VY300135325QV-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Pereira, Jose - Alves, MateusEnded",
+          "fixture_id": "bxf_c796f0bbfd36500f",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner(market result: 1:2)",
+          "odds": 1.06,
+          "odds_raw": "1.06",
+          "selection": "2",
+          "selection_raw": "2",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Durasovic, Viktor - Blanchet, UgoEnded",
+          "fixture_id": "bxf_27a07e19906c243d",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.31,
+          "odds_raw": "1.31",
+          "selection": "Blanchet, Ugo",
+          "selection_raw": "Blanchet, Ugo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Levivier, Constance - Fouhety, ChloeEnded",
+          "fixture_id": "bxf_56872f3d13cf7cd9",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.14,
+          "odds_raw": "1.14",
+          "selection": "Fouhety, Chloe",
+          "selection_raw": "Fouhety, Chloe",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Williams, Kriti - Orzechowski, AthenaEnded",
+          "fixture_id": "bxf_c393a0d013e6a5ec",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.17,
+          "odds_raw": "1.17",
+          "selection": "Orzechowski, Athena",
+          "selection_raw": "Orzechowski, Athena",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Potenza, Luca - Montes-de la Torre, Inaki30 Sep 12:25",
+          "fixture_id": "bxf_9c85dbb87e615914",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.34,
+          "odds_raw": "1.34",
+          "selection": "Montes-de la Torre, Inaki",
+          "selection_raw": "Montes-de la Torre, Inaki",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Butvilas, Edas - Geerts, Michael30 Sep 14:00",
+          "fixture_id": "bxf_fdce6f860fbd4172",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.19,
+          "odds_raw": "1.19",
+          "selection": "Butvilas, Edas",
+          "selection_raw": "Butvilas, Edas",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Miguel, Luis Guto - Mena, Facundo30 Sep 14:45",
+          "fixture_id": "bxf_5a629fbfaf8f2afb",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.75,
+          "odds_raw": "1.75",
+          "selection": "Mena, Facundo",
+          "selection_raw": "Mena, Facundo",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 17:35",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 313.6,
+      "potential_return_raw": "313.60",
+      "stake_buckets": [
+        {
+          "combination_count": 7,
+          "fold_size": 1,
+          "total_stake": "245.00",
+          "unit_stake": "35.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 245.00",
+        "Max Win: 313.60"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles735.00245.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Singles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 245,
+      "total_stake_raw": "245.00",
+      "unit_stake": 35,
+      "unit_stake_raw": "35.00"
+    },
+    {
+      "bet9ja_ticket_id": "300036248",
+      "bet9ja_ticket_id_raw": "ID: B9VY300036248DE-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "0:2 Remondy Pagotto, Victor Hugo - Boscardin Dias, Pedro29 Sep 17:50",
+          "fixture_id": "bxf_7fe1f0cf4ed9089b",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.17,
+          "odds_raw": "1.17",
+          "selection": "Boscardin Dias, Pedro",
+          "selection_raw": "Boscardin Dias, Pedro",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Villanueva, Gonzalo - Prado Angelo, Juan Carlos29 Sep 18:45",
+          "fixture_id": "bxf_3952159288556636",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.38,
+          "odds_raw": "1.38",
+          "selection": "Prado Angelo, Juan Carlos",
+          "selection_raw": "Prado Angelo, Juan Carlos",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Nations League, League A",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "4:1 Spain - Croatia29 Sep 19:45",
+          "fixture_id": "bxf_a3253fda65fe1b4e",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.22,
+          "odds_raw": "1.22",
+          "selection": "Spain",
+          "selection_raw": "Spain",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Mouilleron-Le-Captif, France Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "2:0 Chidekh, Clement - Goffin, David29 Sep 20:10",
+          "fixture_id": "bxf_b4eef533a2b06fc7",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.29,
+          "odds_raw": "1.29",
+          "selection": "Chidekh, Clement",
+          "selection_raw": "Chidekh, Clement",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Echargui, Moez - Dzumhur, Damir30 Sep 15:10",
+          "fixture_id": "bxf_571afb7748c65ddb",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.61,
+          "odds_raw": "1.61",
+          "selection": "Dzumhur, Damir",
+          "selection_raw": "Dzumhur, Damir",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 17:33",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 412.39,
+      "potential_return_raw": "412.39",
+      "stake_buckets": [
+        {
+          "combination_count": 10,
+          "fold_size": 2,
+          "total_stake": "100.00",
+          "unit_stake": "10.00"
+        },
+        {
+          "combination_count": 10,
+          "fold_size": 3,
+          "total_stake": "100.00",
+          "unit_stake": "10.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 200.00",
+        "Max Win: 412.39"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeDoubles1010.00100.00Trebles1010.00100.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 200,
+      "total_stake_raw": "200.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "299992351",
+      "bet9ja_ticket_id_raw": "ID: B9VY299992351VE-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "ATP Challenger Curitiba, Brazil Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "0:2 Remondy Pagotto, Victor Hugo - Boscardin Dias, Pedro29 Sep 17:50",
+          "fixture_id": "bxf_7fe1f0cf4ed9089b",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.17,
+          "odds_raw": "1.17",
+          "selection": "Boscardin Dias, Pedro",
+          "selection_raw": "Boscardin Dias, Pedro",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "0:1 Villanueva, Gonzalo - Prado Angelo, Juan CarlosLIVEInteruption",
+          "fixture_id": "bxf_ab6b51a74797cb23",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.38,
+          "odds_raw": "1.38",
+          "selection": "Prado Angelo, Juan Carlos",
+          "selection_raw": "Prado Angelo, Juan Carlos",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Nations League, League A",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "4:1 Spain - Croatia29 Sep 19:45",
+          "fixture_id": "bxf_a3253fda65fe1b4e",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.22,
+          "odds_raw": "1.22",
+          "selection": "Spain",
+          "selection_raw": "Spain",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Mouilleron-Le-Captif, France Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "2:0 Chidekh, Clement - Goffin, David29 Sep 20:10",
+          "fixture_id": "bxf_b4eef533a2b06fc7",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.29,
+          "odds_raw": "1.29",
+          "selection": "Chidekh, Clement",
+          "selection_raw": "Chidekh, Clement",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "ATP Challenger Porto 2, Portugal Men Singles",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Echargui, Moez - Dzumhur, Damir30 Sep 15:10",
+          "fixture_id": "bxf_571afb7748c65ddb",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.61,
+          "odds_raw": "1.61",
+          "selection": "Dzumhur, Damir",
+          "selection_raw": "Dzumhur, Damir",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 17:33",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 233.45,
+      "potential_return_raw": "233.45",
+      "stake_buckets": [
+        {
+          "combination_count": 5,
+          "fold_size": 1,
+          "total_stake": "175.00",
+          "unit_stake": "35.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 175.00",
+        "Max Win: 233.45"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles535.00175.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Singles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 175,
+      "total_stake_raw": "175.00",
+      "unit_stake": 35,
+      "unit_stake_raw": "35.00"
+    },
+    {
+      "bet9ja_ticket_id": "299297994",
+      "bet9ja_ticket_id_raw": "ID: B9VY299297994L3-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Russia - IR Iran29 Sep 17:00",
+          "fixture_id": "bxf_84185b7ab98821b6",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2(market result: 2:0)",
+          "odds": 1.77,
+          "odds_raw": "1.77",
+          "selection": "Russia",
+          "selection_raw": "Russia",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Cardiff Metropolitan University - Haverfordwest County AFC29 Sep 19:45",
+          "fixture_id": "bxf_f036ec17b30f52ab",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.05,
+          "odds_raw": "2.05",
+          "selection": "Cardiff Metropolitan University",
+          "selection_raw": "Cardiff Metropolitan University",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Ekstraklasa",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Jagiellonia Bialystok - Gornik Zabrze10 Oct 19:15",
+          "fixture_id": "bxf_afcbe2bd86013ff9",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.58,
+          "odds_raw": "2.58",
+          "selection": "Jagiellonia Bialystok",
+          "selection_raw": "Jagiellonia Bialystok",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 17:21",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 791.94,
+      "potential_return_raw": "791.94",
+      "stake_buckets": [
+        {
+          "combination_count": 3,
+          "fold_size": 1,
+          "total_stake": "150.00",
+          "unit_stake": "50.00"
+        },
+        {
+          "combination_count": 3,
+          "fold_size": 2,
+          "total_stake": "105.00",
+          "unit_stake": "35.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 255.00",
+        "Max Win: 791.94"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles350.00150.00Doubles335.00105.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 255,
+      "total_stake_raw": "255.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "2786997003",
+      "bet9ja_ticket_id_raw": "ID: B9VY2786997003F-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "MLB",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "5:3 Atlanta Braves - Philadelphia Phillies29 Sep 19:00",
+          "fixture_id": "bxf_a713f60dd1d1d059",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1-2 (Inc. Extra Inning)",
+          "odds": 1.5,
+          "odds_raw": "1.50",
+          "selection": "Atlanta Braves",
+          "selection_raw": "Atlanta Braves",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "MLB",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "3:6 Houston Astros - Chicago White Sox29 Sep 22:00",
+          "fixture_id": "bxf_1ce1cdc364026bd7",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "3way",
+          "odds": 1.96,
+          "odds_raw": "1.96",
+          "selection": "Houston Astros",
+          "selection_raw": "Houston Astros",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Urvalsdeild, Women",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Valur Reykjavik - UMF Njardvik30 Sep 20:15",
+          "fixture_id": "bxf_b390cfc097197c54",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "2 Way",
+          "odds": 2.55,
+          "odds_raw": "2.55",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 11:38",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 418.13,
+      "potential_return_raw": "418.13",
+      "stake_buckets": [
+        {
+          "combination_count": 3,
+          "fold_size": 1,
+          "total_stake": "150.00",
+          "unit_stake": "50.00"
+        },
+        {
+          "combination_count": 3,
+          "fold_size": 2,
+          "total_stake": "30.00",
+          "unit_stake": "10.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 180.00",
+        "Max Win: 418.13"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles350.00150.00Doubles310.0030.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 180,
+      "total_stake_raw": "180.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "278685859",
+      "bet9ja_ticket_id_raw": "ID: B9VY278685859FD-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "MLB",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "5:3 Atlanta Braves - Philadelphia Phillies29 Sep 19:00",
+          "fixture_id": "bxf_a713f60dd1d1d059",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1-2 (Inc. Extra Inning)",
+          "odds": 1.5,
+          "odds_raw": "1.50",
+          "selection": "Atlanta Braves",
+          "selection_raw": "Atlanta Braves",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "MLB",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "3:6 Houston Astros - Chicago White Sox29 Sep 22:00",
+          "fixture_id": "bxf_1ce1cdc364026bd7",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "3way",
+          "odds": 1.96,
+          "odds_raw": "1.96",
+          "selection": "Houston Astros",
+          "selection_raw": "Houston Astros",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Urvalsdeild, Women",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Valur Reykjavik - UMF Njardvik30 Sep 20:15",
+          "fixture_id": "bxf_b390cfc097197c54",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "2 Way",
+          "odds": 2.55,
+          "odds_raw": "2.55",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "29 Sep 2026 11:38",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 418.13,
+      "potential_return_raw": "418.13",
+      "stake_buckets": [
+        {
+          "combination_count": 3,
+          "fold_size": 1,
+          "total_stake": "150.00",
+          "unit_stake": "50.00"
+        },
+        {
+          "combination_count": 3,
+          "fold_size": 2,
+          "total_stake": "30.00",
+          "unit_stake": "10.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 180.00",
+        "Max Win: 418.13"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles350.00150.00Doubles310.0030.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 180,
+      "total_stake_raw": "180.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "207176816",
+      "bet9ja_ticket_id_raw": "ID: B9VY207176816LN-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Congo DR Score Both Halves, Congo DR First Team to Score28 Sep 17:00",
+          "fixture_id": "bxf_bd61ea491498a77d",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "To Happen",
+          "odds": 3.75,
+          "odds_raw": "3.75",
+          "selection": "Yes",
+          "selection_raw": "Yes",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "France To Win, Michael Olise to Assist, Ousmane Dembele to Score28 Sep 19:45",
+          "fixture_id": "bxf_0de6e51137d5e8d5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "To Happen",
+          "odds": 6,
+          "odds_raw": "6.00",
+          "selection": "Yes",
+          "selection_raw": "Yes",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "28 Sep 2026 15:46",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 806.25,
+      "potential_return_raw": "806.25",
+      "stake_buckets": [
+        {
+          "combination_count": 2,
+          "fold_size": 1,
+          "total_stake": "50.00",
+          "unit_stake": "25.00"
+        },
+        {
+          "combination_count": 1,
+          "fold_size": 2,
+          "total_stake": "25.00",
+          "unit_stake": "25.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 75.00",
+        "Max Win: 806.25"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles225.0050.00Doubles125.0025.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 75,
+      "total_stake_raw": "75.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "1028233739",
+      "bet9ja_ticket_id_raw": "ID: B9VY1028233739A-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "Serie A, Women",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "2:0 Inter - Fiorentina Women27 Sep 12:00",
+          "fixture_id": "bxf_220bcc9e701125ba",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.7,
+          "odds_raw": "1.70",
+          "selection": "Inter",
+          "selection_raw": "Inter",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Bundesliga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Borussia Dortmund - Werder Bremen09 Oct 19:30",
+          "fixture_id": "bxf_fb31a7a6f4cc474a",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.35,
+          "odds_raw": "1.35",
+          "selection": "Borussia Dortmund",
+          "selection_raw": "Borussia Dortmund",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Premier League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Arsenal - Leeds Utd10 Oct 12:30",
+          "fixture_id": "bxf_240886ec7fb46c28",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.4,
+          "odds_raw": "1.40",
+          "selection": "Arsenal",
+          "selection_raw": "Arsenal",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Serie A",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Inter - Parma10 Oct 17:00",
+          "fixture_id": "bxf_a00a4094206e32d0",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.13,
+          "odds_raw": "1.13",
+          "selection": "Inter",
+          "selection_raw": "Inter",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "LaLiga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Barcelona - Getafe10 Oct 17:30",
+          "fixture_id": "bxf_cb423f40c5ff3ed4",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.06,
+          "odds_raw": "1.06",
+          "selection": "Barcelona",
+          "selection_raw": "Barcelona",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Ligue 1",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "PSG - Le Mans10 Oct 19:45",
+          "fixture_id": "bxf_498c38409e4dde14",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.08,
+          "odds_raw": "1.08",
+          "selection": "PSG",
+          "selection_raw": "PSG",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "27 Sep 2026 10:47",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 598.58,
+      "potential_return_raw": "598.58",
+      "stake_buckets": [
+        {
+          "combination_count": 15,
+          "fold_size": 2,
+          "total_stake": "135.00",
+          "unit_stake": "9.00"
+        },
+        {
+          "combination_count": 20,
+          "fold_size": 3,
+          "total_stake": "180.00",
+          "unit_stake": "9.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 315.00",
+        "Max Win: 598.58"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeDoubles159.00135.00Trebles209.00180.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 315,
+      "total_stake_raw": "315.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "0356314557",
+      "bet9ja_ticket_id_raw": "ID: B9VY0356314557V-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "Bundesliga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "31:31 THW Kiel - SG Flensburg-Handewitt26 Sep 17:00",
+          "fixture_id": "bxf_f95cdae220c22cf6",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "3way",
+          "odds": 1.69,
+          "odds_raw": "1.69",
+          "selection": "THW Kiel",
+          "selection_raw": "THW Kiel",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "LaLiga 2",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:1 Tenerife - Cadiz CF26 Sep 17:30",
+          "fixture_id": "bxf_c6db03297314e7c5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.86,
+          "odds_raw": "1.86",
+          "selection": "Tenerife",
+          "selection_raw": "Tenerife",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "LFB, Women",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "81:67 Tango Bourges Basket - Landerneau Bretagne Basket26 Sep 19:00",
+          "fixture_id": "bxf_002b418049ce4444",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.82,
+          "odds_raw": "1.82",
+          "selection": "Tango Bourges Basket (Home -10.5)",
+          "selection_raw": "Tango Bourges Basket (Home -10.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Serie A",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "85:73 Reyer Venezia - Cantu26 Sep 19:00",
+          "fixture_id": "bxf_27c4f4d7114301bb",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.98,
+          "odds_raw": "1.98",
+          "selection": "Reyer Venezia (Home -10.5)",
+          "selection_raw": "Reyer Venezia (Home -10.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "First Division",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "2:1 Longford Town - Cork City26 Sep 19:30",
+          "fixture_id": "bxf_d5b324a316fa16ef",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.78,
+          "odds_raw": "1.78",
+          "selection": "Cork City",
+          "selection_raw": "Cork City",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Liga ACB",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "119:101 FC Barcelona - CB Coruna26 Sep 20:00",
+          "fixture_id": "bxf_f326debbd5e78967",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.86,
+          "odds_raw": "1.86",
+          "selection": "FC Barcelona (Home -14.5)",
+          "selection_raw": "FC Barcelona (Home -14.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "CEV EuroVolley",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:3 France - Poland26 Sep 20:00",
+          "fixture_id": "bxf_abc034a1007d2db5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "2 Way",
+          "odds": 1.29,
+          "odds_raw": "1.29",
+          "selection": "2",
+          "selection_raw": "2",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Primeira Liga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "FC Arouca - Estrela Amadora11 Oct 20:30",
+          "fixture_id": "bxf_8f93d8a3f3a45e37",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.16,
+          "odds_raw": "2.16",
+          "selection": "FC Arouca",
+          "selection_raw": "FC Arouca",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "26 Sep 2026 16:07",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 1463.94,
+      "potential_return_raw": "1,463.94",
+      "stake_buckets": [
+        {
+          "combination_count": 70,
+          "fold_size": 4,
+          "total_stake": "140.00",
+          "unit_stake": "2.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 140.00",
+        "Max Win: 1,463.94"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStake4 Folds702.00140.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 140,
+      "total_stake_raw": "140.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "0356216313",
+      "bet9ja_ticket_id_raw": "ID: B9VY0356216313L-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "Bundesliga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "31:31 THW Kiel - SG Flensburg-Handewitt26 Sep 17:00",
+          "fixture_id": "bxf_f95cdae220c22cf6",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "3way",
+          "odds": 1.69,
+          "odds_raw": "1.69",
+          "selection": "THW Kiel",
+          "selection_raw": "THW Kiel",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "LaLiga 2",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:1 Tenerife - Cadiz CF26 Sep 17:30",
+          "fixture_id": "bxf_c6db03297314e7c5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.86,
+          "odds_raw": "1.86",
+          "selection": "Tenerife",
+          "selection_raw": "Tenerife",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "LFB, Women",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "81:67 Tango Bourges Basket - Landerneau Bretagne Basket26 Sep 19:00",
+          "fixture_id": "bxf_002b418049ce4444",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.82,
+          "odds_raw": "1.82",
+          "selection": "Tango Bourges Basket (Home -10.5)",
+          "selection_raw": "Tango Bourges Basket (Home -10.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Serie A",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "85:73 Reyer Venezia - Cantu26 Sep 19:00",
+          "fixture_id": "bxf_27c4f4d7114301bb",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.98,
+          "odds_raw": "1.98",
+          "selection": "Reyer Venezia (Home -10.5)",
+          "selection_raw": "Reyer Venezia (Home -10.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "First Division",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "2:1 Longford Town - Cork City26 Sep 19:30",
+          "fixture_id": "bxf_d5b324a316fa16ef",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.78,
+          "odds_raw": "1.78",
+          "selection": "Cork City",
+          "selection_raw": "Cork City",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Liga ACB",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "119:101 FC Barcelona - CB Coruna26 Sep 20:00",
+          "fixture_id": "bxf_f326debbd5e78967",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.86,
+          "odds_raw": "1.86",
+          "selection": "FC Barcelona (Home -14.5)",
+          "selection_raw": "FC Barcelona (Home -14.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "CEV EuroVolley",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:3 France - Poland26 Sep 20:00",
+          "fixture_id": "bxf_abc034a1007d2db5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "2 Way",
+          "odds": 1.29,
+          "odds_raw": "1.29",
+          "selection": "2",
+          "selection_raw": "2",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Primeira Liga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "FC Arouca - Estrela Amadora11 Oct 20:30",
+          "fixture_id": "bxf_8f93d8a3f3a45e37",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.16,
+          "odds_raw": "2.16",
+          "selection": "FC Arouca",
+          "selection_raw": "FC Arouca",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "26 Sep 2026 16:07",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 1634.49,
+      "potential_return_raw": "1,634.49",
+      "stake_buckets": [
+        {
+          "combination_count": 56,
+          "fold_size": 3,
+          "total_stake": "280.00",
+          "unit_stake": "5.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 280.00",
+        "Max Win: 1,634.49"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeTrebles565.00280.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Trebles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 280,
+      "total_stake_raw": "280.00",
+      "unit_stake": 5,
+      "unit_stake_raw": "5.00"
+    },
+    {
+      "bet9ja_ticket_id": "035604605",
+      "bet9ja_ticket_id_raw": "ID: B9VY035604605NP-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "Bundesliga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "31:31 THW Kiel - SG Flensburg-Handewitt26 Sep 17:00",
+          "fixture_id": "bxf_f95cdae220c22cf6",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "3way",
+          "odds": 1.69,
+          "odds_raw": "1.69",
+          "selection": "THW Kiel",
+          "selection_raw": "THW Kiel",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "LaLiga 2",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:1 Tenerife - Cadiz CF26 Sep 17:30",
+          "fixture_id": "bxf_c6db03297314e7c5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.86,
+          "odds_raw": "1.86",
+          "selection": "Tenerife",
+          "selection_raw": "Tenerife",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "LFB, Women",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "81:67 Tango Bourges Basket - Landerneau Bretagne Basket26 Sep 19:00",
+          "fixture_id": "bxf_002b418049ce4444",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.82,
+          "odds_raw": "1.82",
+          "selection": "Tango Bourges Basket (Home -10.5)",
+          "selection_raw": "Tango Bourges Basket (Home -10.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Serie A",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "85:73 Reyer Venezia - Cantu26 Sep 19:00",
+          "fixture_id": "bxf_27c4f4d7114301bb",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.98,
+          "odds_raw": "1.98",
+          "selection": "Reyer Venezia (Home -10.5)",
+          "selection_raw": "Reyer Venezia (Home -10.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "First Division",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "2:1 Longford Town - Cork City26 Sep 19:30",
+          "fixture_id": "bxf_d5b324a316fa16ef",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.78,
+          "odds_raw": "1.78",
+          "selection": "Cork City",
+          "selection_raw": "Cork City",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Liga ACB",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "119:101 FC Barcelona - CB Coruna26 Sep 20:00",
+          "fixture_id": "bxf_f326debbd5e78967",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.86,
+          "odds_raw": "1.86",
+          "selection": "FC Barcelona (Home -14.5)",
+          "selection_raw": "FC Barcelona (Home -14.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "CEV EuroVolley",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:3 France - Poland26 Sep 20:00",
+          "fixture_id": "bxf_abc034a1007d2db5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "2 Way",
+          "odds": 1.29,
+          "odds_raw": "1.29",
+          "selection": "2",
+          "selection_raw": "2",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Primeira Liga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "FC Arouca - Estrela Amadora11 Oct 20:30",
+          "fixture_id": "bxf_8f93d8a3f3a45e37",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.16,
+          "odds_raw": "2.16",
+          "selection": "FC Arouca",
+          "selection_raw": "FC Arouca",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "26 Sep 2026 16:06",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 819.03,
+      "potential_return_raw": "819.03",
+      "stake_buckets": [
+        {
+          "combination_count": 28,
+          "fold_size": 2,
+          "total_stake": "252.00",
+          "unit_stake": "9.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 252.00",
+        "Max Win: 819.03"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeDoubles289.00252.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Doubles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 252,
+      "total_stake_raw": "252.00",
+      "unit_stake": 9,
+      "unit_stake_raw": "9.00"
+    },
+    {
+      "bet9ja_ticket_id": "0284596242",
+      "bet9ja_ticket_id_raw": "ID: B9VY0284596242X-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "Eliteserien",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "6:2 Vaalerenga IF Oslo - Narvik Ishockeyklubb26 Sep 15:00",
+          "fixture_id": "bxf_cbe95e3fb9d0d713",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.19,
+          "odds_raw": "1.19",
+          "selection": "Vaalerenga IF Oslo",
+          "selection_raw": "Vaalerenga IF Oslo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Liiga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "2:4 Tappara Tampere - SaiPa Lappeenranta26 Sep 15:00",
+          "fixture_id": "bxf_25977180c2ca8a4c",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.69,
+          "odds_raw": "1.69",
+          "selection": "Tappara Tampere",
+          "selection_raw": "Tappara Tampere",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Liiga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "4:1 Kiekko-Espoo - Jokerit Helsinki26 Sep 15:00",
+          "fixture_id": "bxf_890fcb04275f4fa8",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 3.7,
+          "odds_raw": "3.70",
+          "selection": "Jokerit Helsinki",
+          "selection_raw": "Jokerit Helsinki",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "National League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "3:2 ZSC Lions Zurich - EHC Kloten26 Sep 18:45",
+          "fixture_id": "bxf_825a5e364f73b5f2",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.44,
+          "odds_raw": "1.44",
+          "selection": "ZSC Lions Zurich",
+          "selection_raw": "ZSC Lions Zurich",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Challenge Cup",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "5:2 Belfast Giants - Fife Flyers26 Sep 19:00",
+          "fixture_id": "bxf_52cdc499952816b5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.05,
+          "odds_raw": "1.05",
+          "selection": "Belfast Giants",
+          "selection_raw": "Belfast Giants",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Matchups",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 Fisher, Johnny - Pirotton, Michael26 Sep 20:40",
+          "fixture_id": "bxf_ec1350b47966b498",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.08,
+          "odds_raw": "1.08",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Eliteserien",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "KFUM Oslo - Vaalerenga IF12 Oct 18:00",
+          "fixture_id": "bxf_aceb7c21984a5a55",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.23,
+          "odds_raw": "2.23",
+          "selection": "Vaalerenga IF",
+          "selection_raw": "Vaalerenga IF",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "26 Sep 2026 14:07",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 566.94,
+      "potential_return_raw": "566.94",
+      "stake_buckets": [
+        {
+          "combination_count": 21,
+          "fold_size": 2,
+          "total_stake": "189.00",
+          "unit_stake": "9.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 189.00",
+        "Max Win: 566.94"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeDoubles219.00189.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Doubles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 189,
+      "total_stake_raw": "189.00",
+      "unit_stake": 9,
+      "unit_stake_raw": "9.00"
+    },
+    {
+      "bet9ja_ticket_id": "02845184983",
+      "bet9ja_ticket_id_raw": "ID: B9VY02845184983-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "Eliteserien",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "6:2 Vaalerenga IF Oslo - Narvik Ishockeyklubb26 Sep 15:00",
+          "fixture_id": "bxf_cbe95e3fb9d0d713",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.19,
+          "odds_raw": "1.19",
+          "selection": "Vaalerenga IF Oslo",
+          "selection_raw": "Vaalerenga IF Oslo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Liiga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "2:4 Tappara Tampere - SaiPa Lappeenranta26 Sep 15:00",
+          "fixture_id": "bxf_25977180c2ca8a4c",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.69,
+          "odds_raw": "1.69",
+          "selection": "Tappara Tampere",
+          "selection_raw": "Tappara Tampere",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Liiga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "4:1 Kiekko-Espoo - Jokerit Helsinki26 Sep 15:00",
+          "fixture_id": "bxf_890fcb04275f4fa8",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 3.7,
+          "odds_raw": "3.70",
+          "selection": "Jokerit Helsinki",
+          "selection_raw": "Jokerit Helsinki",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "National League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "3:2 ZSC Lions Zurich - EHC Kloten26 Sep 18:45",
+          "fixture_id": "bxf_825a5e364f73b5f2",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.44,
+          "odds_raw": "1.44",
+          "selection": "ZSC Lions Zurich",
+          "selection_raw": "ZSC Lions Zurich",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Challenge Cup",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "5:2 Belfast Giants - Fife Flyers26 Sep 19:00",
+          "fixture_id": "bxf_52cdc499952816b5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.05,
+          "odds_raw": "1.05",
+          "selection": "Belfast Giants",
+          "selection_raw": "Belfast Giants",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Matchups",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 Fisher, Johnny - Pirotton, Michael26 Sep 20:40",
+          "fixture_id": "bxf_ec1350b47966b498",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.08,
+          "odds_raw": "1.08",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Eliteserien",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "KFUM Oslo - Vaalerenga IF12 Oct 18:00",
+          "fixture_id": "bxf_aceb7c21984a5a55",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.23,
+          "odds_raw": "2.23",
+          "selection": "Vaalerenga IF",
+          "selection_raw": "Vaalerenga IF",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "26 Sep 2026 14:07",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 515.82,
+      "potential_return_raw": "515.82",
+      "stake_buckets": [
+        {
+          "combination_count": 35,
+          "fold_size": 3,
+          "total_stake": "105.00",
+          "unit_stake": "3.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 105.00",
+        "Max Win: 515.82"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeTrebles353.00105.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Trebles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 105,
+      "total_stake_raw": "105.00",
+      "unit_stake": 3,
+      "unit_stake_raw": "3.00"
+    },
+    {
+      "bet9ja_ticket_id": "028439799",
+      "bet9ja_ticket_id_raw": "ID: B9VY028439799VH-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "Eliteserien",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "6:2 Vaalerenga IF Oslo - Narvik Ishockeyklubb26 Sep 15:00",
+          "fixture_id": "bxf_cbe95e3fb9d0d713",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.19,
+          "odds_raw": "1.19",
+          "selection": "Vaalerenga IF Oslo",
+          "selection_raw": "Vaalerenga IF Oslo",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Liiga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "2:4 Tappara Tampere - SaiPa Lappeenranta26 Sep 15:00",
+          "fixture_id": "bxf_25977180c2ca8a4c",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.69,
+          "odds_raw": "1.69",
+          "selection": "Tappara Tampere",
+          "selection_raw": "Tappara Tampere",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Liiga",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "4:1 Kiekko-Espoo - Jokerit Helsinki26 Sep 15:00",
+          "fixture_id": "bxf_890fcb04275f4fa8",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 3.7,
+          "odds_raw": "3.70",
+          "selection": "Jokerit Helsinki",
+          "selection_raw": "Jokerit Helsinki",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "National League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "3:2 ZSC Lions Zurich - EHC Kloten26 Sep 18:45",
+          "fixture_id": "bxf_825a5e364f73b5f2",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.44,
+          "odds_raw": "1.44",
+          "selection": "ZSC Lions Zurich",
+          "selection_raw": "ZSC Lions Zurich",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Challenge Cup",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "5:2 Belfast Giants - Fife Flyers26 Sep 19:00",
+          "fixture_id": "bxf_52cdc499952816b5",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Match Winner",
+          "odds": 1.05,
+          "odds_raw": "1.05",
+          "selection": "Belfast Giants",
+          "selection_raw": "Belfast Giants",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Matchups",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 Fisher, Johnny - Pirotton, Michael26 Sep 20:40",
+          "fixture_id": "bxf_ec1350b47966b498",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.08,
+          "odds_raw": "1.08",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Eliteserien",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "KFUM Oslo - Vaalerenga IF12 Oct 18:00",
+          "fixture_id": "bxf_aceb7c21984a5a55",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.23,
+          "odds_raw": "2.23",
+          "selection": "Vaalerenga IF",
+          "selection_raw": "Vaalerenga IF",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "26 Sep 2026 14:07",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 433.3,
+      "potential_return_raw": "433.30",
+      "stake_buckets": [
+        {
+          "combination_count": 7,
+          "fold_size": 1,
+          "total_stake": "245.00",
+          "unit_stake": "35.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 245.00",
+        "Max Win: 433.30"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles735.00245.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Singles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 245,
+      "total_stake_raw": "245.00",
+      "unit_stake": 35,
+      "unit_stake_raw": "35.00"
+    },
+    {
+      "bet9ja_ticket_id": "87365804692",
+      "bet9ja_ticket_id_raw": "ID: B9VX87365804692-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "NFL",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "14:35 Green Bay Packers - Atlanta Falcons25 Sep 01:15",
+          "fixture_id": "bxf_6bcdab408b180184",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Handicap",
+          "odds": 1.9,
+          "odds_raw": "1.90",
+          "selection": "Atlanta Falcons (Home -5.5)",
+          "selection_raw": "Atlanta Falcons (Home -5.5)",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "(Carolina Panthers) Brooks, Jonathon 27 Sep 18:00",
+          "fixture_id": "bxf_71769cf4af0e4d68",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "Anytime TD",
+          "odds": 3.65,
+          "odds_raw": "3.65",
+          "selection": "Yes",
+          "selection_raw": "Yes",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "24 Sep 2026 19:07",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 256.67,
+      "potential_return_raw": "256.67",
+      "stake_buckets": [
+        {
+          "combination_count": 2,
+          "fold_size": 1,
+          "total_stake": "70.00",
+          "unit_stake": "35.00"
+        },
+        {
+          "combination_count": 1,
+          "fold_size": 2,
+          "total_stake": "9.00",
+          "unit_stake": "9.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 79.00",
+        "Max Win: 256.67"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles235.0070.00Doubles19.009.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 79,
+      "total_stake_raw": "79.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "407942713",
+      "bet9ja_ticket_id_raw": "ID: B9VX407942713EZ-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "One-Day Cup, Women, Playoffs",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 The Blaze - Hampshire19 Sep 10:30",
+          "fixture_id": "bxf_525e52f97f50fa15",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1 - 2",
+          "odds": 1.8,
+          "odds_raw": "1.80",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Flandrien 0.0 Classic 2026 - HH",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 Philipsen, Jasper - de Lie, Arnaud19 Sep 11:45",
+          "fixture_id": "bxf_cd33942f173e7743",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1-2",
+          "odds": 1.28,
+          "odds_raw": "1.28",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "T20 Africa Continent Cup, Playoffs",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "0:1 Uganda - Kenya19 Sep 12:30",
+          "fixture_id": "bxf_48d9969875a186cc",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1 - 2",
+          "odds": 1.47,
+          "odds_raw": "1.47",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Tour de Luxembourg 2026 - Stage 4 - HH",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 Johansen, Julius - van der Poel, Mathieu19 Sep 15:09",
+          "fixture_id": "bxf_b55b210a7e63c7b6",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1-2",
+          "odds": 1.63,
+          "odds_raw": "1.63",
+          "selection": "2",
+          "selection_raw": "2",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Matchups",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 Cruz Gonzalez, Isaac - Bravo, Nestor20 Sep 03:24",
+          "fixture_id": "bxf_f3342f46a433ca2a",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.16,
+          "odds_raw": "1.16",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "19 Sep 2026 09:45",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 490.89,
+      "potential_return_raw": "490.89",
+      "stake_buckets": [
+        {
+          "combination_count": 10,
+          "fold_size": 2,
+          "total_stake": "90.00",
+          "unit_stake": "9.00"
+        },
+        {
+          "combination_count": 10,
+          "fold_size": 3,
+          "total_stake": "60.00",
+          "unit_stake": "6.00"
+        },
+        {
+          "combination_count": 5,
+          "fold_size": 4,
+          "total_stake": "25.00",
+          "unit_stake": "5.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 175.00",
+        "Max Win: 490.89"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeDoubles109.0090.00Trebles106.0060.004 Folds55.0025.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 175,
+      "total_stake_raw": "175.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "407926440",
+      "bet9ja_ticket_id_raw": "ID: B9VX407926440X3-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "One-Day Cup, Women, Playoffs",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 The Blaze - Hampshire19 Sep 10:30",
+          "fixture_id": "bxf_525e52f97f50fa15",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1 - 2",
+          "odds": 1.8,
+          "odds_raw": "1.80",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Flandrien 0.0 Classic 2026 - HH",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 Philipsen, Jasper - de Lie, Arnaud19 Sep 11:45",
+          "fixture_id": "bxf_cd33942f173e7743",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1-2",
+          "odds": 1.28,
+          "odds_raw": "1.28",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "T20 Africa Continent Cup, Playoffs",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "0:1 Uganda - Kenya19 Sep 12:30",
+          "fixture_id": "bxf_48d9969875a186cc",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1 - 2",
+          "odds": 1.47,
+          "odds_raw": "1.47",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Tour de Luxembourg 2026 - Stage 4 - HH",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 Johansen, Julius - van der Poel, Mathieu19 Sep 15:09",
+          "fixture_id": "bxf_b55b210a7e63c7b6",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1-2",
+          "odds": 1.63,
+          "odds_raw": "1.63",
+          "selection": "2",
+          "selection_raw": "2",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "Matchups",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "1:0 Cruz Gonzalez, Isaac - Bravo, Nestor20 Sep 03:24",
+          "fixture_id": "bxf_f3342f46a433ca2a",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 1.16,
+          "odds_raw": "1.16",
+          "selection": "1",
+          "selection_raw": "1",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "19 Sep 2026 09:45",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 256.9,
+      "potential_return_raw": "256.90",
+      "stake_buckets": [
+        {
+          "combination_count": 5,
+          "fold_size": 1,
+          "total_stake": "175.00",
+          "unit_stake": "35.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 175.00",
+        "Max Win: 256.90"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles535.00175.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Singles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 175,
+      "total_stake_raw": "175.00",
+      "unit_stake": 35,
+      "unit_stake_raw": "35.00"
+    },
+    {
+      "bet9ja_ticket_id": "15351866250",
+      "bet9ja_ticket_id_raw": "ID: B9VX15351866250-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Lyon To Win, Over 2.5 Goals, Lois Openda to Score16 Sep 20:00",
+          "fixture_id": "bxf_f306acea68ef7d36",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "To Happen",
+          "odds": 4,
+          "odds_raw": "4.00",
+          "selection": "Yes",
+          "selection_raw": "Yes",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": null,
+          "competition_resolution": "COMPETITION_UNAVAILABLE",
+          "fixture_and_time_raw": "Manchester Utd To Win, Over 3.5 Goals, Benjamin Sesko to Score16 Sep 20:00",
+          "fixture_id": "bxf_e96c0485bd6b9669",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "To Happen",
+          "odds": 6,
+          "odds_raw": "6.00",
+          "selection": "Yes",
+          "selection_raw": "Yes",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "16 Sep 2026 11:05",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 778,
+      "potential_return_raw": "778.00",
+      "stake_buckets": [
+        {
+          "combination_count": 2,
+          "fold_size": 1,
+          "total_stake": "50.00",
+          "unit_stake": "25.00"
+        },
+        {
+          "combination_count": 1,
+          "fold_size": 2,
+          "total_stake": "22.00",
+          "unit_stake": "22.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 72.00",
+        "Max Win: 778.00"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles225.0050.00Doubles122.0022.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 72,
+      "total_stake_raw": "72.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "000709892",
+      "bet9ja_ticket_id_raw": "ID: B9VX000709892T0-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "UEFA Nations League, League D",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "0:2 Liechtenstein - Lithuania24 Sep 19:45",
+          "fixture_id": "bxf_bf86584d53ede6c1",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 9.4,
+          "odds_raw": "9.40",
+          "selection": "Liechtenstein",
+          "selection_raw": "Liechtenstein",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Champions League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Sabah Masazir - Slavia Prague13 Oct 17:45",
+          "fixture_id": "bxf_08eaa37f65195df3",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 3.5,
+          "odds_raw": "3.50",
+          "selection": "Sabah Masazir",
+          "selection_raw": "Sabah Masazir",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Champions League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Lens - Sporting13 Oct 17:45",
+          "fixture_id": "bxf_5816163b57eb15df",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.73,
+          "odds_raw": "2.73",
+          "selection": "Sporting",
+          "selection_raw": "Sporting",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Champions League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Atl. Madrid - Manchester Utd13 Oct 20:00",
+          "fixture_id": "bxf_1d42deb0b3b8bdec",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.73,
+          "odds_raw": "2.73",
+          "selection": "Manchester Utd",
+          "selection_raw": "Manchester Utd",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Champions League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Leipzig - PSV13 Oct 20:00",
+          "fixture_id": "bxf_5d04be5943b503cd",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 3.2,
+          "odds_raw": "3.20",
+          "selection": "PSV",
+          "selection_raw": "PSV",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "14 Sep 2026 16:38",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 5782.56,
+      "potential_return_raw": "5,782.56",
+      "stake_buckets": [
+        {
+          "combination_count": 10,
+          "fold_size": 2,
+          "total_stake": "30.00",
+          "unit_stake": "3.00"
+        },
+        {
+          "combination_count": 10,
+          "fold_size": 3,
+          "total_stake": "30.00",
+          "unit_stake": "3.00"
+        },
+        {
+          "combination_count": 5,
+          "fold_size": 4,
+          "total_stake": "15.00",
+          "unit_stake": "3.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 75.00",
+        "Max Win: 5,782.56"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeDoubles103.0030.00Trebles103.0030.004 Folds53.0015.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": null,
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 75,
+      "total_stake_raw": "75.00",
+      "unit_stake": null,
+      "unit_stake_raw": null
+    },
+    {
+      "bet9ja_ticket_id": "0006975005",
+      "bet9ja_ticket_id_raw": "ID: B9VX0006975005T-5787600",
+      "captured_at_utc": "2026-09-30T09:58:03.210Z",
+      "legs": [
+        {
+          "competition_raw": "UEFA Nations League, League D",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "0:2 Liechtenstein - Lithuania24 Sep 19:45",
+          "fixture_id": "bxf_bf86584d53ede6c1",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 9.4,
+          "odds_raw": "9.40",
+          "selection": "Liechtenstein",
+          "selection_raw": "Liechtenstein",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Champions League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Sabah Masazir - Slavia Prague13 Oct 17:45",
+          "fixture_id": "bxf_08eaa37f65195df3",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 3.5,
+          "odds_raw": "3.50",
+          "selection": "Sabah Masazir",
+          "selection_raw": "Sabah Masazir",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Champions League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Lens - Sporting13 Oct 17:45",
+          "fixture_id": "bxf_5816163b57eb15df",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.73,
+          "odds_raw": "2.73",
+          "selection": "Sporting",
+          "selection_raw": "Sporting",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Champions League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Atl. Madrid - Manchester Utd13 Oct 20:00",
+          "fixture_id": "bxf_1d42deb0b3b8bdec",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 2.73,
+          "odds_raw": "2.73",
+          "selection": "Manchester Utd",
+          "selection_raw": "Manchester Utd",
+          "source_event_id": null
+        },
+        {
+          "competition_raw": "UEFA Champions League",
+          "competition_resolution": "PRESENT",
+          "fixture_and_time_raw": "Leipzig - PSV13 Oct 20:00",
+          "fixture_id": "bxf_5d04be5943b503cd",
+          "fixture_id_resolution": "NATURAL_KEY_FALLBACK_NO_SOURCE_EVENT_ID",
+          "market_raw": "1X2",
+          "odds": 3.2,
+          "odds_raw": "3.20",
+          "selection": "PSV",
+          "selection_raw": "PSV",
+          "source_event_id": null
+        }
+      ],
+      "parser_version": "bet9ja-ticket-capture-parser@0.7.0-structured-stake-buckets",
+      "placed_at_raw": "14 Sep 2026 16:38",
+      "placed_at_resolution": "UNRESOLVED_NO_EXPLICIT_TIMESTAMP",
+      "placed_at_utc": null,
+      "potential_return": 754.6,
+      "potential_return_raw": "754.60",
+      "stake_buckets": [
+        {
+          "combination_count": 5,
+          "fold_size": 1,
+          "total_stake": "175.00",
+          "unit_stake": "35.00"
+        }
+      ],
+      "stake_return_raw_items": [
+        "Stake: 175.00",
+        "Max Win: 754.60"
+      ],
+      "status": "OPEN",
+      "status_resolution": "INFERRED_FROM_OPEN_BETS_PAGE_NO_EXPLICIT_STATUS_MARKUP_CONFIRMED",
+      "system_table_raw": "System TypeNo.BetsUnit StakeStakeSingles535.00175.00",
+      "ticket_type_normalized": "SYSTEM",
+      "ticket_type_raw": "Singles",
+      "ticket_type_taxonomy_gap": false,
+      "total_stake": 175,
+      "total_stake_raw": "175.00",
+      "unit_stake": 35,
+      "unit_stake_raw": "35.00"
+    }
+  ],
+  "unresolved_tickets": []
+}

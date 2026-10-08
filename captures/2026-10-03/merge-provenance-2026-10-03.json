@@ -1,0 +1,21 @@
+{
+  "base_capture_session_id": "soccer-2026-10-03T04-45-07Z",
+  "base_captured_at_utc": "2026-10-03T04:52:09.364Z",
+  "base_fixture_count": 705,
+  "supplementary_capture_session_id": "soccer-2026-10-03T04-37-35Z",
+  "supplementary_captured_at_utc": "2026-10-03T04:44:32.451Z",
+  "fixtures_added_from_supplementary": [
+    "bxf_5aaf41a65c8d2d42",
+    "bxf_6ee760f369024947",
+    "bxf_ad8819c74cf216a3",
+    "bxf_bf694fb38be2f7a7",
+    "bxf_c1c8ff0b73055d57",
+    "bxf_c569592589e2f481",
+    "bxf_d5c9e50c1109b7d8",
+    "bxf_d63ce39f07c5ecfb",
+    "bxf_dec9f3370a09acd3",
+    "bxf_e747568e1e544052",
+    "bxf_f87958cab318951e"
+  ],
+  "reason": "Two distinct real capture sessions 8 minutes apart; neither fixture set was a superset of the other (11 fixtures in the earlier 04:37:35Z session absent from the later, more complete 04:45:07Z session, likely live-market drift -- all 7 affected competitions are COMPLETED with other real fixtures in the later capture, not a parse failure). Zero identity-field disagreements across the 630 fixtures common to both sessions, so the union was taken rather than discarding either session's distinct coverage."
+}

@@ -1,0 +1,2720 @@
+{
+  "schema_version": "predictbot.manual-results-evidence.v1",
+  "template_only": false,
+  "purpose": "Populate verified final football results for PredictBot's governed manual settlement fallback when the primary results API cannot settle eligible recorded forecasts.",
+  "llm_instructions": [
+    "Use the supplied match list as the complete input scope. Do not add fixtures that are absent from it.",
+    "Search for the completed match result and record the full-time score after regulation plus stoppage time. Do not use half-time, extra-time, penalty-shootout, aggregate, or live scores unless the input explicitly requests that market.",
+    "Preserve fixture_id, competition, participants, scheduled_date, kickoff_utc, and market_type exactly as supplied. Do not guess missing identity fields.",
+    "Set result_status to VERIFIED only when the score is supported by either one authoritative competition, club, governing-body, or established news source, or by two independent credible match-report sources.",
+    "Every source_url must link directly to the specific match page or match report. Search-result pages, homepages, generic help pages, knowledge-panel help pages, snippets, and AI-generated summaries are invalid evidence.",
+    "If reliable evidence is unavailable, conflicting, or the match is unfinished, set result_status to NEEDS_REVIEW, leave scores null, explain the reason in review_reason, and do not guess.",
+    "Never invent URLs, timestamps, quotations, hashes, identifiers, scores, or source names.",
+    "Set evidence_sha256 to null. The downstream evidence-preservation tool calculates hashes after retrieving and archiving the cited pages.",
+    "Use an actual UTC retrieval timestamp ending in Z for each source.",
+    "Return valid JSON only. Set template_only to false. Put one result object in results for every supplied fixture, in the same order. Do not include commentary outside the JSON."
+  ],
+  "verification_policy": {
+    "accepted_methods": [
+      "ONE_AUTHORITATIVE_SOURCE",
+      "TWO_INDEPENDENT_SOURCES"
+    ],
+    "authoritative_source_examples": [
+      "official competition or governing-body match page",
+      "official club match report",
+      "established newswire or major publication match report"
+    ],
+    "rejected_source_examples": [
+      "search-result page",
+      "generic homepage",
+      "generic Google Knowledge Panel help page",
+      "AI answer without a direct source",
+      "social-media post without official match evidence",
+      "live score before full time"
+    ]
+  },
+  "result_record_template": {
+    "fixture_id": "COPY_EXACTLY_FROM_INPUT",
+    "competition": "COPY_EXACTLY_FROM_INPUT",
+    "participants": {
+      "home": "COPY_EXACTLY_FROM_INPUT",
+      "away": "COPY_EXACTLY_FROM_INPUT"
+    },
+    "scheduled_date": "YYYY-MM-DD_OR_COPY_NULL",
+    "kickoff_utc": "COPY_EXACTLY_FROM_INPUT_OR_NULL",
+    "market_type": "1X2",
+    "match_status": "COMPLETED",
+    "home_score": null,
+    "away_score": null,
+    "result_status": "NEEDS_REVIEW",
+    "verification_method": null,
+    "review_reason": "Replace with null only after valid evidence confirms the final score.",
+    "sources": [
+      {
+        "source_name": "ACTUAL_SOURCE_NAME",
+        "source_type": "OFFICIAL_COMPETITION|OFFICIAL_CLUB|NEWSWIRE|MAJOR_PUBLICATION|OTHER_CREDIBLE",
+        "source_url": "DIRECT_MATCH_SPECIFIC_URL",
+        "retrieved_at_utc": "YYYY-MM-DDTHH:MM:SSZ",
+        "evidence_summary": "Final score: Home Team N-N Away Team.",
+        "evidence_sha256": null
+      }
+    ]
+  },
+  "results": [
+    {
+      "fixture_id": "bxf_a83d2c0a0929a5be",
+      "competition": "Club Friendly Games",
+      "participants": {
+        "away": "FK Suduva Marijampole",
+        "home": "Jagiellonia Bialystok"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8f96910c78c9f1d0",
+      "competition": "Prva Liga",
+      "participants": {
+        "away": "Napredak Krusevac",
+        "home": "Vozdovac"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_e4f36794dfc7b220",
+      "competition": "International Friendly Games",
+      "participants": {
+        "away": "Brazil",
+        "home": "Australia"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 4,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Reuters",
+          "source_type": "NEWSWIRE",
+          "source_url": "https://www.reuters.com/sports/soccer/resurgent-brazil-beat-australia-4-2-muscle-issue-sidelines-raphinha-2026-09-29/",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Australia 2-4 Brazil.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_f89c8e04f631a1c8",
+      "competition": "International Friendly Games",
+      "participants": {
+        "away": "IR Iran",
+        "home": "Russia"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Russian Football Union",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.rfs.ru/news/225185",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Russia 2-0 IR Iran.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_8e968f797fc9fcd5",
+      "competition": "Cymru Premier",
+      "participants": {
+        "away": "Haverfordwest County AFC",
+        "home": "Cardiff Metropolitan University"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3f3a15737d145567",
+      "competition": "National League",
+      "participants": {
+        "away": "Kidderminster Harriers",
+        "home": "Boreham Wood"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_423a1a2c78144d88",
+      "competition": "National League",
+      "participants": {
+        "away": "Carlisle Utd",
+        "home": "Fylde"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_433a1bbf79144f1b",
+      "competition": "National League",
+      "participants": {
+        "away": "Wealdstone",
+        "home": "Forest Green Rovers"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3e3a13e07c1453d4",
+      "competition": "National League",
+      "participants": {
+        "away": "Aldershot Town",
+        "home": "Hornchurch FC"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b08701156bc04799",
+      "competition": "Azadegan League",
+      "participants": {
+        "away": "Besat Kermanshah",
+        "home": "Mes Rafsanjan"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ca9018c28e2ca576",
+      "competition": "Cup, Women",
+      "participants": {
+        "away": "Osasuna",
+        "home": "Huesca"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d68572dea874df2a",
+      "competition": "Kvindeligaen, Women",
+      "participants": {
+        "away": "AGF Aarhus",
+        "home": "Odense Q"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ef3b061d215ee479",
+      "competition": "Slovensky Pohar",
+      "participants": {
+        "away": "Zeleziarne Podbrezova",
+        "home": "Inter Bratislava"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d3edcb3e01d7d09a",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Namibia",
+        "home": "Comoros"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "L'Équipe",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.lequipe.fr/Football/match-direct/qualif-can/2027/comores-namibie-live/703092",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Comoros 1-0 Namibia.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_d7cb78ec6868a2e8",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Egypt",
+        "home": "South Sudan"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 5,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "L'Équipe",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.lequipe.fr/Football/match-direct/qualif-can/2027/soudan-du-sud-egypte-live/703032",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: South Sudan 0-5 Egypt.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_d4cb74336d68aac7",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Morocco",
+        "home": "Lesotho"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "L'Équipe",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.lequipe.fr/Football/match-direct/qualif-can/2027/lesotho-maroc-live/703020",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Lesotho 0-2 Morocco.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_d3cb72a06c68a934",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Senegal",
+        "home": "Ethiopia"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "L'Équipe",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.lequipe.fr/Football/match-direct/qualif-can/2027/ethiopie-senegal-live/703128",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Ethiopia 0-1 Senegal.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_0bbd03c51d010ab9",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Algeria",
+        "home": "Burundi"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "L'Équipe",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.lequipe.fr/Football/match-direct/qualif-can/2027/burundi-algerie-live/703116",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Burundi 2-2 Algeria.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_cbedbea6f9d7c402",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Sudan",
+        "home": "Mozambique"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 4,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "L'Équipe",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.lequipe.fr/Football/match-direct/qualif-can/2027/mozambique-soudan-live/703129",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Mozambique 4-1 Sudan.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_cfeb865b7dd4c237",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Tanzania",
+        "home": "Madagascar"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "L'Équipe",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.lequipe.fr/Football/match-direct/qualif-can/2027/madagascar-tanzanie-live/703152",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Madagascar 1-1 Tanzania.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_db1409528cbff8e6",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Gambia",
+        "home": "Ghana"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 4,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Ghana News Agency",
+          "source_type": "NEWSWIRE",
+          "source_url": "https://gna.org.gh/2026/09/gambia-stage-dramatic-comeback-to-stun-ghana-in-accra/",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Ghana 2-4 Gambia.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_06abb2c5a0041789",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Nigeria",
+        "home": "Guinea-Bissau"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 3,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "L'Équipe",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.lequipe.fr/Football/match-direct/qualif-can/2027/guinee-bissau-nigeria-live/703153",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Guinea-Bissau 3-0 Nigeria.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_88aebe02a2065946",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Rwanda",
+        "home": "Cape Verde"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "L'Équipe",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.lequipe.fr/Football/match-direct/qualif-can/2027/cap-vert-rwanda-live/703140",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Cape Verde 1-2 Rwanda.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_9d46c645e1eb7031",
+      "competition": "China League 1",
+      "participants": {
+        "away": "Ningbo Professional FC",
+        "home": "Wuxi Wugou"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_acce5055dc0f0229",
+      "competition": "Brasileiro Serie B",
+      "participants": {
+        "away": "Ponte Preta",
+        "home": "Botafogo"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cc759626d337ca6a",
+      "competition": "J. League Cup, Playoffs",
+      "participants": {
+        "away": "Sanfrecce Hiroshima",
+        "home": "Tochigi Uva"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cb759493d237c8d7",
+      "competition": "J. League Cup, Playoffs",
+      "participants": {
+        "away": "Shimizu S-Pulse",
+        "home": "Zweigen Kanazawa"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "J.LEAGUE",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.jleague.jp/en/match/leaguecup/2026/092903/stats/",
+          "retrieved_at_utc": "2026-09-30T10:06:19Z",
+          "evidence_summary": "Final score: Zweigen Kanazawa 0-2 Shimizu S-Pulse.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_ca759300d137c744",
+      "competition": "J. League Cup, Playoffs",
+      "participants": {
+        "away": "Nagoya Grampus",
+        "home": "Giravanz Kitakyushu"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d975aa9dc837b919",
+      "competition": "J. League Cup, Playoffs",
+      "participants": {
+        "away": "JEF United Chiba",
+        "home": "Jubilo Iwata"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d875a90ac737b786",
+      "competition": "J. League Cup, Playoffs",
+      "participants": {
+        "away": "Albirex Niigata",
+        "home": "Matsumoto Yamaga"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "J.LEAGUE",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.jleague.jp/en/match/leaguecup/2026/092902/lineup/",
+          "retrieved_at_utc": "2026-09-30T10:06:19Z",
+          "evidence_summary": "Final score: Matsumoto Yamaga 1-0 Albirex Niigata.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_5778af8ed63a0dba",
+      "competition": "J. League Cup, Playoffs",
+      "participants": {
+        "away": "Fagiano Okayama",
+        "home": "Hokkaido Consadole Sapporo"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "J.LEAGUE",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.jleague.jp/en/match/leaguecup/2026/092907/",
+          "retrieved_at_utc": "2026-09-30T10:06:19Z",
+          "evidence_summary": "Final score: Hokkaido Consadole Sapporo 1-2 Fagiano Okayama.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_097acc6c70e80e00",
+      "competition": "U19 Friendly Games",
+      "participants": {
+        "away": "Wales U19",
+        "home": "USA U19"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_69c0483a470d9966",
+      "competition": "U19 Friendly Games",
+      "participants": {
+        "away": "Romania U19",
+        "home": "Bulgaria U19"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f03acad7a94ae2a3",
+      "competition": "U19 Friendly Games",
+      "participants": {
+        "away": "Norway U19",
+        "home": "England U19"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_de5fec2d3d2117f9",
+      "competition": "U19 Friendly Games",
+      "participants": {
+        "away": "Hungary U19",
+        "home": "Serbia U19"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_547ae96c433cf7e8",
+      "competition": "Summer SRL Friendlies",
+      "participants": {
+        "away": "AFC Bournemouth SRL",
+        "home": "Celtic Glasgow Srl"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5a7af2de413cf4c2",
+      "competition": "Summer SRL Friendlies",
+      "participants": {
+        "away": "Aris Thessaloniki SRL",
+        "home": "Goztepe SRL"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_597af14b403cf32f",
+      "competition": "Summer SRL Friendlies",
+      "participants": {
+        "away": "Arsenal FC SRL",
+        "home": "Werder Bremen SRL"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ae9a77b01430bc7c",
+      "competition": "Regionalliga Bavaria",
+      "participants": {
+        "away": "TSV Buchbach",
+        "home": "Unterhaching"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b630ebc9f64c002d",
+      "competition": "Primera Division, Apertura",
+      "participants": {
+        "away": "CD. Cacahuatique",
+        "home": "Atletico Balboa"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d1ca7e16a2ee4362",
+      "competition": "3rd Division",
+      "participants": {
+        "away": "KFUM 2",
+        "home": "FK Union Carl Berner"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_596e25585043c824",
+      "competition": "Challenge Cup",
+      "participants": {
+        "away": "Formartine Utd",
+        "home": "Forfar Athletic"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_45d09d55298166f9",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Leiston",
+        "home": "Real Bedford"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_42d0989c26816240",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Anstey Nomads",
+        "home": "Kettering Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_40c3c983bc890a27",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Worcester City",
+        "home": "RC Warwick"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_e4752c2afac176b6",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Redditch Utd",
+        "home": "Peterborough Sports"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f1a50ebb67d5f0e7",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Bury Town",
+        "home": "Bishop's Stortford"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f6a5169a64d5ec2e",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Leighton Town",
+        "home": "Hitchin Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_eaa503b660d5e5e2",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Stratford Town",
+        "home": "Banbury Utd"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6ca1fec562d3aa71",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Rushall Olympic",
+        "home": "Halesowen Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6ba1fd3261d3a8de",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Stamford",
+        "home": "Needham Market"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_67a1f6e665d3af2a",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Stourbridge",
+        "home": "Alvechurch"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_65a1f3c063d3ac04",
+      "competition": "Southern League, Premier Division Central",
+      "participants": {
+        "away": "Leamington",
+        "home": "Bromsgrove Rover"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3fc3c7f0bb890894",
+      "competition": "National League South",
+      "participants": {
+        "away": "Ebbsfleet Utd",
+        "home": "Slough Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_57d081a34c48ff77",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Yate Town",
+        "home": "Wimborne Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_68e1e5873d46a943",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Chichester City",
+        "home": "Hanworth Villa"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_67e1e3f43c46a7b0",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Malvern Town",
+        "home": "Bath City FC"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8c37fc27322bdd5b",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Chippenham Town FC",
+        "home": "Evesham Utd"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_0b2e36b8c135b8d4",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Hanwell Town",
+        "home": "Havant & Waterlooville"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6ec1fdf933c88eed",
+      "competition": "Southern League, Premier Division South",
+      "participants": {
+        "away": "Poole Town",
+        "home": "Chertsey Town FC"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3fd093e32b816a1f",
+      "competition": "Northern Premier League, Premier Division",
+      "participants": {
+        "away": "Lancaster City",
+        "home": "Whitby Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2edc2dde03f39c3a",
+      "competition": "Northern Premier League, Premier Division",
+      "participants": {
+        "away": "Gainsborough Trinity",
+        "home": "Warrington Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_32de72c107f5e11d",
+      "competition": "Northern Premier League, Premier Division",
+      "participants": {
+        "away": "Guiseley",
+        "home": "Alfreton Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f5a7539ed3d8d982",
+      "competition": "Northern Premier League, Premier Division",
+      "participants": {
+        "away": "Workington",
+        "home": "Emley"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f0a74bbfd6d8de3b",
+      "competition": "Northern Premier League, Premier Division",
+      "participants": {
+        "away": "Warrington Rylands 1906 FC",
+        "home": "Ilkeston Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f5984914d3dd56b0",
+      "competition": "Isthmian League, Premier Division",
+      "participants": {
+        "away": "Aveley",
+        "home": "Dulwich Hamlet"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ec983ae9e2dd6e4d",
+      "competition": "Isthmian League, Premier Division",
+      "participants": {
+        "away": "Cray Wanderers",
+        "home": "Maldon & Tiptree"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ef96010bd5db1b3f",
+      "competition": "Isthmian League, Premier Division",
+      "participants": {
+        "away": "Whitehawk",
+        "home": "Dartford"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_44d09bc228816566",
+      "competition": "National League North",
+      "participants": {
+        "away": "South Shields",
+        "home": "Brackley Town"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c6901276922cabc2",
+      "competition": "U20 Friendly Games",
+      "participants": {
+        "away": "France U20",
+        "home": "England U20"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c7711119d646d9ad",
+      "competition": "U20 Friendly Games",
+      "participants": {
+        "away": "Switzerland U20",
+        "home": "Portugal U20"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_147d1c54fbeb2768",
+      "competition": "U20 Friendly Games",
+      "participants": {
+        "away": "Italy U20",
+        "home": "Germany U20"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_586e23c54743b9f9",
+      "competition": "U20 Friendly Games",
+      "participants": {
+        "away": "Czech Republic U20",
+        "home": "Poland U20"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ba30f215f24bf9e1",
+      "competition": "Svenska Cup, Women, Qualification",
+      "participants": {
+        "away": "IFK Norrkoping DFK",
+        "home": "Linkopings"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_bb30f3a8eb4beedc",
+      "competition": "Svenska Cup, Women, Qualification",
+      "participants": {
+        "away": "Vittsjo GIK",
+        "home": "Jitex"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_bec8fa5268054c06",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "GD Prudente SP",
+        "home": "CA Juventus SP"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5f8b41fcbb2137e8",
+      "competition": "U19 Leagues",
+      "participants": {
+        "away": "Storhamar",
+        "home": "FK Toten U19"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_98176730677e19f4",
+      "competition": "Tercera Division, Reserve",
+      "participants": {
+        "away": "Montevideo Wanderers",
+        "home": "Liverpool Montevideo"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_9a243649d9767ea5",
+      "competition": "Tercera Division, Reserve",
+      "participants": {
+        "away": "Albion FC",
+        "home": "Boston River"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_224d2c504f65601c",
+      "competition": "UEFA Nations League, League A",
+      "participants": {
+        "away": "Croatia",
+        "home": "Spain"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 4,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Reuters",
+          "source_type": "NEWSWIRE",
+          "source_url": "https://www.reuters.com/sports/soccer/lamine-nets-double-spain-win-again-england-beat-10-man-czechs-2026-09-29/",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Spain 4-1 Croatia.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_2462f5c5c13fafb9",
+      "competition": "UEFA Nations League, League A",
+      "participants": {
+        "away": "England",
+        "home": "Czech Republic"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Reuters",
+          "source_type": "NEWSWIRE",
+          "source_url": "https://www.reuters.com/sports/soccer/lamine-nets-double-spain-win-again-england-beat-10-man-czechs-2026-09-29/",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Czech Republic 0-2 England.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_2062ef79c53fb605",
+      "competition": "UEFA Nations League, League B",
+      "participants": {
+        "away": "North Macedonia",
+        "home": "Slovenia"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Reuters",
+          "source_type": "NEWSWIRE",
+          "source_url": "https://www.reuters.com/sports/soccer/lamine-nets-double-spain-win-again-england-beat-10-man-czechs-2026-09-29/",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Slovenia 2-0 North Macedonia.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_2962fda4c63fb798",
+      "competition": "UEFA Nations League, League B",
+      "participants": {
+        "away": "Switzerland",
+        "home": "Scotland"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 3,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "The Guardian",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.theguardian.com/football/2026/sep/29/scotland-switzerland-nations-league-match-report",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Scotland 0-3 Switzerland.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_6a43ddda3a5f785e",
+      "competition": "UEFA Nations League, League C",
+      "participants": {
+        "away": "Faroe Islands",
+        "home": "Moldova"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "The available evidence does not meet the template requirement for a direct match-specific authoritative source or two independent credible match reports.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_faae3bf83acc20e4",
+      "competition": "UEFA Nations League, League C",
+      "participants": {
+        "away": "Belarus",
+        "home": "Finland"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Sky Sports",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.skysports.com/football/finland-vs-belarus/live/554025",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Finland 0-0 Belarus.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_e61ce7b07c5fe114",
+      "competition": "UEFA Nations League, League C",
+      "participants": {
+        "away": "Kazakhstan",
+        "home": "Slovakia"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_66968df115b4aa75",
+      "competition": "UEFA Nations League, League C",
+      "participants": {
+        "away": "Estonia",
+        "home": "Bulgaria"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_a8b8faf3f0ec98cf",
+      "competition": "UEFA Nations League, League C",
+      "participants": {
+        "away": "Albania",
+        "home": "San Marino"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 3,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "San Marino Football Federation",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.fsgc.sm/en/single-news/national-team-albania-score-three-super-sherri-denies-nanni/2374",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: San Marino 0-3 Albania.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_6da6a23c25c54410",
+      "competition": "UEFA Nations League, League C",
+      "participants": {
+        "away": "Iceland",
+        "home": "Luxembourg"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 3,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "RÚV",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.ruv.is/frettir/ithrottir/2026-09-29-island-a-toppi-ridilsins-eftir-3-0-sigur-i-luxemborg-488381",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Luxembourg 0-3 Iceland.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_5cc1da8d81177749",
+      "competition": "CONCACAF Nations League",
+      "participants": {
+        "away": "Sint Maarten",
+        "home": "French Guiana"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_4c6993b34b3f4317",
+      "competition": "UEFA Nations League SRL",
+      "participants": {
+        "away": "Iceland Srl",
+        "home": "Luxembourg Srl"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_586be52e47417b62",
+      "competition": "UEFA Nations League SRL",
+      "participants": {
+        "away": "Albania Srl",
+        "home": "San Marino Srl"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_576be39b464179cf",
+      "competition": "UEFA Nations League SRL",
+      "participants": {
+        "away": "Kazakhstan Srl",
+        "home": "Slovakia Srl"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_506bd8964f4187fa",
+      "competition": "UEFA Nations League SRL",
+      "participants": {
+        "away": "Switzerland Srl",
+        "home": "Scotland Srl"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5469a04b433f367f",
+      "competition": "UEFA Nations League SRL",
+      "participants": {
+        "away": "North Macedonia Srl",
+        "home": "Slovenia Srl"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5f6e2eca4e43c4fe",
+      "competition": "UEFA Nations League SRL",
+      "participants": {
+        "away": "Croatia Srl",
+        "home": "Spain Srl"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6a8b534db6213009",
+      "competition": "Primera Division Reserve, Clausura",
+      "participants": {
+        "away": "Olimpia Asuncion Reserve",
+        "home": "Libertad Asuncion Reserve"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_698d9051c523863d",
+      "competition": "Primera Division Reserve, Clausura",
+      "participants": {
+        "away": "Recoleta FC Reserve",
+        "home": "Sportivo San Lorenzo"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_688c6ca4dbba7510",
+      "competition": "Professional Development League",
+      "participants": {
+        "away": "Millwall U21",
+        "home": "Charlton Athletic U21"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_698c6e37dcba76a3",
+      "competition": "Professional Development League",
+      "participants": {
+        "away": "Fleetwood Town",
+        "home": "Peterborough Utd U21"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6a8c6fcaddba7836",
+      "competition": "Professional Development League",
+      "participants": {
+        "away": "Bolton Wanderers U23",
+        "home": "Hull City U21"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6b8c715ddeba79c9",
+      "competition": "Professional Development League",
+      "participants": {
+        "away": "Colchester Utd U21",
+        "home": "Coventry City U21"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_51241c19d9cf50cd",
+      "competition": "U23 Africa Cup of Nations, Qualifier",
+      "participants": {
+        "away": "Benin",
+        "home": "Tunisia"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d0759c72cf37c41e",
+      "competition": "Gulf Cup",
+      "participants": {
+        "away": "Kuwait",
+        "home": "Oman"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 3,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Asian Football Confederation",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.the-afc.com/en/more/gulf_cup.html/news/group-a-perfect-saudi-arabia-oman-pip-iraq",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Oman 3-1 Kuwait.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_cf759adfce37c28b",
+      "competition": "Gulf Cup",
+      "participants": {
+        "away": "Iraq",
+        "home": "Saudi Arabia"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Asian Football Confederation",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.the-afc.com/en/more/gulf_cup.html/news/group-a-perfect-saudi-arabia-oman-pip-iraq",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Saudi Arabia 2-0 Iraq.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_5a50236d39414361",
+      "competition": "Mizoram Premier League",
+      "participants": {
+        "away": "Ramthar Veng FC",
+        "home": "Dinthar FC"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c955da8be15d283f",
+      "competition": "Mizoram Premier League",
+      "participants": {
+        "away": "Chanmari",
+        "home": "Aizawl"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b35826f252f6eac6",
+      "competition": "Asian Games, Women, Knockout stage",
+      "participants": {
+        "away": "Korea Republic",
+        "home": "Japan"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Asian Football Confederation",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.the-afc.com/en/more/asian_games.html/news/ag-w-japan-dpr-korea-set-up-final-showdown-1",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Japan 2-0 Korea Republic.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_608b438fbc21397b",
+      "competition": "U20 League",
+      "participants": {
+        "away": "Shan United FC",
+        "home": "Mahar Sagaing United FC"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_eda83b92f925f67e",
+      "competition": "Copa Division Profesional",
+      "participants": {
+        "away": "Guabira Montero",
+        "home": "Universitario de Vinto"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b730ed5cef4bf528",
+      "competition": "Copa Division Profesional",
+      "participants": {
+        "away": "Academia del Balompie Boliviano",
+        "home": "Real Potosi"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_4fc8875070414b2c",
+      "competition": "Copa Chile",
+      "participants": {
+        "away": "Colo Colo",
+        "home": "Puerto Montt"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6c789d015cba925d",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "Atletico Tucuman Reserve",
+        "home": "CA Banfield"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6b789b6e5bba90ca",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "Ferro Carril Oeste",
+        "home": "At Rafaela Reserve"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6a7899db5aba8f37",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "Aldosivi Reserve",
+        "home": "San Lorenzo de Almagro Res."
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_4b500bd03241385c",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "Defensa Y Justicia Reserve",
+        "home": "Estudiantes de LP Reserve"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cd55e0d7dd5d21f3",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "Gimnasia de la Plata Reserve",
+        "home": "Tigre Reserve"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b09a7ad61630bfa2",
+      "competition": "3. SNL",
+      "participants": {
+        "away": "Ljutomer",
+        "home": "Podvinci"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_db366973ad4628f7",
+      "competition": "QSL Cup",
+      "participants": {
+        "away": "Umm-Salal",
+        "home": "Al-Khor SC"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "The available evidence does not meet the template requirement for a direct match-specific authoritative source or two independent credible match reports.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_e13672e5ab4625d1",
+      "competition": "QSL Cup",
+      "participants": {
+        "away": "Lusail SC",
+        "home": "AL Waab"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Qatar Stars League",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.qsl.qa/index.php/en/news/qsl-cup-round-2-al-waab-1-1-lusail",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: AL Waab 1-1 Lusail SC.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_e0367152aa46243e",
+      "competition": "QSL Cup",
+      "participants": {
+        "away": "Al Ahli Doha SC",
+        "home": "AL Markhiya"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Qatar Stars League",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.qsl.qa/en/news/qsl-cup-round-2-al-markhiya-1-1-al-ahli",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: AL Markhiya 1-1 Al Ahli Doha SC.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_e941ca2fc4d6f69b",
+      "competition": "U21 UEFA European Championship, Qualification",
+      "participants": {
+        "away": "Israel U21",
+        "home": "Slovenia U21"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ed464da948dc4395",
+      "competition": "U21 UEFA European Championship, Qualification",
+      "participants": {
+        "away": "Switzerland U21",
+        "home": "Iceland U21"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_e841c89cc3d6f508",
+      "competition": "U21 UEFA European Championship, Qualification",
+      "participants": {
+        "away": "Bosnia & Herzegovina U21",
+        "home": "Norway U21"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cb901a558f2ca709",
+      "competition": "U21 UEFA European Championship, Qualification",
+      "participants": {
+        "away": "France U21",
+        "home": "Estonia U21"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6c8d950ac0237e5e",
+      "competition": "Copa EFE, Women",
+      "participants": {
+        "away": "Sportivo 2 de Mayo",
+        "home": "Sportivo Trinidense"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_678d8d2bc3238317",
+      "competition": "Copa EFE, Women",
+      "participants": {
+        "away": "Club Libertad",
+        "home": "Cerro Porteno"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cb170044bdebcb88",
+      "competition": "Liga DIMAYOR, Finalizacion",
+      "participants": {
+        "away": "Santa Fe",
+        "home": "Pereira"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d594a741a131408d",
+      "competition": "U23 Liga Next Gen",
+      "participants": {
+        "away": "FC Felgueiras 1932 U23",
+        "home": "Santa Clara"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5745d6ceb9b22352",
+      "competition": "U23 Liga Next Gen",
+      "participants": {
+        "away": "FC Penafiel U23",
+        "home": "Rio Ave"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_52f6d0733ef7588f",
+      "competition": "FIFA ASEAN Cup, Premier Division",
+      "participants": {
+        "away": "Pakistan",
+        "home": "Philippines"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "FIFA",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.fifa.com/en/tournaments/mens/asean-cup/2026/articles/philippines-pakistan-report-highlights-quotes",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Philippines 2-2 Pakistan.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_53f6d2063ff75a22",
+      "competition": "FIFA ASEAN Cup, Premier Division",
+      "participants": {
+        "away": "Vietnam",
+        "home": "Thailand"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "FIFA",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.fifa.com/en/tournaments/mens/asean-cup/2026/articles/thailand-vietnam-report-highlights-quotes",
+          "retrieved_at_utc": "2026-09-30T10:04:41Z",
+          "evidence_summary": "Final score: Thailand 2-0 Vietnam.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_5c8b3d43c0213fc7",
+      "competition": "IFA Shield",
+      "participants": {
+        "away": "Northeast Utd",
+        "home": "Mohun Bagan Super Giant"
+      },
+      "scheduled_date": "2026-09-29",
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "A direct match-specific source confirming the final regulation-time score was not verified.",
+      "sources": []
+    }
+  ]
+}

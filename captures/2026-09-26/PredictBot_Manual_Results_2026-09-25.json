@@ -1,0 +1,4133 @@
+{
+  "schema_version": "predictbot.manual-results-evidence.v1",
+  "template_only": false,
+  "purpose": "Populate verified final football results for PredictBot's governed manual settlement fallback when the primary results API cannot settle eligible recorded forecasts.",
+  "llm_instructions": [
+    "Use the supplied match list as the complete input scope. Do not add fixtures that are absent from it.",
+    "Search for the completed match result and record the full-time score after regulation plus stoppage time. Do not use half-time, extra-time, penalty-shootout, aggregate, or live scores unless the input explicitly requests that market.",
+    "Preserve fixture_id, competition, participants, scheduled_date, kickoff_utc, and market_type exactly as supplied. Do not guess missing identity fields.",
+    "Set result_status to VERIFIED only when the score is supported by either one authoritative competition, club, governing-body, or established news source, or by two independent credible match-report sources.",
+    "Every source_url must link directly to the specific match page or match report. Search-result pages, homepages, generic help pages, knowledge-panel help pages, snippets, and AI-generated summaries are invalid evidence.",
+    "If reliable evidence is unavailable, conflicting, or the match is unfinished, set result_status to NEEDS_REVIEW, leave scores null, explain the reason in review_reason, and do not guess.",
+    "Never invent URLs, timestamps, quotations, hashes, identifiers, scores, or source names.",
+    "Set evidence_sha256 to null. The downstream evidence-preservation tool calculates hashes after retrieving and archiving the cited pages.",
+    "Use an actual UTC retrieval timestamp ending in Z for each source.",
+    "Return valid JSON only. Set template_only to false. Put one result object in results for every supplied fixture, in the same order. Do not include commentary outside the JSON."
+  ],
+  "verification_policy": {
+    "accepted_methods": [
+      "ONE_AUTHORITATIVE_SOURCE",
+      "TWO_INDEPENDENT_SOURCES"
+    ],
+    "authoritative_source_examples": [
+      "official competition or governing-body match page",
+      "official club match report",
+      "established newswire or major publication match report"
+    ],
+    "rejected_source_examples": [
+      "search-result page",
+      "generic homepage",
+      "generic Google Knowledge Panel help page",
+      "AI answer without a direct source",
+      "social-media post without official match evidence",
+      "live score before full time"
+    ]
+  },
+  "result_record_template": {
+    "fixture_id": "COPY_EXACTLY_FROM_INPUT",
+    "competition": "COPY_EXACTLY_FROM_INPUT",
+    "participants": {
+      "home": "COPY_EXACTLY_FROM_INPUT",
+      "away": "COPY_EXACTLY_FROM_INPUT"
+    },
+    "scheduled_date": "YYYY-MM-DD_OR_COPY_NULL",
+    "kickoff_utc": "COPY_EXACTLY_FROM_INPUT_OR_NULL",
+    "market_type": "1X2",
+    "match_status": "COMPLETED",
+    "home_score": null,
+    "away_score": null,
+    "result_status": "NEEDS_REVIEW",
+    "verification_method": null,
+    "review_reason": "Replace with null only after valid evidence confirms the final score.",
+    "sources": [
+      {
+        "source_name": "ACTUAL_SOURCE_NAME",
+        "source_type": "OFFICIAL_COMPETITION|OFFICIAL_CLUB|NEWSWIRE|MAJOR_PUBLICATION|OTHER_CREDIBLE",
+        "source_url": "DIRECT_MATCH_SPECIFIC_URL",
+        "retrieved_at_utc": "YYYY-MM-DDTHH:MM:SSZ",
+        "evidence_summary": "Final score: Home Team N-N Away Team.",
+        "evidence_sha256": null
+      }
+    ]
+  },
+  "results": [
+    {
+      "fixture_id": "bxf_748caca9d54e7d05",
+      "competition": "3. Liga",
+      "participants": {
+        "away": "Fortuna Cologne",
+        "home": "TSV Havelse"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 3,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "SC Fortuna Köln",
+          "source_type": "OFFICIAL_CLUB",
+          "source_url": "https://www.fortuna-koeln.de/aktuelles/news/meldung/31-fuer-fortuna-havelse-tappt-in-die-mausefalle/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: TSV Havelse 1-3 Fortuna Cologne.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_16fd381902c9a67d",
+      "competition": "LaLiga 2",
+      "participants": {
+        "away": "Albacete",
+        "home": "Girona"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "LaLiga",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.laliga.com/es-ID/partido/temporada-2026-2027-laliga-hypermotion-girona-fc-albacete-bp-7",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Girona 2-0 Albacete.",
+          "evidence_sha256": null
+        },
+        {
+          "source_name": "Europa Press",
+          "source_type": "NEWSWIRE",
+          "source_url": "https://www.europapress.es/deportes/futbol-00162/noticia-girona-gana-albacete-acecha-puestos-ascenso-directo-20260925223738.html",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Girona 2-0 Albacete.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_d9f34f5b86c96bbf",
+      "competition": "Club Friendly Games",
+      "participants": {
+        "away": "Heidenheim",
+        "home": "Stuttgart"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_705e9035f1a16251",
+      "competition": "Club Friendly Games",
+      "participants": {
+        "away": "Dep. La Coruna",
+        "home": "Penafiel"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_09486d88abb3b62c",
+      "competition": "NB I, Women",
+      "participants": {
+        "away": "Ujpesti TE",
+        "home": "Pecsi MFC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2729df109eaac18c",
+      "competition": "2. Liga",
+      "participants": {
+        "away": "Inter Bratislava",
+        "home": "Pohronie Ziar Nad Hronom Dolna Zdana"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_00c6fa489c6f6ad4",
+      "competition": "III Liga",
+      "participants": {
+        "away": "MKS Czarni Polaniec",
+        "home": "Wisla II Krakow"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6268c028861073cc",
+      "competition": "III Liga",
+      "participants": {
+        "away": "Jagiellonia II Bialystok",
+        "home": "Wisla Plock II"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f565d5fa890e39ee",
+      "competition": "III Liga",
+      "participants": {
+        "away": "LKS 1926 Lomza",
+        "home": "Swit Nowy Dwor Mazowiecki"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_06c703ba9a6f67ae",
+      "competition": "III Liga",
+      "participants": {
+        "away": "MKS Mlawianka Mlawa",
+        "home": "Zabkovia Zabki"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6228133f42066adb",
+      "competition": "2. HNL",
+      "participants": {
+        "away": "NK Mladost Zdralovi",
+        "home": "Dinamo Zagreb II"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b16262bdf6d411f9",
+      "competition": "Eerste Divisie",
+      "participants": {
+        "away": "Almere",
+        "home": "Dordrecht"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 3,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "TWO_INDEPENDENT_SOURCES",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "RTV Dordrecht",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://www.rtvdordrecht.nl/nieuws/fc-dordrecht-stunt-tegen-almere-city-en-is-zegeloze-reeks-kwijt",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Dordrecht 3-2 Almere.",
+          "evidence_sha256": null
+        },
+        {
+          "source_name": "Dordrechts Dagblad",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://www.dordrechtsdagblad.nl/sport/fc-dordrecht-te-sterk-voor-almere-city-fc-dat-verzuimt-koppositie-te-pakken",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Dordrecht 3-2 Almere.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_602810194806744d",
+      "competition": "Superleague, Women",
+      "participants": {
+        "away": "KAA Gent",
+        "home": "KRC Genk"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c40267410ff5adb5",
+      "competition": "Regionalliga Southwest",
+      "participants": {
+        "away": "Sandhausen",
+        "home": "Astoria Walldorf"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_82fe4c21f9ecfc15",
+      "competition": "International Friendly Games",
+      "participants": {
+        "away": "Brazil",
+        "home": "Australia"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Socceroos / Football Australia",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://socceroos.com.au/match/australia-v-brazil-friendlies-25-09-2026/22278825",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Australia 1-1 Brazil.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_087882a31d811cd7",
+      "competition": "International Friendly Games",
+      "participants": {
+        "away": "Panama",
+        "home": "India"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b0a06d435329ef8f",
+      "competition": "FA Trophy",
+      "participants": {
+        "away": "Three Bridges",
+        "home": "Biggleswade"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b5a075225029ead6",
+      "competition": "FA Trophy",
+      "participants": {
+        "away": "Ware",
+        "home": "Aveley"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8ba823c5dc3297c9",
+      "competition": "Championship",
+      "participants": {
+        "away": "Stenhousemuir",
+        "home": "Ayr Utd"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "TWO_INDEPENDENT_SOURCES",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Sky Sports",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://www.skysports.com/football/ayr-united-vs-stenhousemuir/7994288699148573232",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Ayr Utd 0-1 Stenhousemuir.",
+          "evidence_sha256": null
+        },
+        {
+          "source_name": "Football Web Pages",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://www.footballwebpages.co.uk/match/2026-2027/scottish-championship/ayr-united/stenhousemuir/565975",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Ayr Utd 0-1 Stenhousemuir.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_0f9c279ee8396672",
+      "competition": "Championship",
+      "participants": {
+        "away": "Livingston",
+        "home": "Raith Rovers"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Livingston FC",
+          "source_type": "OFFICIAL_CLUB",
+          "source_url": "https://livingstonfc.co.uk/raith-rovers-0-2-livingston/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Raith Rovers 0-2 Livingston.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_a46a3f2e20c8dd3a",
+      "competition": "Premiership",
+      "participants": {
+        "away": "Linfield",
+        "home": "Coleraine"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 3,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "The Irish News",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://us.irishnews.com/sport/soccer/linfield-blew-league-race-wide-open-after-ending-coleraines-unbeaten-run-EL6VJ52MUBCN5KIAMI26OIUPAU/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Coleraine 1-3 Linfield.",
+          "evidence_sha256": null
+        },
+        {
+          "source_name": "Football Web Pages",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://www.footballwebpages.co.uk/match/2026-2027/northern-ireland-premiership/coleraine/linfield/591114",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Coleraine 1-3 Linfield.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_152317dbefedf417",
+      "competition": "Premier Division",
+      "participants": {
+        "away": "Shelbourne",
+        "home": "Galway Utd"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "The 42",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.the42.ie/galway-shelboure-match-report-7173997-Sep2026/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Galway Utd 1-1 Shelbourne.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_8e9450e2f7c6e826",
+      "competition": "V-League 2",
+      "participants": {
+        "away": "Dai Hoc van Hien",
+        "home": "Ba Ria Vung Tau"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_e2fcc9903c71b47c",
+      "competition": "2. SNL",
+      "participants": {
+        "away": "Ilirija",
+        "home": "NK Dekani"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_37d58e71e47af55d",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Ethiopia",
+        "home": "Sudan"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "TWO_INDEPENDENT_SOURCES",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "AfricaSoccer",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://africasoccer.com/afcon-2027-qualifiers-sudan-narrow-win-ethiopia/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Sudan 1-0 Ethiopia.",
+          "evidence_sha256": null
+        },
+        {
+          "source_name": "African Football",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://african.football/afconq-sudan-capitalise-on-senegal-draw-to-go-top-of-group-j/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Sudan 1-0 Ethiopia.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_36d58cdee37af3ca",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Guinea-Bissau",
+        "home": "Tanzania"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "The Citizen",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://thecitizen.co.tz/tanzania/sports/football/taifa-stars-handed-reality-check-by-guinea-bissau-5609444",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Tanzania 0-2 Guinea-Bissau.",
+          "evidence_sha256": null
+        },
+        {
+          "source_name": "AfricaSoccer",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://africasoccer.com/tanzania-0-2-guinea-bissau-franculino-dju-and-mama-balde-secure-afcon-qualifying-win/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Tanzania 0-2 Guinea-Bissau.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_63f42ac281421b1e",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Senegal",
+        "home": "Mozambique"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "Capture names Mozambique as home, but CAF lists Senegal v Mozambique with the venue switched to Maputo; identity/order requires manual reconciliation before scoring.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_31f7b6bafe0ecc3e",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Lesotho",
+        "home": "Niger"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "TWO_INDEPENDENT_SOURCES",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "AfricaSoccer",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://africasoccer.com/niger-beat-lesotho-2-1-in-africa-cup-of-nations-qualifying-opener/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Niger 2-1 Lesotho.",
+          "evidence_sha256": null
+        },
+        {
+          "source_name": "Foot Africa",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://foot-africa.com/en/news/2027-afcon-qualifiers-niger-make-a-strong-start-against-lesotho-1365584/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Niger 2-1 Lesotho.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_7a7a9a438a172a47",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Madagascar",
+        "home": "Nigeria"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Channels Television",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.channelstv.com/2026/09/25/breaking-nigeria-beat-madagascar-2-1-in-2027-afcon-qualifier/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Nigeria 2-1 Madagascar.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_f50d7cf465d2bde0",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "South Sudan",
+        "home": "Malawi"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "TWO_INDEPENDENT_SOURCES",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Nyasa Times",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://www.nyasatimes.com/malawi-beat-south-sudan-2-1-to-open-afcon-qualifying-campaign/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Malawi 2-1 South Sudan.",
+          "evidence_sha256": null
+        },
+        {
+          "source_name": "AfricaSoccer",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://africasoccer.com/afcon-2027-qualifiers-malawi-edge-south-sudan/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Malawi 2-1 South Sudan.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_2cf7aedb010ed0f7",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Somalia",
+        "home": "Gambia"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "MyJoyOnline",
+          "source_type": "MAJOR_PUBLICATION",
+          "source_url": "https://www.myjoyonline.com/2027-afconq-ghana-under-pressure-as-gambia-beat-somalia-2-1/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Gambia 2-1 Somalia.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_30d5836cd57addc0",
+      "competition": "Africa Cup of Nations, Qualification",
+      "participants": {
+        "away": "Burundi",
+        "home": "Togo"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 1,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "TWO_INDEPENDENT_SOURCES",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "beIN SPORTS",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://www.beinsports.com/en-us/soccer/africa-cup-of-nations-qualification/togo-vs-burundi-2026-09-25",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Togo 1-0 Burundi.",
+          "evidence_sha256": null
+        },
+        {
+          "source_name": "ESPN",
+          "source_type": "OTHER_CREDIBLE",
+          "source_url": "https://www.espn.com/soccer/match/_/gameId/401920044/burundi-togo",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Togo 1-0 Burundi.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_33329eaa7e8aaf06",
+      "competition": "First Division",
+      "participants": {
+        "away": "Finn Harps",
+        "home": "Treaty United"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3432a03d7f8ab099",
+      "competition": "First Division",
+      "participants": {
+        "away": "Wexford",
+        "home": "Kerry FC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_253288a0888abec4",
+      "competition": "First Division",
+      "participants": {
+        "away": "Athlone Town",
+        "home": "Cobh Ramblers"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_26328a33898ac057",
+      "competition": "First Division",
+      "participants": {
+        "away": "Bray Wanderers",
+        "home": "University College Dublin"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8170f259a679a5bd",
+      "competition": "CFL",
+      "participants": {
+        "away": "Pribram B",
+        "home": "Pisek"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3909db358ce9a689",
+      "competition": "Division Intermedia",
+      "participants": {
+        "away": "Sportivo Carapegua",
+        "home": "Independiente Campo Grande"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c00260f513f5b401",
+      "competition": "Division Intermedia",
+      "participants": {
+        "away": "Club 3 De Noviembre",
+        "home": "Club General Caballero JLM"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5e280cf346067127",
+      "competition": "China League 1",
+      "participants": {
+        "away": "Guangxi Hengchen FC",
+        "home": "Wuxi Wugou"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_4297d4427984732e",
+      "competition": "Ykkosliiga",
+      "participants": {
+        "away": "Mikkeli",
+        "home": "KooTeePee"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_fbf984c368c7120f",
+      "competition": "Ykkosliiga",
+      "participants": {
+        "away": "Haka",
+        "home": "Kapa"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_81efd15671b88f42",
+      "competition": "National Womens Soccer League",
+      "participants": {
+        "away": "San Diego Wave FC",
+        "home": "Racing Louisville FC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_fa767d9084f690c4",
+      "competition": "Toppserien, Women",
+      "participants": {
+        "away": "Roea",
+        "home": "Bodoe/Glimt"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2bb0826c3eb40778",
+      "competition": "Brasileiro Serie B",
+      "participants": {
+        "away": "Sao Bernardo",
+        "home": "Gremio Novorizontino SP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_e9e270031537bf5f",
+      "competition": "U19 Friendly Games",
+      "participants": {
+        "away": "Switzerland U19",
+        "home": "Poland U19"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_9082531795774c63",
+      "competition": "U19 Friendly Games",
+      "participants": {
+        "away": "Italy U19",
+        "home": "France U19"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_858241c6a27760da",
+      "competition": "U19 Friendly Games",
+      "participants": {
+        "away": "Kazakhstan U19",
+        "home": "Slovakia U19"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8493d8e2ff004b2e",
+      "competition": "Summer SRL Friendlies",
+      "participants": {
+        "away": "Valencia CF SRL",
+        "home": "Angers SCO SRL"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "Simulated fixture: no qualifying match-specific full-time evidence verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8291972505119dc1",
+      "competition": "Summer SRL Friendlies",
+      "participants": {
+        "away": "Villarreal CF SRL",
+        "home": "Juventus Turin SRL"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "Simulated fixture: no qualifying match-specific full-time evidence verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8296145305029337",
+      "competition": "Summer SRL Friendlies",
+      "participants": {
+        "away": "Crystal Palace SRL",
+        "home": "TSG 1899 Hoffenheim SRL"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "Simulated fixture: no qualifying match-specific full-time evidence verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5c239521bab53e35",
+      "competition": "Cymru Championship",
+      "participants": {
+        "away": "Carmarthen Town",
+        "home": "Baglan Dragons"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f2a454ebc923332f",
+      "competition": "Cymru Championship",
+      "participants": {
+        "away": "Newport City FC",
+        "home": "Afan Lido"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d8244fe7e2c1fda3",
+      "competition": "Cymru Championship",
+      "participants": {
+        "away": "Buckley Town",
+        "home": "CPD Dinas Bangor City 1876 FC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ff78c40689f8d73a",
+      "competition": "Cymru Championship",
+      "participants": {
+        "away": "Pontypridd Town",
+        "home": "Caerphilly Athletic FC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_0478cbe586f8d281",
+      "competition": "Cymru Championship",
+      "participants": {
+        "away": "Penrhyncoch",
+        "home": "Ruthin Town"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_02768a287cf6842c",
+      "competition": "Cymru Championship",
+      "participants": {
+        "away": "Swansea University",
+        "home": "Aberystwyth Town"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_11999c498acc4cbd",
+      "competition": "Regionalliga Northeast",
+      "participants": {
+        "away": "VSG Altglienicke",
+        "home": "FC Magdeburg II"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8270f3ec9f799ab8",
+      "competition": "MSFL",
+      "participants": {
+        "away": "Vitkovice",
+        "home": "Fastav Zlin B"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8470f712a1799dde",
+      "competition": "MSFL",
+      "participants": {
+        "away": "Zbrojovka Brno B",
+        "home": "1. FC Slovacko B"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f665d78d8a0e3b81",
+      "competition": "Regionalliga East",
+      "participants": {
+        "away": "SV Oberwart",
+        "home": "Marchfeld Donauauen"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f165cfae8d0e403a",
+      "competition": "Regionalliga East",
+      "participants": {
+        "away": "Favoritner AC",
+        "home": "ESV Parndorf 1919"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_00a2ff1e2dd636a2",
+      "competition": "Regionalliga East",
+      "participants": {
+        "away": "Traiskirchen",
+        "home": "Horn"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f265d1418e0e41cd",
+      "competition": "Regionalliga East",
+      "participants": {
+        "away": "Mattersburger Sportverein 2020",
+        "home": "Kremser"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5bfdf0fbbbb12217",
+      "competition": "U19 1st Division",
+      "participants": {
+        "away": "FK Mlada Boleslav",
+        "home": "Sparta Prague U19"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_1e9f57f737bdac4b",
+      "competition": "2nd Division",
+      "participants": {
+        "away": "Roskilde",
+        "home": "Hellerup"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f03c6207b06b6b13",
+      "competition": "3rd Division",
+      "participants": {
+        "away": "Holbaek B&I",
+        "home": "Helsingor"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_88705121749cc71d",
+      "competition": "3rd Division",
+      "participants": {
+        "away": "Rosenborg BK 2",
+        "home": "Aalesund FK 2"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cbf6528633bd17f2",
+      "competition": "3rd Division",
+      "participants": {
+        "away": "Staal Joerpeland IL",
+        "home": "Varhaug"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_52039b3d7bd34fb1",
+      "competition": "Championship 1",
+      "participants": {
+        "away": "Warrenpoint Town",
+        "home": "Rathfriland Rangers"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c10b05bfeadaba33",
+      "competition": "Championship 1",
+      "participants": {
+        "away": "Loughgall",
+        "home": "Glenavon"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_286282f399ede497",
+      "competition": "Championship 1",
+      "participants": {
+        "away": "Harland and Wolff Welders",
+        "home": "Newry City"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_63e52038f9475534",
+      "competition": "Challenge Cup",
+      "participants": {
+        "away": "Dundee FC B",
+        "home": "Spartans"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c6bc91c26d5590f6",
+      "competition": "Championnat National U19",
+      "participants": {
+        "away": "Caen U19",
+        "home": "PSG U19"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_1888206718c8dc53",
+      "competition": "Primera RFEF",
+      "participants": {
+        "away": "Villarreal B",
+        "home": "Atl. Madrid B"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_a7b2caf59d7101e1",
+      "competition": "Primera RFEF",
+      "participants": {
+        "away": "Real Zaragoza",
+        "home": "Ibiza Eivissa"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d5f8982f032bcfb3",
+      "competition": "Jordan 1st Division",
+      "participants": {
+        "away": "Al Aqaba",
+        "home": "Sama AL Sarhan SC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f0608fdf1d803fab",
+      "competition": "Jordan 1st Division",
+      "participants": {
+        "away": "Ittihad AL Ramtha",
+        "home": "Amman FC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_e18dcdf1eedba51d",
+      "competition": "U20 Friendly Games",
+      "participants": {
+        "away": "England U20",
+        "home": "Italy U20"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_0f3a40c06f77df8c",
+      "competition": "U20 Friendly Games",
+      "participants": {
+        "away": "Germany U20",
+        "home": "France U20"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_9094540801c6f7e4",
+      "competition": "Tercera RFEF",
+      "participants": {
+        "away": "UD Anaza",
+        "home": "CD Tenerife C"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d8fae42bc0c27317",
+      "competition": "Tercera RFEF",
+      "participants": {
+        "away": "Las Palmas C",
+        "home": "Estrella CF"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d5408cfabfc1374e",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "Uniao Suzano AC SP",
+        "home": "Guarani FC SP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5b481bb1bdb46835",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "Sertaozinho FC SP",
+        "home": "EC Santo Andre SP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5a481a1ebcb466a2",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "EC XV de Novembro de Jau SP",
+        "home": "Corinthians U20"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5948188bbbb4650f",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "Capivariano FC SP",
+        "home": "EC Agua Santa SP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5945d9f4b3b219e0",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "EC XV de Novembro Piracicaba SP",
+        "home": "Sfera FC SP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5a45db87b4b21b73",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "Osasco Sporting SP",
+        "home": "Desportivo Brasil SP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5b45dd1ab5b21d06",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "Jabaquara AC SP",
+        "home": "Santos FC SP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_58184d74f2c8d298",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "EC Sao Bernardo SP",
+        "home": "Sao Paulo FC SP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_564813d2c0b46cee",
+      "competition": "U20 Paulista 1st Division, Playoffs",
+      "participants": {
+        "away": "Ituano FC SP",
+        "home": "SE Palmeiras SP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_183a4eeb7877edb7",
+      "competition": "Leinster Senior League, Senior Division",
+      "participants": {
+        "away": "Killester Donnycarney",
+        "home": "Kilbarrack Utd"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_153a4a326d77dc66",
+      "competition": "Leinster Senior League, Senior Division",
+      "participants": {
+        "away": "St Francis",
+        "home": "Inchicore Athletic"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f668af866aa98352",
+      "competition": "Landesliga Steiermark",
+      "participants": {
+        "away": "USV Gnas",
+        "home": "SV Rohrbach An Der Lafnitz"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_dca0b8c827fc0394",
+      "competition": "Landesliga Steiermark",
+      "participants": {
+        "away": "Stadtwerke Bruck/Mur",
+        "home": "DSV Leoben"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cbbc99a17a55a56d",
+      "competition": "Landesliga Steiermark",
+      "participants": {
+        "away": "Pachern",
+        "home": "Fehring 1947"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_81cf5570d9f95fec",
+      "competition": "Landesliga Steiermark",
+      "participants": {
+        "away": "TUS Bad Waltersdorf",
+        "home": "USV St. Anna am Aigen"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d3c361fef270a5d2",
+      "competition": "Kärntner Liga",
+      "participants": {
+        "away": "Spittal/Drau",
+        "home": "KAC 1909"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2eb93883e12f4c47",
+      "competition": "U20 Carioca, Serie A",
+      "participants": {
+        "away": "Volta Redonda FC RJ",
+        "home": "Marica FC RJ"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_56184a4ef8c8dc0a",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "CS Tricolorul Breaza",
+        "home": "ACS Medias 2022"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_54184728f6c8d8e4",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "Voluntari II",
+        "home": "Oxigen Bucuresti"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_53184595edc8cab9",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "Asfc Pausesti Otasau",
+        "home": "Acso Filiasi"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_52184402ecc8c926",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "CS Lotus Baile Felix",
+        "home": "Sanatatea Cluj"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b5ad4115e0227ec1",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "FC Petrolul Berca",
+        "home": "CS Blejoi"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_afad37a3e22281e7",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "Universitatea Alba Iulia",
+        "home": "CS Timisul Sag"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_123a45797277e445",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "CS Paulesti",
+        "home": "ACS Viitorul Corbeanca"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_1807eb4c943543f8",
+      "competition": "Liga 3",
+      "participants": {
+        "away": "FC Dinamo Bucuresti 1948 2",
+        "home": "ACS Inter Ilfov"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d11e3d22379c6b16",
+      "competition": "3. Liga",
+      "participants": {
+        "away": "MFK Spartak Medzev",
+        "home": "Slavia Tu Kosice"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_0b209b8f722f0803",
+      "competition": "3. Liga",
+      "participants": {
+        "away": "Banik Hn Prievidza & Handlova",
+        "home": "KFC Komarno B"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_48baa5b4623194d8",
+      "competition": "3. Liga",
+      "participants": {
+        "away": "SK 1923 Gabcikovo",
+        "home": "Spartak Myjava"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_83733416a87be77a",
+      "competition": "Divize",
+      "participants": {
+        "away": "Sparta Brno",
+        "home": "TJ Tatran Bohunice"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_612811ac41066948",
+      "competition": "Divize",
+      "participants": {
+        "away": "Sokol Hostoun",
+        "home": "FC Slavoj Vysehrad"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8670fa389b79946c",
+      "competition": "Divize",
+      "participants": {
+        "away": "Nove Sady",
+        "home": "SK Batov 1930"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_45cad139fc63e99d",
+      "competition": "Divize",
+      "participants": {
+        "away": "Karlovy Vary",
+        "home": "FC Chomutov"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_56c66ecefd72f5ba",
+      "competition": "Burgenlandliga",
+      "participants": {
+        "away": "FC Deutschkreutz",
+        "home": "Bad Sauerbrunn"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_57c67061fe72f74d",
+      "competition": "Burgenlandliga",
+      "participants": {
+        "away": "Oberpullendorf",
+        "home": "Usv Halbturn"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6428166544066e01",
+      "competition": "Wiener Stadtliga",
+      "participants": {
+        "away": "SV Post Vienna",
+        "home": "Simmeringer"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_4568c27fa15c2223",
+      "competition": "Wiener Stadtliga",
+      "participants": {
+        "away": "FAC Wien Amateure",
+        "home": "Team Wiener Linien"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_53b7fb1f5e5b2e1b",
+      "competition": "UEFA Nations League, League A",
+      "participants": {
+        "away": "Belgium",
+        "home": "Italy"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 2,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "Italian Football Federation",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.figc.it/en/national-teams/news/azzurri-beaten-by-belgium-in-nations-league-opener-h2tt0j3t",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Italy 0-2 Belgium.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_7eb60de6565fb632",
+      "competition": "UEFA Nations League, League A",
+      "participants": {
+        "away": "France",
+        "home": "Turkiye"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "UEFA",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.uefa.com/uefanationsleague/news/02a9-21abb9d8b85c-0d9416d472ce-1000--uefa-nations-league-matchday-1-highlights-round-up-kylian-/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Turkiye 0-1 France.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_31f341e229c72ae6",
+      "competition": "UEFA Nations League, League B",
+      "participants": {
+        "away": "Northern Ireland",
+        "home": "Georgia"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 0,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "UEFA",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.uefa.com/uefanationsleague/news/02a9-21abb9d8b85c-0d9416d472ce-1000--uefa-nations-league-matchday-1-highlights-round-up-kylian-/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Georgia 0-1 Northern Ireland.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_fd50db678d2d7f73",
+      "competition": "UEFA Nations League, League C",
+      "participants": {
+        "away": "Latvia",
+        "home": "Armenia"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 0,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "UEFA",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.uefa.com/uefanationsleague/news/02a9-21abb9d8b85c-0d9416d472ce-1000--uefa-nations-league-matchday-1-highlights-round-up-kylian-/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Armenia 2-0 Latvia.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_6846f67c20376138",
+      "competition": "UEFA Nations League, League C",
+      "participants": {
+        "away": "Cyprus",
+        "home": "Montenegro"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "COMPLETED",
+      "home_score": 2,
+      "away_score": 1,
+      "result_status": "VERIFIED",
+      "verification_method": "ONE_AUTHORITATIVE_SOURCE",
+      "review_reason": null,
+      "sources": [
+        {
+          "source_name": "UEFA",
+          "source_type": "OFFICIAL_COMPETITION",
+          "source_url": "https://www.uefa.com/uefanationsleague/news/02a9-21abb9d8b85c-0d9416d472ce-1000--uefa-nations-league-matchday-1-highlights-round-up-kylian-/",
+          "retrieved_at_utc": "2026-09-26T10:39:25Z",
+          "evidence_summary": "Final score: Montenegro 2-1 Cyprus.",
+          "evidence_sha256": null
+        }
+      ]
+    },
+    {
+      "fixture_id": "bxf_963d53dc66668840",
+      "competition": "Women League",
+      "participants": {
+        "away": "Ljuboten",
+        "home": "Istatov"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f70a46b2cf7c411e",
+      "competition": "CONCACAF Nations League",
+      "participants": {
+        "away": "Guadeloupe",
+        "home": "Bermuda"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_7e0f9865ce6d3501",
+      "competition": "CONCACAF Nations League",
+      "participants": {
+        "away": "Cuba",
+        "home": "Grenada"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_0c992c2887059e74",
+      "competition": "UEFA Nations League SRL",
+      "participants": {
+        "away": "Cyprus Srl",
+        "home": "Montenegro Srl"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "Simulated fixture: no qualifying match-specific full-time evidence verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_169b7a7d7107ba69",
+      "competition": "UEFA Nations League SRL",
+      "participants": {
+        "away": "Bosnia & Herzegovina Srl",
+        "home": "Poland Srl"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "Simulated fixture: no qualifying match-specific full-time evidence verified.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2638265e6e759f62",
+      "competition": "Shillong Premier League",
+      "participants": {
+        "away": "Mawlai SC",
+        "home": "Nangkiew Irat SC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_a741ebcdef6bdd19",
+      "competition": "Primera Division Reserve, Clausura",
+      "participants": {
+        "away": "Sportivo Ameliano",
+        "home": "Nacional Asuncion Reserve"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_12999ddc83cc41b8",
+      "competition": "Regionalliga North",
+      "participants": {
+        "away": "Drochtersen/Assel",
+        "home": "FSV Schoningen 2011"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_bea2c1e4512c2b00",
+      "competition": "Professional Development League",
+      "participants": {
+        "away": "Sheffield Utd U21",
+        "home": "Barnsley U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3f2730a3e9c4473f",
+      "competition": "Professional Development League",
+      "participants": {
+        "away": "Sheff Wed U21",
+        "home": "Colchester Utd U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_632814d243066c6e",
+      "competition": "Druga NL",
+      "participants": {
+        "away": "Krizevci",
+        "home": "Dragovoljac"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_077881101c811b44",
+      "competition": "Druga NL",
+      "participants": {
+        "away": "Slavonija Pozega",
+        "home": "NK Uljanik"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_57fdeaafafb10f33",
+      "competition": "Carioca, Serie B1",
+      "participants": {
+        "away": "Sao Cristovao FR RJ",
+        "home": "AA Carapebus RJ"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_993f972ce9699510",
+      "competition": "Superliga, Women",
+      "participants": {
+        "away": "ZFK Milutinac 2003",
+        "home": "ZFK Masinac PZP"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_223820127275a5ae",
+      "competition": "Division One",
+      "participants": {
+        "away": "Accra Lions",
+        "home": "Attram de Visser"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_253824cb6d759dcf",
+      "competition": "Premier League",
+      "participants": {
+        "away": "Mwembe Makumbi City",
+        "home": "Mafunzo fc"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5d003125b4b355a9",
+      "competition": "Primera C",
+      "participants": {
+        "away": "CA Puerto Nuevo",
+        "home": "Club Mercedes"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_92dc8937647e843b",
+      "competition": "Elitettan, Women",
+      "participants": {
+        "away": "Linkopings",
+        "home": "Orebro Soder"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_485e4390020123e4",
+      "competition": "2. Liga",
+      "participants": {
+        "away": "Pobeda Nizhny Novgorod",
+        "home": "FC Dynamo Barnaul"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_7974b6b2f5a20f5e",
+      "competition": "Mineiro, Segunda Divisao",
+      "participants": {
+        "away": "Nacional AC Muriae MG",
+        "home": "Inter de Minais MG"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_154641d5a7b17149",
+      "competition": "Besta deild, Women, Relegation round",
+      "participants": {
+        "away": "Vikingur Reykjavik",
+        "home": "Valur Reykjavik"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3810b16797f27fdb",
+      "competition": "Besta deild, Women, Relegation round",
+      "participants": {
+        "away": "Fram",
+        "home": "Thor/KA"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6c2822fd3c066169",
+      "competition": "Mizoram Premier League",
+      "participants": {
+        "away": "Dinthar FC",
+        "home": "Kanan FC Aizawl"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cd55f04cac6519a8",
+      "competition": "Mizoram Premier League",
+      "participants": {
+        "away": "Mls FC Lawtngtlai",
+        "home": "Aizawl"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d01a4b55084dd001",
+      "competition": "2. Division A",
+      "participants": {
+        "away": "Tanta",
+        "home": "El Entag El Harby"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cf1a49c2074dce6e",
+      "competition": "2. Division A",
+      "participants": {
+        "away": "La Viena FC",
+        "home": "We SC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_9322443b6b81ba17",
+      "competition": "2. Division A",
+      "participants": {
+        "away": "Baladiyyat AL Mehalla",
+        "home": "El Terasanah"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_90223f826081a8c6",
+      "competition": "2. Division A",
+      "participants": {
+        "away": "Dayrout",
+        "home": "Haras El Hodood"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_a56c77563490591a",
+      "competition": "Asian Games",
+      "participants": {
+        "away": "Vietnam",
+        "home": "South Korea U23"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_01c27ead957e6a59",
+      "competition": "Asian Games, Women, Knockout stage",
+      "participants": {
+        "away": "Philippines",
+        "home": "Japan"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_79bf69fe9d7c385a",
+      "competition": "Asian Games, Women, Knockout stage",
+      "participants": {
+        "away": "Uzbekistan",
+        "home": "Korea Republic"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f74855f6fa0099f2",
+      "competition": "Primera Division A, Women, Clausura",
+      "participants": {
+        "away": "Ferro Carril Oeste",
+        "home": "Independiente"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_026d3f9876ae1364",
+      "competition": "Liga 2",
+      "participants": {
+        "away": "Sport Huancayo Reserve",
+        "home": "AD Comerciantes FC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2535e6347d737868",
+      "competition": "U20 Copa Goiano",
+      "participants": {
+        "away": "Guanabara City FC GO",
+        "home": "AA Aparecidense GO"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_fec4b88ba280bd67",
+      "competition": "Ykkonen",
+      "participants": {
+        "away": "JJK Jyvaskyla",
+        "home": "Tampere UTD"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_143a489f6c77dad3",
+      "competition": "Division 2",
+      "participants": {
+        "away": "Al-Rams",
+        "home": "Nova Star SC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_133a470c6b77d940",
+      "competition": "Division 2",
+      "participants": {
+        "away": "Arabian Falcons FC",
+        "home": "Precision FC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_163a4bc56e77ddf9",
+      "competition": "Division 2",
+      "participants": {
+        "away": "Masfoot Sports Club",
+        "home": "Modern Sport Dubai"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f0ecb9f4fe4e18d8",
+      "competition": "Liga Prom, Apertura",
+      "participants": {
+        "away": "Costa Del Este",
+        "home": "Academia Costa Del Este"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_44c8910ffb75312b",
+      "competition": "Kolmonen",
+      "participants": {
+        "away": "TPV/2",
+        "home": "NOPS"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_fdc4b6f8a180bbd4",
+      "competition": "Kolmonen",
+      "participants": {
+        "away": "PPJ/Ruoholahti",
+        "home": "Nummelan"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3fc88930fe7535e4",
+      "competition": "Kolmonen",
+      "participants": {
+        "away": "GrIFK/Akatemia",
+        "home": "EsPa"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_1234f3fba4a0236f",
+      "competition": "Kolmonen",
+      "participants": {
+        "away": "Hps/2",
+        "home": "Toukolan Teras"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_fc6af78f70abcb5b",
+      "competition": "Copa Division Profesional",
+      "participants": {
+        "away": "Real Potosi",
+        "home": "San Antonio Bulo Bulo"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_1b07f005973548b1",
+      "competition": "Copa Division Profesional",
+      "participants": {
+        "away": "Club Aurora",
+        "home": "Academia del Balompie Boliviano"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_7c11d3d6cc6f7072",
+      "competition": "U21 EURO Qualification",
+      "participants": {
+        "away": "Czech Republic U21",
+        "home": "Azerbaijan U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_a36c7430329055f4",
+      "competition": "U21 EURO Qualification",
+      "participants": {
+        "away": "France U21",
+        "home": "Iceland U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_780d505cc86aecf8",
+      "competition": "U21 EURO Qualification",
+      "participants": {
+        "away": "Spain U21",
+        "home": "Finland U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_b004f61c09b35b88",
+      "competition": "U21 EURO Qualification",
+      "participants": {
+        "away": "Portugal U21",
+        "home": "Bulgaria U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_860fa4fdc66d2869",
+      "competition": "U21 EURO Qualification",
+      "participants": {
+        "away": "Romania U21",
+        "home": "Cyprus U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_7b0d5515cb6af1b1",
+      "competition": "U21 EURO Qualification",
+      "participants": {
+        "away": "Faroe Islands U21",
+        "home": "Estonia U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2f64cc8f98f0219b",
+      "competition": "U21 EURO Qualification",
+      "participants": {
+        "away": "Ireland U21",
+        "home": "Slovakia U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_2d64c9699ef02b0d",
+      "competition": "U21 EURO Qualification",
+      "participants": {
+        "away": "Norway U21",
+        "home": "Netherlands U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_fb68b76567a97e99",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "CD Godoy Cruz",
+        "home": "San Martin de San Juan Reserve"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f2666aa366a73e6f",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "CA Union Santa Fe Reserve",
+        "home": "Colon de Santa Fe Reserve"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f568adf369a981bf",
+      "competition": "Primera LPF, Reserves, Clausura",
+      "participants": {
+        "away": "Boca Juniors",
+        "home": "River Plate Reserve"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c8407883bac12f6f",
+      "competition": "U21 Liga MX",
+      "participants": {
+        "away": "CF Monterrey",
+        "home": "Atlante FC U21"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c74076f0b9c12ddc",
+      "competition": "U21 Liga MX",
+      "participants": {
+        "away": "Atlas FC",
+        "home": "Club Tijuana de Caliente"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_f866741564a73b49",
+      "competition": "Liga Femenina, Women, Clausura",
+      "participants": {
+        "away": "Flamengo FBC",
+        "home": "FC Killas"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d0f65a6530bd1339",
+      "competition": "1. Liga",
+      "participants": {
+        "away": "Echallens Region",
+        "home": "FC Lausanne Sports"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_62e51ea5f0474709",
+      "competition": "First League",
+      "participants": {
+        "away": "2 Korriku",
+        "home": "Ferizaj"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_d0c11eaeef6e6282",
+      "competition": "Championship",
+      "participants": {
+        "away": "De Red FC",
+        "home": "Persiba Balikpapan"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_6528207a43ba930e",
+      "competition": "Premiership, Women, Relegation Round",
+      "participants": {
+        "away": "Larne Ladies",
+        "home": "Derry City Ladies"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_60e75a16f6498f12",
+      "competition": "Premiership, Women, Relegation Round",
+      "participants": {
+        "away": "Crusaders Strikers FC",
+        "home": "Lisburn LFC"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_64e521cbfa4756c7",
+      "competition": "Premiership, Women, Championship round",
+      "participants": {
+        "away": "Cliftonville LFC",
+        "home": "Linfield Ladies"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_1c35d8097c7376d5",
+      "competition": "U20 Copa Sul",
+      "participants": {
+        "away": "City London FC PR U20",
+        "home": "SC Internacional RS"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_29382b1769759783",
+      "competition": "U20 Copa Sul",
+      "participants": {
+        "away": "EC Sao Jose RS",
+        "home": "Gremio FB Porto Alegrense RS"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_3964dc4d92f01829",
+      "competition": "Primera B",
+      "participants": {
+        "away": "Defensores Unidos",
+        "home": "Ituzaingo"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_e58dd43deadb9ed1",
+      "competition": "Segunda Division, Central-West",
+      "participants": {
+        "away": "Atletico El Vigia",
+        "home": "Academia Puerto Cabello B"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_75410c86a76090fa",
+      "competition": "Division 2, Vastra Gotaland",
+      "participants": {
+        "away": "Torslanda",
+        "home": "Landvetter"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8fa2487138bfec75",
+      "competition": "Division 2, Vastra Gotaland",
+      "participants": {
+        "away": "IF Boljan Falkenberg",
+        "home": "Dalstorps"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_74410af3a6608f67",
+      "competition": "Division 2, Sodra Gotaland",
+      "participants": {
+        "away": "Vaxjo Norra",
+        "home": "Rappe GOIF"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_89a23eff3abfef9b",
+      "competition": "Division 2, Norra Gotaland",
+      "participants": {
+        "away": "Ahlafors",
+        "home": "Vanersborgs"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_1b9d14a734bb68fb",
+      "competition": "Ettan, Norra",
+      "participants": {
+        "away": "IFK Stocksund",
+        "home": "Hammarby Talang FF"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_88a23d6c39bfee08",
+      "competition": "Ettan, Sodra",
+      "participants": {
+        "away": "Kristianstad",
+        "home": "Lunds"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_838745625574d9ae",
+      "competition": "Division de Honor, Clausura",
+      "participants": {
+        "away": "Club Guarani Asuncion",
+        "home": "Sportivo Luqueno"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_8187423c5374d688",
+      "competition": "Division de Honor, Clausura",
+      "participants": {
+        "away": "Sportivo Ameliano",
+        "home": "Nacional Asuncion"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c4bc8e9c6b558dd0",
+      "competition": "Regionalliga Sud, Group Karnten",
+      "participants": {
+        "away": "SVG Bleiburg",
+        "home": "ATSV Wolfsberg"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_cabc980e7955a3da",
+      "competition": "Regionalliga Sud, Group Karnten",
+      "participants": {
+        "away": "VST Voelkermarkt",
+        "home": "Atus Velden"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_59c67387f872eddb",
+      "competition": "Regionalliga Sud, Group Steiermark",
+      "participants": {
+        "away": "Deutschlandsberger",
+        "home": "SV Allerheiligen"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ef65cc888b0e3d14",
+      "competition": "Regionalliga Nord",
+      "participants": {
+        "away": "Kuchl",
+        "home": "Sedda Bad Schallerbach"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_de8dc938ebdba064",
+      "competition": "U23 Liga Next Gen",
+      "participants": {
+        "away": "SL Benfica",
+        "home": "Maritimo Madeira"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_ccf6541934bd1985",
+      "competition": "Liga Premier Serie A",
+      "participants": {
+        "away": "Santiago FC",
+        "home": "ACF Zapotlanejo"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_c0c70635aa6da4e9",
+      "competition": "Liga de Ascenso, Apertura, Center East",
+      "participants": {
+        "away": "El Vencedor",
+        "home": "CD San Marcos de Jiquilisco"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_a826d88c97a877f0",
+      "competition": "FIFA ASEAN Cup, Premier Division",
+      "participants": {
+        "away": "Malaysia",
+        "home": "Bangladesh"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_a626d5669da88162",
+      "competition": "FIFA ASEAN Cup, Premier Division",
+      "participants": {
+        "away": "Singapore",
+        "home": "Indonesia"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_5909e47febca039b",
+      "competition": "U20 Mineiro, 1. Divisao, Placement 5-8",
+      "participants": {
+        "away": "America MG U20",
+        "home": "Itabirito FC MG"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_233821a57375a741",
+      "competition": "U20 COSAFA Championship, Playoffs",
+      "participants": {
+        "away": "Zambia",
+        "home": "South Africa U20"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    },
+    {
+      "fixture_id": "bxf_103a42537077e11f",
+      "competition": "U20 COSAFA Championship, Playoffs",
+      "participants": {
+        "away": "Mozambique",
+        "home": "Namibia"
+      },
+      "scheduled_date": null,
+      "kickoff_utc": null,
+      "market_type": "1X2",
+      "match_status": "UNKNOWN",
+      "home_score": null,
+      "away_score": null,
+      "result_status": "NEEDS_REVIEW",
+      "verification_method": null,
+      "review_reason": "No qualifying match-specific full-time evidence verified during this pass.",
+      "sources": []
+    }
+  ]
+}
