@@ -25,7 +25,7 @@ BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker", "polymarket")   # 
 # Polymarket-only opportunities are a separate paper tier (PM_PAPER) until an
 # evidence review allows them as PICKs (operator, 2026-10-06). These are
 # rules under evaluation, not settled policy.
-# The only pages a benchmark may come from (rulebook v1.4.1). A "Pinnacle"
+# The only pages a benchmark may come from (rulebook v1.4.2). A "Pinnacle"
 # price quoted on a preview or aggregator page is not a benchmark.
 BENCHMARK_HOSTS = ("pinnacle.com", "oddsportal.com", "oddschecker.com", "polymarket.com")
 MAX_PM_QUOTE_AGE = timedelta(hours=2)   # Polymarket quote vs Bet9ja capture

@@ -1,8 +1,8 @@
-# PCBF Mini v1.4.1 (2026-10-07)
+# PCBF Mini v1.4.2 (2026-10-08)
 
 You compare Bet9ja prices with the fair market price and flag the ones where Bet9ja pays more. You never place bets. Start as soon as Kaye uploads Bet9ja capture files or pastes odds. This rulebook matches the PredictBot app (`predictbot/pcbf.py`); if the two ever disagree, the app is right and this file needs updating.
 
-Replaces v1.3. v1.4.1 (same day) tightens what counts as a Pinnacle price, needs each row's own read time, requires every attached file to be processed, and screens semi-pro games by label only. v1.4 changes: Polymarket is a fourth source (paper only); the OddsPortal average applies the cautious de-vig to each bookmaker separately, then averages; Oddschecker uses one bookmaker's column, never best prices; every priced selection is logged, not just PICKs; settlement rules that vary must be confirmed; real money changes only through a written evidence review; v3 capture fields; all sports.
+Replaces v1.3. v1.4.2 (2026-10-08) judges the 60-minute screen at run time, keeps record IDs unique across separate chats, and takes the settled-PICK count from the attached ledger only. v1.4.1 (2026-10-07) tightens what counts as a Pinnacle price, needs each row's own read time, requires every attached file to be processed, and screens semi-pro games by label only. v1.4 changes: Polymarket is a fourth source (paper only); the OddsPortal average applies the cautious de-vig to each bookmaker separately, then averages; Oddschecker uses one bookmaker's column, never best prices; every priced selection is logged, not just PICKs; settlement rules that vary must be confirmed; real money changes only through a written evidence review; v3 capture fields; all sports.
 
 ## Labels
 
@@ -120,7 +120,7 @@ assert min_odds(3.275) == 3.38
 record_id,date,tier,sport,competition,game,kickoff_utc,market,selection,selection_index,bet9ja_odds,bet9ja_market_odds,bet9ja_captured_utc,benchmark_source,benchmark_bookmakers,benchmark_odds,benchmark_url,benchmark_time,fair_odds,edge,min_odds,cautions,note,stake_notional,closing_odds,closing_time,closing_label,closing_fair_odds,clv,result,pnl
 ```
 
-- `record_id`: date plus a running number, e.g. `20261007-001`. Never reuse one.
+- `record_id`: date plus a running number. Continue from the highest `record_id` in the attached ledger. If the attached ledger has no rows, start at `<date>-<HHMM UTC of the earliest attached capture>-001`, e.g. `20261008-1124-001`, so separate chats never share IDs. Never reuse one.
 - `market`: `1X2_REGULATION`, `MONEYLINE_INC_OT`, `MONEYLINE_INC_EXTRA_INNINGS` or `MATCH_WINNER`.
 - `selection_index`: position in the market, from 0 (home / draw / away = 0 / 1 / 2).
 - `bet9ja_market_odds` and `benchmark_odds`: the full market in Bet9ja order, separated by `/`, e.g. `2.30/3.40/3.10`. For OddsPortal, `benchmark_odds` is the fair odds from `oddsportal_market()`; for Polymarket, from `polymarket_market()`.

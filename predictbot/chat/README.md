@@ -5,7 +5,8 @@ The app does all of this itself. Use these files only to see what a chat produce
 1. Open Claude, ChatGPT or Gemini and attach:
    - `PCBF-MINI-v1.4.md` (the rulebook)
    - today's Bet9ja capture files from your data folder's `captures/`
-   - `pcbf-ledger-template.csv` renamed to `pcbf-ledger.csv` (empty: header only), or the chat's ledger from a previous run
+   - on the first run only, `pcbf-ledger-template.csv` renamed to `pcbf-ledger.csv` (header only); after that, the chat's ledger from the previous run, so record IDs continue and the settled-PICK count is real
+   - each capture file in one run only; a file attached to two runs is priced twice
 2. Paste `SESSION-START-PROMPT.txt`, then `DAILY-RUN-PROMPT.md`. Update its "CONFIRMED SETTLEMENT RULES" list from the app's Pending page first.
 3. Save the chat's ledger as `pcbf-ledger-<date>.csv` in the data folder (next to `captures/`) and restart the app. It imports the rows once, recomputes every edge and label from the benchmark prices, and keeps the chat's own label in the note ("chat said PICK").
 4. Compare on the Full log page: rows with origin `pcbf-ledger ...` are the chat's; the rest are the app's.
