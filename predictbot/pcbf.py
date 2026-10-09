@@ -200,6 +200,19 @@ def parse_price(text: str) -> float | None:
     return valid_decimal(t)
 
 
+BOOK_RANGE = (0.90, 1.30)   # implied probabilities of a real benchmark market sum to about 1
+
+
+def book_problem(prices: list) -> str | None:
+    """A full market whose implied probabilities sum far from 1 is a data
+    error (e.g. a misread 101.00), not a price."""
+    total = sum(1 / p for p in prices)
+    if not BOOK_RANGE[0] <= total <= BOOK_RANGE[1]:
+        return (f"benchmark prices {' / '.join(f'{p:g}' for p in prices)} imply a book of {total:.0%}, "
+                f"outside {BOOK_RANGE[0]:.0%}-{BOOK_RANGE[1]:.0%}: misread prices")
+    return None
+
+
 def parse_prices(text: str, n: int) -> list | None:
     """'2.30 / 3.40 / 3.10', '13/15 / 11/10' or '2.30, 3.40, 3.10' -> n decimals."""
     t = text.strip()
@@ -536,6 +549,8 @@ def price_benchmark(captures: list[dict], fields: list[str], now: datetime, pack
         reason = "benchmark read after kickoff (in-play price)"
     elif prices is None:
         reason = f"need {n} valid decimal prices in order {' / '.join(c['selection'] for c in captures)}"
+    elif book_problem(prices):
+        reason = book_problem(prices)
     elif any(c["selection_id"] in already_priced for c in captures):
         reason = "duplicate: this event/selection is already priced"
     elif check == "differs":
@@ -864,7 +879,7 @@ def from_pcbf_row(row: dict, now: datetime) -> tuple[dict, dict]:
     bench = None
     if row.get("benchmark_odds"):
         bench = parse_prices(row["benchmark_odds"].replace("/", " / "), n)
-    else:
+    elif not row.get("market"):           # v1.3 rows had no benchmark_odds column: prices sat in the note
         m = PRICES_IN_NOTE.search(row.get("note", ""))
         if m:
             bench = parse_prices(m.group(1).replace("/", " / "), n)
@@ -878,6 +893,15 @@ def from_pcbf_row(row: dict, now: datetime) -> tuple[dict, dict]:
             "market_odds": cap["market_odds"], "benchmark_url": row.get("benchmark_url", ""), "research_note": note,
             "pack_id": "", "origin": f"pcbf-ledger {row['record_id']}", "price_basis": "quoted by chat",
             "benchmark_bookmakers": row.get("benchmark_bookmakers", ""), "app_version": APP_VERSION}
+    if chat_tier == "REJECTED" or (bench and book_problem(bench)):
+        # The chat failed a data check the ledger cannot re-run, or the prices
+        # themselves are impossible: logged as REJECTED, never priced.
+        reason = ("chat: " + (row.get("cautions") or row.get("note") or "data check failed").strip()
+                  if chat_tier == "REJECTED" else book_problem(bench))
+        rec = {**base, "benchmark_source": "", "benchmark_odds": "", "fair_odds": "", "edge_pct": "",
+               "tier": "REJECTED", "validation_status": "INVALID", "rejection_reason": reason[:500],
+               "caution_flags": "", "stake_notional": ""}
+        return cap, rec
     if not bench:
         research = chat_tier == "RESEARCH"
         rec = {**base, "benchmark_source": "", "benchmark_odds": "", "fair_odds": "" if research else row.get("fair_odds", ""),
@@ -914,24 +938,4 @@ def from_pcbf_row(row: dict, now: datetime) -> tuple[dict, dict]:
            "fair_prob": f"{fair_probability(bench, idx):.4f}", "min_odds": f"{min_odds(fair_probability(bench, idx)):.2f}",
            "stake_notional": str(NOTIONAL_STAKE) if tier == "PICK" else ""}
     return cap, rec
-    if row.get("market") and row.get("benchmark_url") and not benchmark_host_ok(row["benchmark_url"]):
-        site = re.sub(r"^https?://(www\.)?", "", row["benchmark_url"]).split("/")[0]
-        rec = {**base, "benchmark_source": "", "benchmark_odds": "", "fair_odds": "", "edge_pct": "", "tier": "RESEARCH",
-               "validation_status": "NO_BENCHMARK", "caution_flags": "", "stake_notional": "",
-               "rejection_reason": f"no benchmark: page {site} is not pinnacle.com, oddsportal.com, oddschecker.com or polymarket.com"}
-        return cap, rec
-    fair, e = edge(float(row["bet9ja_odds"]), bench, idx)
-    url = row.get("benchmark_url", "").lower()
-    source = next((s for s in BENCHMARK_SOURCES if s in url), "unknown")
-    ts, kickoff = parse_time(row.get("benchmark_time")), parse_time(row.get("kickoff_utc"))
-    cautions = []
-    if ts and row.get("date") and utc(ts)[:10] != row["date"]:
-        cautions.append("STALE: benchmark not from the pricing day")
-    if ts and kickoff and ts >= kickoff:
-        cautions.append("benchmark after kickoff")
-    tier = tier_for(e, cautions)
-    rec = {**base, "benchmark_source": source, "benchmark_odds": "/".join(f"{p:.3f}" for p in bench),
-           "fair_odds": f"{fair:.3f}", "edge_pct": f"{e:.4f}", "tier": tier, "validation_status": "VALID",
-           "rejection_reason": "", "caution_flags": "; ".join(cautions),
-           "stake_notional": str(NOTIONAL_STAKE) if tier == "PICK" else ""}
-    return cap, rec
+

@@ -403,7 +403,8 @@ class ReviewRegressions(unittest.TestCase):
         first = workflow.auto_benchmark(self.df, at("2026-10-05T16:50:00Z"))["records"]
         self.assertEqual({r["benchmark_source"] for r in first}, {"pinnacle"})
         page["captures"][0]["captured_at_utc"] = "2026-10-05T18:42:00Z"
-        page["captures"][0]["html"] = page["captures"][0]["html"].replace("<p>1.5</p>", "<p>1.55</p>", 1)
+        page["captures"][0]["html"] = (page["captures"][0]["html"].replace("<p>1.5</p>", "<p>1.55</p>", 1)
+                                       .replace("<p>97.5%</p>", "<p>99.3%</p>", 1))   # the payout moves with the price
         (self.tmp / "captures" / "public-odds-walk-oddsportal-2026-10-05T18-42.json").write_text(json.dumps(page))
         closes = workflow.auto_benchmark(self.df, at("2026-10-05T19:00:00Z"))["closes"]
         self.assertEqual({(c["source"], c["snapshot_label"]) for c in closes}, {("pinnacle", "closing price")})
@@ -579,7 +580,8 @@ class ChatWorkflowDocs(unittest.TestCase):
             "source_url": "https://www.oddsportal.com/football/h2h/a-AAAAAAAA/b-BBBBBBBB/",
             "page_title": "France - Belgium Odds, Predictions & H2H | OddsPortal",
             "html": "<body><div>05 Oct 2026,</div><div>22:45</div><div>Bookmakers</div><div>1</div><div>X</div><div>2</div>"
-                    "<div>Payout</div>" + "".join(f"<div>b{i}</div><p>{a}</p><p>{x}</p><p>{c}</p><p>95.0%</p>"
+                    "<div>Payout</div>" + "".join(f"<div>b{i}</div><p>{a}</p><p>{x}</p><p>{c}</p>"
+                                                    f"<p>{100 / (1 / a + 1 / x + 1 / c):.1f}%</p>"
                                                     for i, (a, x, c) in enumerate(books)) + "<div>My coupon</div></body>"}]}
         app_odds = [1 / p for p in odds_sources.quotes_from_walk(run)[0]["probs"]]
         for k, price in enumerate((1.60, 4.40, 6.50)):

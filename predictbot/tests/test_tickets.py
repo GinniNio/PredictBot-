@@ -144,6 +144,54 @@ class SyncTickets(unittest.TestCase):
         self.assertEqual(self.df.read("bet"), [])
 
 
+class LedgerImportChecks(unittest.TestCase):
+    """9 Oct chat ledger: a REJECTED row with a misread 101.00 price was
+    imported as WATCH from prices found in its note."""
+    ROW = {"record_id": "20261009-0400", "date": "2026-10-09", "tier": "REJECTED", "sport": "american_football",
+           "competition": "NFL", "game": "Pittsburgh Steelers v Indianapolis Colts", "kickoff_utc": "2026-10-11T17:00:00.000Z",
+           "market": "MONEYLINE_INC_OT", "selection": "Pittsburgh Steelers", "selection_index": "0", "bet9ja_odds": "1.67",
+           "bet9ja_market_odds": "1.67/2.2", "bet9ja_captured_utc": "2026-10-09T12:13:40.050Z",
+           "benchmark_source": "", "benchmark_bookmakers": "bet365;Bets.io", "benchmark_odds": "",
+           "benchmark_url": "https://www.oddsportal.com/american-football/h2h/x/", "benchmark_time": "2026-10-09T13:51:04.195Z",
+           "fair_odds": "", "edge": "", "cautions": "",
+           "note": "OddsPortal rendered prices contradict displayed bookmaker payout: bet365 1.67/101.00 with 95.0% payout"}
+
+    def test_chat_rejected_row_stays_rejected(self):
+        import pcbf
+        _, rec = pcbf.from_pcbf_row(dict(self.ROW), NOW)
+        self.assertEqual(rec["tier"], "REJECTED")
+        self.assertIn("contradict", rec["rejection_reason"])
+        self.assertEqual(rec["fair_odds"], "")
+
+    def test_v14_row_never_reads_prices_from_its_note(self):
+        import pcbf
+        _, rec = pcbf.from_pcbf_row(dict(self.ROW, tier="WATCH"), NOW)
+        self.assertEqual(rec["tier"], "REJECTED")                  # no benchmark_odds: cannot be recomputed
+        self.assertEqual(rec["benchmark_odds"], "")
+
+    def test_impossible_book_is_rejected(self):
+        import pcbf
+        _, rec = pcbf.from_pcbf_row(dict(self.ROW, tier="WATCH", benchmark_odds="1.670/101.000"), NOW)
+        self.assertEqual(rec["tier"], "REJECTED")
+        self.assertIn("imply a book of 61%", rec["rejection_reason"])
+        self.assertIsNone(pcbf.book_problem([1.9, 1.9]))
+        self.assertIsNone(pcbf.book_problem([1.561, 4.95, 6.6]))   # an OddsPortal average sits just under 100%
+
+    def test_oddsportal_row_that_contradicts_its_payout_is_dropped(self):
+        import odds_sources
+        rows = "".join(f"<p>{b}</p><p>{h}</p><p>{a}</p><p>{p}%</p>" for b, h, a, p in
+                       [("bet365", "1.67", "101.00", "95.0"), ("Pinnacle", "1.70", "2.25", "96.8"),
+                        ("1xBet", "1.68", "2.28", "96.7"), ("Unibet", "1.66", "2.25", "95.5"),
+                        ("888sport", "1.67", "2.20", "94.9"), ("bwin", "1.65", "2.25", "95.2")])
+        html = f"<body><div>Bookmakers</div><div>1</div><div>2</div><div>Payout</div>{rows}<div>My coupon</div></body>"
+        cap = {"source_url": "https://www.oddsportal.com/american-football/h2h/a-AAAAAAAA/b-BBBBBBBB/",
+               "page_title": "Pittsburgh Steelers - Indianapolis Colts Odds, Predictions", "captured_at_utc": "2026-10-09T13:00:00Z",
+               "html": html}
+        q = odds_sources.oddsportal_quotes(cap, 60)[0]
+        self.assertEqual(q["bookmaker_count"], 5)
+        self.assertNotIn("bet365", q["bookmakers"])
+
+
 class Breakdowns(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())

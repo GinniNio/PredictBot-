@@ -198,6 +198,7 @@ def _finish(q: dict) -> dict:
 # ------------------------------------------------------------------ oddsportal
 
 MIN_ODDSPORTAL_BOOKMAKERS = 5
+PAYOUT_SLACK = 1.0   # points: a bookmaker row's prices must match its displayed payout
 OP_SPORT = {"football": "soccer", "tennis": "tennis", "basketball": "basketball", "hockey": "ice_hockey",
             "baseball": "baseball", "handball": "handball", "volleyball": "volleyball", "darts": "darts",
             "table-tennis": "table_tennis", "futsal": "futsal", "cricket": "cricket", "american-football": "american_football"}
@@ -230,7 +231,11 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     table = text[head.end(): min(i for i in (text.find("|My coupon", head.end()), text.find("Betting Exchanges", head.end()),
                                                 len(text)) if i >= 0)]
     row = re.compile(r"([^|]+)\|(?:claim bonus\|)?" + r"(\d+\.\d+)\|" * n + r"([\d.]+)%")
-    rows = [(m.group(1), [float(m.group(k)) for k in range(2, 2 + n)]) for m in row.finditer(table)]
+    # A row whose prices disagree with its own payout column is a page
+    # glitch (seen: bet365 1.67 / 101.00 shown with a 95.0% payout): left out.
+    rows = [(m.group(1), [float(m.group(k)) for k in range(2, 2 + n)], float(m.group(2 + n))) for m in row.finditer(table)]
+    rows = [(name, odds) for name, odds, payout in rows
+            if all(o > 1 for o in odds) and abs(100 / sum(1 / o for o in odds) - payout) <= PAYOUT_SLACK]
     if not rows:
         return []
     # Bet9ja is never part of its own benchmark.
