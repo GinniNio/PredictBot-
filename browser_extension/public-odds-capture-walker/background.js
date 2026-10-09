@@ -11,7 +11,7 @@ const CAP_PREFIX = 'publicOddsWalkCapture:';
 const MAX_CAPTURES = 300;
 const MAX_LISTINGS = 40;
 // Timings; tests shorten them through globalThis.WALKER_TIMING.
-const T = Object.assign({ listing: 3000, ready: 15000, poll: 1000, settleCap: 2000, search: 8000 }, globalThis.WALKER_TIMING || {});
+const T = Object.assign({ listing: 3000, ready: 15000, poll: 1000, settleCap: 2000, search: 15000 }, globalThis.WALKER_TIMING || {});
 const LISTING_SETTLE_MS = T.listing;
 const READY_TIMEOUT_MS = T.ready;   // stop waiting for a page's odds after this
 const READY_POLL_MS = T.poll;
@@ -62,6 +62,7 @@ async function callPage(tabId, action, scope = 'sports', sourceKey = '') {
       if (actionName === 'listings') return P.discoverListingLinks(document, context.href);
       if (actionName === 'ready') return P.readiness(document, key, Date.now());
       if (actionName === 'result') return P.resultState(document);
+      if (actionName === 'search') return P.searchState(document);
       return P.captureCurrentPage(document, context, actionName === 'capture-excerpt' ? 'excerpt' : 'full');
     },
     // chrome.scripting rejects undefined in args ("Value is unserializable").
@@ -220,10 +221,10 @@ async function beginSearch(tabId, maxEvents) {
     browser_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     browser_utc_offset_minutes: -new Date().getTimezoneOffset(),
     targets_status: `${targets.length} Bet9ja games without a benchmark`,
-    targets, seen_keys: [], max_events: Math.min(Number(maxEvents) || 10, MAX_CAPTURES),
+    targets, seen_keys: [], covered: [], max_events: Math.min(Number(maxEvents) || 10, MAX_CAPTURES),
     discovered_links: [], skipped: [], failures: [], cursor: 0,
     queue,
-    counts: { games: queue.length, found: 0, searched: 0, no_results: 0, discovered: 0, queued: 0, visited: 0, captured: 0,
+    counts: { games: queue.length, found: 0, found_elsewhere: 0, searched: 0, no_results: 0, discovered: 0, queued: 0, visited: 0, captured: 0,
               started: 0, no_odds: 0, failed: 0, not_on_bet9ja: 0, duplicate: 0, truncated: 0 },
   };
   await saveRun(run);
@@ -233,18 +234,26 @@ async function beginSearch(tabId, maxEvents) {
 
 async function visitSearch(run, search) {
   let links = [];
+  let state = { state: 'WAITING' };
   const until = Date.now() + T.search;
-  while (Date.now() < until) {                     // results render after the page loads
+  while (Date.now() < until) {                     // wait until the search has answered
+    await injectPageTools(run.tab_id);
+    state = await callPage(run.tab_id, 'search');
+    if (state.state === 'EMPTY') break;
+    if (state.state === 'READY') { links = (await callPage(run.tab_id, 'discover', 'sports')).links || []; break; }
+    await sleep(READY_POLL_MS);
+  }
+  if (state.state === 'WAITING') {                 // never answered: take whatever links there are
     await injectPageTools(run.tab_id);
     links = (await callPage(run.tab_id, 'discover', 'sports')).links || [];
-    if (links.length) break;
-    await sleep(READY_POLL_MS);
+    if (!links.length) run.counts.search_timeout = (run.counts.search_timeout || 0) + 1;
   }
   run.counts.searched += 1;
   if (!links.length) run.counts.no_results += 1;
   const own = run.targets[search.target];
   const hit = own && links.some((l) => PublicOddsPage.matchesTarget(l, [own], 'oddsportal'));
   if (hit) run.counts.found += 1;
+  if (hit && !run.covered.includes(search.target)) run.covered.push(search.target);
   const seen = new Set(run.seen_keys);
   let at = run.cursor + 1;
   if (!hit && search.rest && search.rest.length) {    // try the game's next word right away
@@ -258,6 +267,10 @@ async function visitSearch(run, search) {
     run.counts.discovered += 1;
     if (!PublicOddsPage.matchesTarget(link, run.targets, 'oddsportal')) { run.counts.not_on_bet9ja += 1; continue; }
     if (run.counts.queued >= run.max_events) { run.counts.truncated += 1; continue; }
+    // every Bet9ja game this page could be: their own searches are no longer needed
+    run.targets.forEach((t, i) => {
+      if (!run.covered.includes(i) && PublicOddsPage.matchesTarget(link, [t], 'oddsportal')) run.covered.push(i);
+    });
     run.queue.splice(at, 0, { kind: 'event', url: link.url, label_raw: link.label_raw });   // visit it next
     at += 1;
     run.counts.queued += 1;
@@ -383,11 +396,16 @@ async function drive() {
     while (run && run.status === 'RUNNING' && run.cursor < run.queue.length) {
       const target = run.queue[run.cursor];
       try {
-        if (!await navigate(run.tab_id, target.url)) throw new Error('PAGE_LOAD_TIMEOUT');
-        if (source && source.settleMs) await sleep(Math.min(source.settleMs, T.settleCap));
-        if (run.mode === 'results') await visitResult(run, target);
-        else if (target.kind === 'search') await visitSearch(run, target);
-        else await visitOdds(run, target, source);
+        if (target.kind === 'search' && (run.covered || []).includes(target.target)) {
+          run.counts.found += 1;                       // an earlier search already found this game
+          run.counts.found_elsewhere += 1;
+        } else {
+          if (!await navigate(run.tab_id, target.url)) throw new Error('PAGE_LOAD_TIMEOUT');
+          if (source && source.settleMs) await sleep(Math.min(source.settleMs, T.settleCap));
+          if (run.mode === 'results') await visitResult(run, target);
+          else if (target.kind === 'search') await visitSearch(run, target);
+          else await visitOdds(run, target, source);
+        }
       } catch (err) {
         const msg = err && err.message ? err.message : String(err);
         if (/No tab with id|tab was closed|Tabs cannot be edited/i.test(msg)) {

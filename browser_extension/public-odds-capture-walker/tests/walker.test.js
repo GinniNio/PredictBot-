@@ -252,12 +252,12 @@ test('a find-all walk searches each Bet9ja game and visits only the matches foun
   const { pages } = footballDay();
   const S = (t) => `https://www.oddsportal.com/search/${t}/`;
   const bel = 'football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M';
-  pages[S('belouizdad')] = `<body><a href="/${bel}">CR Belouizdad-Khenchela</a>`
+  pages[S('belouizdad')] = `<body>Next Matches (2)<a href="/${bel}">CR Belouizdad-Khenchela</a>`
     + '<a href="/football/h2h/cr-belouizdad-vNJLB2jP/mc-alger-EEEEEEEE/#z1">CR Belouizdad-MC Alger</a></body>';
-  pages[S('constantine')] = '<body><a href="/football/h2h/constantine-AAAAAAAA/biskra-BBBBBBBB/#x1">Constantine-Biskra</a></body>';
-  pages[S('aknoun')] = '<body>No results</body>';
-  pages[S('biar')] = '<body>No results</body>';
-  pages[S('ben')] = '<body>No results</body>';
+  pages[S('constantine')] = '<body>Next Matches (1)<a href="/football/h2h/constantine-AAAAAAAA/biskra-BBBBBBBB/#x1">Constantine-Biskra</a></body>';
+  pages[S('aknoun')] = '<body>Next Matches (0) Unfortunately, no matches can be displayed</body>';
+  pages[S('biar')] = '<body>Next Matches (0) Unfortunately, no matches can be displayed</body>';
+  pages[S('ben')] = '<body>Next Matches (0) Unfortunately, no matches can be displayed</body>';
   const targets = [{ sport: 'football', home: 'CR Belouizdad', away: 'Khenchela' },
     { sport: 'football', home: 'Constantine', away: 'Biskra' }, { sport: 'football', home: 'Ben Aknoun', away: 'Js El Biar' }];
   const w = loadWalker({ pages, targets, timing: { listing: 1, ready: 60, poll: 5, settleCap: 1, search: 40 } });
@@ -278,6 +278,35 @@ test('a find-all walk searches each Bet9ja game and visits only the matches foun
   const run = (await w.send({ type: 'GET_PUBLIC_ODDS_RUN' })).run;
   assert.deepEqual(run.captures.map((c) => c.role), ['event']);
   assert.equal(run.captures[0].page_title, 'CR Belouizdad - Khenchela Odds');
+});
+
+test('searchState waits for the search to answer', () => {
+  const doc = (html) => new JSDOM(html).window.document;
+  assert.equal(P.searchState(doc('<body><div class="animate-pulse"></div></body>')).state, 'WAITING');
+  assert.equal(P.searchState(doc('<body>Next Matches (0) Unfortunately, no matches</body>')).state, 'EMPTY');
+  assert.equal(P.searchState(doc('<body>Next Matches (1)</body>')).state, 'WAITING');         // count shown, rows not yet
+  assert.equal(P.searchState(doc('<body>Next Matches (1)<a href="/football/h2h/a-AAAAAAAA/b-BBBBBBBB/">A-B</a></body>')).state, 'READY');
+});
+
+test('a game already found by another search is not searched again', async () => {
+  const { pages } = footballDay();
+  const S = (t) => `https://www.oddsportal.com/search/${t}/`;
+  // Belouizdad's search also lists Constantine's game
+  pages[S('belouizdad')] = '<body>Next Matches (2)<a href="/football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M">CR Belouizdad-Khenchela</a>'
+    + '<a href="/football/h2h/constantine-AAAAAAAA/biskra-BBBBBBBB/#x1">Constantine-Biskra</a></body>';
+  const visited = [];
+  pages.onVisit = (url) => visited.push(url);
+  const targets = [{ sport: 'football', home: 'CR Belouizdad', away: 'Khenchela' },
+    { sport: 'football', home: 'Constantine', away: 'Biskra' }];
+  const w = loadWalker({ pages, targets, timing: { listing: 1, ready: 60, poll: 5, settleCap: 1, search: 40 } });
+  w.tab.url = SEED;
+  await w.send({ type: 'START_SEARCH_WALK', tabId: 7, maxEvents: 50 });
+  const done = await w.until((s) => s && s.status === 'COMPLETE');
+  assert.equal(done.counts.searched, 1);
+  assert.equal(done.counts.found, 2);
+  assert.equal(done.counts.found_elsewhere, 1);
+  assert.ok(!visited.includes(S('constantine')));
+  assert.equal(done.counts.queued, 2);
 });
 
 test('a find-all walk needs the app and an OddsPortal tab', async () => {

@@ -196,7 +196,19 @@
       kickoff_raw: kickoffRaw };
   }
 
-  const api = { SCHEMA_VERSION, captureCurrentPage, discoverEventLinks, discoverListingLinks, withinDays, excerpt,
+  // Search mode: OddsPortal's search page shows 'Next Matches (N)' once it
+  // has answered. EMPTY when N is 0, READY when N > 0 and the match links have
+  // rendered, otherwise WAITING (still loading: grey placeholders).
+  function searchState(documentLike) {
+    const text = cleanText((documentLike.body && (documentLike.body.innerText || documentLike.body.textContent)) || '');
+    const m = text.match(/Next Matches\s*\((\d+)\)/i);
+    const links = documentLike.querySelectorAll('a[href*="/h2h/"]').length;
+    if (m && +m[1] === 0) return { state: 'EMPTY', count: 0 };
+    if (m && links) return { state: 'READY', count: +m[1] };
+    return { state: 'WAITING', count: m ? +m[1] : null };
+  }
+
+  const api = { SCHEMA_VERSION, searchState, captureCurrentPage, discoverEventLinks, discoverListingLinks, withinDays, excerpt,
     eventKey, sportOf, readiness, matchesTarget, nameTokens, resultState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PublicOddsPage = api;
