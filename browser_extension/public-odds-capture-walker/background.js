@@ -11,7 +11,7 @@ const CAP_PREFIX = 'publicOddsWalkCapture:';
 const MAX_CAPTURES = 300;
 const MAX_LISTINGS = 40;
 // Timings; tests shorten them through globalThis.WALKER_TIMING.
-const T = Object.assign({ listing: 3000, ready: 15000, poll: 1000, settleCap: 2000 }, globalThis.WALKER_TIMING || {});
+const T = Object.assign({ listing: 3000, ready: 15000, poll: 1000, settleCap: 2000, search: 8000 }, globalThis.WALKER_TIMING || {});
 const LISTING_SETTLE_MS = T.listing;
 const READY_TIMEOUT_MS = T.ready;   // stop waiting for a page's odds after this
 const READY_POLL_MS = T.poll;
@@ -184,6 +184,88 @@ async function beginResults(tabId, maxEvents) {
   return summary(run);
 }
 
+// Search mode: for every Bet9ja game the app still lacks a benchmark for,
+// search OddsPortal for one of its teams and visit the matching game right
+// after, so games outside any one listing page are found too.
+const SEARCH_URL = (term) => `https://www.oddsportal.com/search/${encodeURIComponent(term)}/`;
+
+// OddsPortal's search matches names as written and shows only a few hits,
+// so try the most specific words first: a player's whole surname, then each
+// distinctive word of the home team (longest first), then the away team's.
+const MAX_TERMS = 4;
+function searchTerms(target) {
+  const words = (name) => PublicOddsPage.nameTokens(name || '').sort((a, b) => b.length - a.length);
+  const surname = (name) => (name && name.includes(',') ? PublicOddsPage.nameTokens(name.split(',')[0]).join(' ') : '');
+  const terms = [surname(target.home), ...words(target.home), surname(target.away), ...words(target.away)];
+  return [...new Set(terms.filter((t) => t && t.length >= 3))].slice(0, MAX_TERMS);
+}
+
+async function beginSearch(tabId, maxEvents) {
+  const s = summary(await loadRun());
+  if (s && s.status === 'RUNNING') throw new Error('A walk is already running. Stop it first, or wait for it to finish.');
+  const tab = await chrome.tabs.get(tabId);
+  const source = PublicOddsSources.findSource(tab.url || '');
+  if (!source || source.key !== 'oddsportal') throw new Error('Open any oddsportal.com page in this tab first.');
+  const list = await appTargetList();
+  if (list === null) throw new Error('The PredictBot app is not reachable on localhost:8000. Start it, then try again.');
+  const targets = list.fixtures || [];
+  if (!targets.length) throw new Error('Every Bet9ja game already has a benchmark (or none is captured yet).');
+  const queue = targets.map((t, i) => ({ terms: searchTerms(t), i })).filter((x) => x.terms.length)
+    .map(({ terms, i }) => ({ kind: 'search', url: SEARCH_URL(terms[0]), label_raw: terms[0], target: i, rest: terms.slice(1) }));
+  await clearOldCaptures();
+  const run = {
+    schema_version: 'public-odds-capture-walk.v1', walker_version: chrome.runtime.getManifest().version,
+    mode: 'search', run_id: Date.now().toString(36), status: 'RUNNING', capture_status: 'RUNNING',
+    source_key: 'oddsportal', started_at_utc: nowIso(), seed_url: tab.url, tab_id: tabId,
+    browser_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    browser_utc_offset_minutes: -new Date().getTimezoneOffset(),
+    targets_status: `${targets.length} Bet9ja games without a benchmark`,
+    targets, seen_keys: [], max_events: Math.min(Number(maxEvents) || 10, MAX_CAPTURES),
+    discovered_links: [], skipped: [], failures: [], cursor: 0,
+    queue,
+    counts: { games: queue.length, found: 0, searched: 0, no_results: 0, discovered: 0, queued: 0, visited: 0, captured: 0,
+              started: 0, no_odds: 0, failed: 0, not_on_bet9ja: 0, duplicate: 0, truncated: 0 },
+  };
+  await saveRun(run);
+  drive();
+  return summary(run);
+}
+
+async function visitSearch(run, search) {
+  let links = [];
+  const until = Date.now() + T.search;
+  while (Date.now() < until) {                     // results render after the page loads
+    await injectPageTools(run.tab_id);
+    links = (await callPage(run.tab_id, 'discover', 'sports')).links || [];
+    if (links.length) break;
+    await sleep(READY_POLL_MS);
+  }
+  run.counts.searched += 1;
+  if (!links.length) run.counts.no_results += 1;
+  const own = run.targets[search.target];
+  const hit = own && links.some((l) => PublicOddsPage.matchesTarget(l, [own], 'oddsportal'));
+  if (hit) run.counts.found += 1;
+  const seen = new Set(run.seen_keys);
+  let at = run.cursor + 1;
+  if (!hit && search.rest && search.rest.length) {    // try the game's next word right away
+    run.queue.splice(at, 0, { ...search, url: SEARCH_URL(search.rest[0]), label_raw: search.rest[0], rest: search.rest.slice(1) });
+    at += 1;
+  }
+  for (const link of links) {
+    const key = PublicOddsPage.eventKey(link.url);
+    if (seen.has(key)) { run.counts.duplicate += 1; continue; }
+    seen.add(key);
+    run.counts.discovered += 1;
+    if (!PublicOddsPage.matchesTarget(link, run.targets, 'oddsportal')) { run.counts.not_on_bet9ja += 1; continue; }
+    if (run.counts.queued >= run.max_events) { run.counts.truncated += 1; continue; }
+    run.queue.splice(at, 0, { kind: 'event', url: link.url, label_raw: link.label_raw });   // visit it next
+    at += 1;
+    run.counts.queued += 1;
+    run.discovered_links.push(link);
+  }
+  run.seen_keys = [...seen];
+}
+
 async function visitOdds(run, target, source) {
   const ready = await waitReady(run.tab_id, run.source_key);
   run.counts.visited += 1;
@@ -304,6 +386,7 @@ async function drive() {
         if (!await navigate(run.tab_id, target.url)) throw new Error('PAGE_LOAD_TIMEOUT');
         if (source && source.settleMs) await sleep(Math.min(source.settleMs, T.settleCap));
         if (run.mode === 'results') await visitResult(run, target);
+        else if (target.kind === 'search') await visitSearch(run, target);
         else await visitOdds(run, target, source);
       } catch (err) {
         const msg = err && err.message ? err.message : String(err);
@@ -364,6 +447,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'START_PUBLIC_ODDS_WALK') {
     reply(begin(message.tabId, message.maxEvents, message.scope || 'sports', message.onlyBet9ja !== false)
       .then((run) => ({ run })));
+    return true;
+  }
+  if (message.type === 'START_SEARCH_WALK') {
+    reply(beginSearch(message.tabId, message.maxEvents).then((run) => ({ run })));
     return true;
   }
   if (message.type === 'START_RESULTS_WALK') {

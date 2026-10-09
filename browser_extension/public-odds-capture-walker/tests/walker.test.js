@@ -246,6 +246,49 @@ test('a results walk needs an OddsPortal tab and a list from the app', async () 
   assert.match((await w.send({ type: 'START_RESULTS_WALK', tabId: 7 })).error, /No finished games/);
 });
 
+// ------------------------------------------------------------- search mode
+
+test('a find-all walk searches each Bet9ja game and visits only the matches found', async () => {
+  const { pages } = footballDay();
+  const S = (t) => `https://www.oddsportal.com/search/${t}/`;
+  const bel = 'football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M';
+  pages[S('belouizdad')] = `<body><a href="/${bel}">CR Belouizdad-Khenchela</a>`
+    + '<a href="/football/h2h/cr-belouizdad-vNJLB2jP/mc-alger-EEEEEEEE/#z1">CR Belouizdad-MC Alger</a></body>';
+  pages[S('constantine')] = '<body><a href="/football/h2h/constantine-AAAAAAAA/biskra-BBBBBBBB/#x1">Constantine-Biskra</a></body>';
+  pages[S('aknoun')] = '<body>No results</body>';
+  pages[S('biar')] = '<body>No results</body>';
+  pages[S('ben')] = '<body>No results</body>';
+  const targets = [{ sport: 'football', home: 'CR Belouizdad', away: 'Khenchela' },
+    { sport: 'football', home: 'Constantine', away: 'Biskra' }, { sport: 'football', home: 'Ben Aknoun', away: 'Js El Biar' }];
+  const w = loadWalker({ pages, targets, timing: { listing: 1, ready: 60, poll: 5, settleCap: 1, search: 40 } });
+  w.tab.url = SEED;
+  const start = await w.send({ type: 'START_SEARCH_WALK', tabId: 7, maxEvents: 50 });
+  assert.equal(start.ok, true, start.error);
+  const done = await w.until((s) => s && s.status === 'COMPLETE');
+  assert.equal(done.mode, 'search');
+  assert.equal(done.counts.games, 3);
+  assert.equal(done.counts.found, 2);
+  // Ben Aknoun: 'aknoun', 'ben', then 'biar' ('el', 'js' are too short); the others hit first time
+  assert.equal(done.counts.searched, 5);
+  assert.equal(done.counts.no_results, 3);
+  assert.equal(done.counts.not_on_bet9ja, 1);                  // Belouizdad's other game
+  assert.equal(done.counts.queued, 2);
+  assert.equal(done.counts.captured, 1);                       // Constantine has started: skipped
+  assert.equal(done.counts.started, 1);
+  const run = (await w.send({ type: 'GET_PUBLIC_ODDS_RUN' })).run;
+  assert.deepEqual(run.captures.map((c) => c.role), ['event']);
+  assert.equal(run.captures[0].page_title, 'CR Belouizdad - Khenchela Odds');
+});
+
+test('a find-all walk needs the app and an OddsPortal tab', async () => {
+  const w = loadWalker({ pages: {}, targets: null });
+  w.tab.url = SEED;
+  assert.match((await w.send({ type: 'START_SEARCH_WALK', tabId: 7 })).error, /not reachable/);
+  const w2 = loadWalker({ pages: {}, targets: [] });
+  w2.tab.url = SEED;
+  assert.match((await w2.send({ type: 'START_SEARCH_WALK', tabId: 7 })).error, /already has a benchmark/);
+});
+
 test('allowlisted hosts only (unchanged)', () => {
   assert.equal(R.findSource('https://oddsportal.evil.example/'), null);
 });

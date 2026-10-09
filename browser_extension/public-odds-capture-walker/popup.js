@@ -11,6 +11,14 @@ async function activeTabId() {
 function describe(run) {
   if (!run) return 'No walk yet.';
   const c = run.counts || {};
+  if (run.mode === 'search') {
+    return [
+      `Find-all walk ${run.status}${run.message ? ': ' + run.message : ''}`,
+      run.targets_status,
+      `${c.found || 0} of ${c.games || 0} games found on OddsPortal (${c.searched || 0} searches). Match pages: ${c.visited || 0} visited of ${c.queued || 0} found, ${c.captured || 0} captured with odds, ${c.started || 0} already started, ${c.no_odds || 0} without odds, ${c.failed || 0} failed.`,
+      `${c.not_on_bet9ja || 0} search hits were other games; ${c.truncated || 0} over the page limit.`,
+    ].join('\n');
+  }
   if (run.mode === 'results') {
     return [
       `Results walk ${run.status}${run.message ? ': ' + run.message : ''}`,
@@ -35,7 +43,7 @@ async function downloadRun() {
   const json = JSON.stringify(run);
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
   const stamp = (run.completed_at_utc || new Date().toISOString()).replace(/[:.]/g, '-');
-  const kind = run.mode === 'results' ? '-results' : '';
+  const kind = run.mode === 'results' ? '-results' : run.mode === 'search' ? '-search' : '';
   await chrome.downloads.download({ url, filename: `public-odds-walk-${run.source_key || 'unknown'}${kind}-${stamp}.json`, saveAs: false });
   await send({ type: 'MARK_DOWNLOADED' });
 }
@@ -47,6 +55,7 @@ async function refresh() {
   const running = run && run.status === 'RUNNING';
   $('walk').disabled = running;
   $('results').disabled = running;
+  $('search').disabled = running;
   $('stop').disabled = !running;
   $('resume').disabled = !run || !['INTERRUPTED', 'STOPPED'].includes(run.status) || run.cursor >= run.queued;
   if (run && ['COMPLETE', 'STOPPED'].includes(run.status) && !run.downloaded && run.cursor >= run.queued) await downloadRun();
@@ -58,6 +67,15 @@ $('walk').addEventListener('click', async () => {
     const response = await send({ type: 'START_PUBLIC_ODDS_WALK', tabId: await activeTabId(),
       maxEvents: Number($('max-events').value) || 100, onlyBet9ja: $('only-bet9ja').checked,
       scope: $('include-nonsports').checked ? 'all' : 'sports' });
+    if (!response.ok) throw new Error(response.error);
+    await refresh();
+  } catch (err) { setStatus(`Failed: ${err && err.message ? err.message : String(err)}`); }
+});
+$('search').addEventListener('click', async () => {
+  try {
+    setStatus('Asking the PredictBot app which Bet9ja games still need a benchmark...');
+    const response = await send({ type: 'START_SEARCH_WALK', tabId: await activeTabId(),
+      maxEvents: Number($('max-events').value) || 100 });
     if (!response.ok) throw new Error(response.error);
     await refresh();
   } catch (err) { setStatus(`Failed: ${err && err.message ? err.message : String(err)}`); }
