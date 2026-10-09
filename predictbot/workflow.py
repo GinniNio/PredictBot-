@@ -919,3 +919,96 @@ def result_targets(df: DataFolder, now: datetime) -> list[dict]:
         out.append({"url": q.get("page_url") or q["url"], "sport": WALKER_SPORT.get(g["sport"], g["sport"].replace("_", "-")),
                     "home": home, "away": away, "kickoff_utc": pcbf.utc(g["kick"])})
     return sorted(out, key=lambda r: r["kickoff_utc"])
+
+
+# ------------------------------------------------------- betting breakdowns
+
+_SPORT_CACHE: dict = {}   # (path, size, mtime) -> {(home, away): sport} from one Bet9ja capture
+MARKET_SPORT = {"1-2_(inc__extra_inning)": "baseball"}   # ticket market labels that name the sport
+
+
+def sport_index(df: DataFolder, extra_folders=()) -> dict:
+    """(home, away) -> sport, and ('competition', name) -> the sports that
+    competition name appears under, from every Bet9ja walk capture and every
+    logged selection. Ticket captures carry team names but no sport; the
+    same names appear in the walks, filed under their sport."""
+    index = {}
+    for path in df.paths("bet9ja-*.json", extra_folders):
+        if path.name.startswith(("bet9ja-open-bets", "bet9ja-settled-bets")):
+            continue
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        key = (str(path), st.st_size, st.st_mtime_ns)
+        if key not in _SPORT_CACHE:
+            pairs = {}
+            try:
+                raw = path.read_bytes()
+                data = json.loads(raw.decode("utf-8"))
+                cands = pcbf.candidates_from_capture(data, pcbf.payload_hash(raw), path.name) if isinstance(data, dict) else []
+            except (OSError, UnicodeDecodeError, ValueError):
+                cands = []
+            for c in cands:
+                if c.get("home") and c.get("away") and c.get("sport"):
+                    pairs[(tickets.norm_name(c["home"]), tickets.norm_name(c["away"]))] = c["sport"]
+                if c.get("competition") and c.get("sport"):
+                    pairs.setdefault(("competition", tickets.norm_name(c["competition"])), set()).add(c["sport"])
+            _SPORT_CACHE[key] = pairs
+        for k, v in _SPORT_CACHE[key].items():
+            if k[0] == "competition":
+                index.setdefault(k, set()).update(v)
+            else:
+                index[k] = v
+    for s in df.read("selection"):
+        home, _, away = (s.get("event_name") or "").partition(" v ")
+        if s.get("sport"):
+            index[(tickets.norm_name(home), tickets.norm_name(away))] = s["sport"]
+    return index
+
+
+def leg_sport(leg: dict, index: dict) -> str | None:
+    """By the game's teams; else by its competition when that name belongs
+    to one sport only in the walks ('Champions League' does not); else by a
+    market label that names the sport."""
+    home, away, _ = tickets.split_fixture(leg.get("fixture_and_time_raw"), None)
+    comp = index.get(("competition", tickets.norm_name(leg.get("competition_raw"))), set())
+    return (index.get((tickets.norm_name(home), tickets.norm_name(away)))
+            or (next(iter(comp)) if len(comp) == 1 else None)
+            or MARKET_SPORT.get(tickets.market_key(leg.get("market_raw"))))
+
+
+def betting_breakdown(df: DataFolder, tks: list[dict], extra_folders=()) -> dict:
+    """Ticket results by sport and by week (placed), and the linked singles
+    (bets on games the app logged) by sport. A ticket's sport is its legs'
+    sport; legs from different sports make it 'mixed'; a leg whose game
+    never appeared in a Bet9ja walk is 'unknown'."""
+    index = sport_index(df, extra_folders)
+
+    def sport_of(t):
+        sports = {leg_sport(leg, index) or "unknown" for leg in t["legs"]}
+        return sports.pop() if len(sports) == 1 else ("mixed" if sports else "unknown")
+
+    sels = {s["selection_record_id"]: s for s in df.read("selection")}
+    st = {s["selection_record_id"]: s for s in df.read("settlement")}
+    singles: dict = {}
+    for b in df.read("bet"):
+        sel = sels.get(b["selection_record_id"])
+        sport = (sel or {}).get("sport") or "unknown"
+        r = singles.setdefault(sport, {"key": sport, "bets": 0, "settled": 0, "staked": 0.0, "returned": 0.0, "won": 0})
+        r["bets"] += 1
+        res = st.get(b["selection_record_id"], {}).get("result")
+        if res:
+            stake, odds = float(b["stake"]), float(b["bookmaker_odds"])
+            r["settled"] += 1
+            r["staked"] += stake
+            r["returned"] += stake * odds if res == "WIN" else (stake if res == "VOID" else 0.0)
+            r["won"] += res == "WIN"
+    for r in singles.values():
+        r["pnl"] = r["returned"] - r["staked"]
+        r["roi"] = r["pnl"] / r["staked"] if r["staked"] else None
+    by = lambda rows: sorted(rows, key=lambda r: (-float(r["staked"]), r["key"]))
+    return {"by_sport": by(tickets.breakdown(tks, sport_of)),
+            "by_week": sorted(tickets.breakdown(tks, lambda t: tickets.week_start(t["placed"])),
+                              key=lambda r: r["key"], reverse=True),
+            "singles_by_sport": by(singles.values())}

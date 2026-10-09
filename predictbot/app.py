@@ -520,8 +520,31 @@ def page_bets(msg="", rid="") -> str:
             "<input name='stake' placeholder='stake NGN' required> <input name='odds' placeholder='odds taken' required> "
             f"<input name='placed' value='{pcbf.utc(now())}'> <input name='ticket' placeholder='Bet9ja ticket ID'> "
             "<button>Save bet</button></form></details>")
+    rec += betting_tables(workflow.betting_breakdown(DF, tk, [DOWNLOADS])) if tk else ""
     return ((f"<p class='msg'>{e(msg)}</p>" if msg else "") + head + bt
             + ("<h2>Legs on logged games that are not bets</h2>" + acc if acc else "") + rec + form)
+
+
+def betting_tables(b: dict) -> str:
+    def rows(rs, label=lambda k: k):
+        out = []
+        for r in rs:
+            pnl = f"<b class='{'pos' if r['pnl'] > 0 else 'neg' if r['pnl'] < 0 else ''}'>{num(r['pnl'], 0)}</b>"
+            out.append([e(label(r["key"])), r["settled"], r["won"], num(r["staked"], 0), num(r["returned"], 0), pnl,
+                        pct(float(r["roi"]), 0) if r["roi"] is not None else "", r["open"], num(r["open_staked"], 0)])
+        return out
+    head = ["", "Settled", "Won", "Staked", "Returned", "P&L", "ROI", "Open", "Open stake"]
+    week = lambda k: k if k == "unknown" else "week of " + datetime.strptime(k, "%Y-%m-%d").strftime("%d %b")
+    singles = [[e(r["key"]), r["bets"], r["settled"], r["won"], num(r["staked"], 0), num(r["returned"], 0),
+                f"<b>{num(r['pnl'], 0)}</b>", pct(r["roi"], 0) if r["roi"] is not None else ""]
+               for r in b["singles_by_sport"]]
+    return ("<h3>By week (week the ticket was placed)</h3>" + table(["Week"] + head[1:], rows(b["by_week"], week), "num")
+            + "<h3>By sport</h3><p class='dim'>A ticket's sport is its games' sport, found by matching team names to "
+              "your Bet9ja sport walks; games from several sports make it <i>mixed</i>, games never walked are "
+              "<i>unknown</i>.</p>" + table(["Sport"] + head[1:], rows(b["by_sport"]), "num")
+            + ("<h3>Singles on games the app logged, by sport</h3><p class='dim'>The part of your betting that tests "
+               "the app's prices.</p>" + table(["Sport", "Bets", "Settled", "Won", "Staked", "Returned", "P&L", "ROI"],
+                                                singles, "num") if singles else ""))
 
 
 # ------------------------------------------------------------------ server
@@ -543,7 +566,7 @@ th{color:var(--dim);font-size:12px} table.num td:not(:first-child){text-align:ri
 textarea{width:100%;box-sizing:border-box;font:12px ui-monospace,monospace;background:var(--card);color:var(--fg);border:1px solid var(--line)}
 button{padding:6px 14px;font-weight:600;cursor:pointer} input,select{padding:5px;max-width:100%}
 .PICK,.PM_PAPER{color:var(--pos)} .PM_PAPER{font-style:italic} .REJECTED{color:var(--neg)} .RESEARCH{color:var(--dim)} .dim{color:var(--dim)}
-.err{color:var(--neg)} .msg{color:var(--pos)} code{font-size:11px;color:var(--dim)}
+.err{color:var(--neg)} .msg{color:var(--pos)} .pos{color:var(--pos)} .neg{color:var(--neg)} code{font-size:11px;color:var(--dim)}
 .gate{padding:10px 12px;border-radius:8px;background:var(--card);border-left:4px solid var(--neg);margin:8px 0}
 .gate.UNLOCKED{border-left-color:var(--pos)} details{margin-top:12px} label{margin-right:10px}
 form.inline{display:inline-block;margin:0 4px 0 0} .banner{padding:10px 12px;border-radius:8px;background:var(--card);

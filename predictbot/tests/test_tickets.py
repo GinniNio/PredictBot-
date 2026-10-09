@@ -144,5 +144,48 @@ class SyncTickets(unittest.TestCase):
         self.assertEqual(self.df.read("bet"), [])
 
 
+class Breakdowns(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.df = DataFolder(self.tmp, host="HP")
+        self.df.append("selection", [sel("e1", 0, "Alpha FC (home)"), sel("e1", 1, "Draw"), sel("e1", 2, "Beta United (away)"),
+                                     sel("e2", 0, "Cobras", "MONEYLINE_INC_OT", "basketball", odds="1.50"),
+                                     sel("e2", 1, "Dingos", "MONEYLINE_INC_OT", "basketball", odds="2.60")])
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def test_week_start_is_monday(self):
+        self.assertEqual(tickets.week_start(datetime(2026, 10, 7, 14, 0)), "2026-10-05")
+        self.assertEqual(tickets.week_start(None), "unknown")
+
+    def test_by_sport_and_week(self):
+        soccer = leg("Alpha FC", fixture="Alpha FC - Beta United", leg_status="WON", odds="2.00")
+        basket = leg("Cobras", "2 Way", "Cobras - Dingos", leg_status="LOST", odds="1.50")
+        other = leg("Gamma", fixture="Gamma - Delta", leg_status="WON", odds="3.00")
+        one = [{"fold_size": 1, "unit_stake": "100", "total_stake": "100"}]
+        tks = tickets.all_tickets([capture([
+            ticket("S1", [soccer], one, status="WON"),                                  # soccer single: +100
+            ticket("M1", [soccer, basket], DOUBLES, placed="30 Sep 2026 10:00", status="LOST"),
+            ticket("U1", [other], one, status="WON"),
+            ticket("O1", [leg("Alpha FC", fixture="Alpha FC - Beta United")], one, status="OPEN")], settled=True)])
+        b = workflow.betting_breakdown(self.df, tks)
+        sport = {r["key"]: r for r in b["by_sport"]}
+        self.assertEqual(sport["soccer"]["settled"], 1)
+        self.assertEqual(str(sport["soccer"]["pnl"]), "100.00")
+        self.assertEqual(sport["mixed"]["settled"], 1)
+        self.assertEqual(sport["unknown"]["settled"], 1)
+        week = {r["key"]: r for r in b["by_week"]}
+        self.assertEqual(set(week), {"2026-10-05", "2026-09-28"})
+        self.assertEqual(week["2026-09-28"]["settled"], 1)
+        self.assertEqual(week["2026-10-05"]["open"], 1)
+
+    def test_competition_names_one_sport_only(self):
+        index = {("competition", "liiga"): {"ice_hockey"}, ("competition", "champions league"): {"soccer", "basketball"}}
+        self.assertEqual(workflow.leg_sport(leg("A", fixture="A - B", competition_raw="Liiga"), index), "ice_hockey")
+        self.assertIsNone(workflow.leg_sport(leg("A", fixture="A - B", competition_raw="Champions League"), index))
+        self.assertEqual(workflow.leg_sport(leg("A", "1-2 (Inc. Extra Inning)", "A - B"), index), "baseball")
+
+
 if __name__ == "__main__":
     unittest.main()

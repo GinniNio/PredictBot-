@@ -183,3 +183,34 @@ def single_stake(ticket: dict) -> Decimal | None:
     if not ticket.get("buckets") and len(ticket.get("legs") or []) == 1:
         return ticket.get("stake") or None
     return None
+
+
+# ------------------------------------------------------------- breakdowns
+
+def week_start(dt: datetime | None) -> str:
+    """Monday of the ticket's week (Bet9ja page time), e.g. '2026-10-05'."""
+    if not dt:
+        return "unknown"
+    d = dt.date()
+    return (d - timedelta(days=d.weekday())).isoformat()
+
+
+def breakdown(tickets: list[dict], key) -> list[dict]:
+    """Ticket results grouped by key(ticket): settled count, staked,
+    returned, P&L, ROI, plus open tickets and their stake."""
+    rows: dict = {}
+    for t in tickets:
+        r = rows.setdefault(key(t), {"key": key(t), "settled": 0, "staked": Decimal(0), "returned": Decimal(0),
+                                     "won": 0, "open": 0, "open_staked": Decimal(0)})
+        if t["returned"] is not None:
+            r["settled"] += 1
+            r["staked"] += t["stake"]
+            r["returned"] += t["returned"]
+            r["won"] += t["status"] == "WON"
+        elif t["status"] == "OPEN":
+            r["open"] += 1
+            r["open_staked"] += t["stake"]
+    for r in rows.values():
+        r["pnl"] = r["returned"] - r["staked"]
+        r["roi"] = r["pnl"] / r["staked"] if r["staked"] else None
+    return list(rows.values())

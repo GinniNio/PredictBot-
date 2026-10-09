@@ -28,6 +28,7 @@ Stop it with the **Stop PredictBot** button (top right) before switching laptops
    - **Settlement**: finished games settle themselves (see **Results** below). Pending lists the ones still waiting and why. A settlement pack through a chat is only for what is left.
    - **Handover** and **OneDrive conflicts** when they occur.
 4. **Performance.** Forecast quality, paper results, actual wagers, and the written evidence review.
+5. **Bets.** Your real betting from the open and settled bet captures: every ticket's P&L in total, by week placed and by sport, plus the singles placed on games the app logged, by sport. Ticket captures have no sport, so it is found by matching the teams (or a competition that belongs to one sport) to your Bet9ja sport walks; tickets mixing sports show as *mixed*, games never walked as *unknown*.
 
 An empty shortlist is a valid result. Missing data is shown with a reason, never filled in.
 
@@ -124,7 +125,7 @@ Rows are never edited or deleted. When a newer app adds columns, a file is rewri
 | `schemas.py` | Record definitions, versions, validation |
 | `storage.py` | Append-only files, write guard, versions, conflict merge, session marker |
 | `workflow.py` | The daily loop joining core and storage |
-| `tickets.py` | Bet9ja ticket P&L and leg parsing from bet captures (linking and settlement: `workflow.sync_tickets`) |
+| `tickets.py` | Bet9ja ticket P&L, by-week and by-sport breakdowns, and leg parsing from bet captures (linking and settlement: `workflow.sync_tickets`; sport lookup: `workflow.betting_breakdown`) |
 | `app.py` | Thin stdlib web interface |
 | `chat/` | Optional: the PCBF Mini v1.4 rulebook and prompts for running the whole workflow in a chat, to compare with the app |
 | `tests/` | `python -m unittest discover -s predictbot/tests` |
