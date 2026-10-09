@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PredictBot Public Odds Capture Walker",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Captures public odds pages from a user-opened OddsPortal (or other supported) page, waits for the odds to render, skips started matches and, with the PredictBot app running, visits only games Bet9ja offers. It does not log in, place bets or submit forms.",
   "action": {
     "default_popup": "popup.html"

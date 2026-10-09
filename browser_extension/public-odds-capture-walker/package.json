@@ -1,6 +1,6 @@
 {
   "name": "predictbot-public-odds-capture-walker",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "scripts": { "test": "node --test tests/*.test.js" },
   "devDependencies": { "jsdom": "^24.1.1" }

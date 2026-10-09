@@ -36,23 +36,39 @@ function describe(run) {
   ].filter(Boolean).join('\n');
 }
 
-// Built here from storage, not passed through a message: a long walk can
-// exceed the size a single extension message may carry.
-async function assembledRun() {
-  const all = await chrome.storage.local.get(null);
-  const run = all.publicOddsWalkRun;
+// Built here from storage, a few pages at a time: a long walk exceeds the
+// 64 MiB an extension message (a storage read included) may carry.
+const CAP_PREFIX = 'publicOddsWalkCapture:';
+const BATCH = 10;
+
+async function storageKeys() {
+  if (chrome.storage.local.getKeys) return chrome.storage.local.getKeys();
+  return Object.keys(await chrome.storage.local.get(null));
+}
+
+async function runFile() {
+  const run = (await chrome.storage.local.get('publicOddsWalkRun')).publicOddsWalkRun;
   if (!run) return null;
-  const prefix = `publicOddsWalkCapture:${run.run_id}:`;
-  const captures = Object.keys(all).filter((k) => k.startsWith(prefix)).sort().map((k) => all[k]);
+  const prefix = `${CAP_PREFIX}${run.run_id}:`;
+  const keys = (await storageKeys()).filter((k) => k.startsWith(prefix)).sort();
   const { queue, ...rest } = run;
-  return { ...rest, captures };
+  const head = JSON.stringify({ ...rest, captures: [] });
+  const parts = [head.slice(0, -2)];                 // ...,"captures":[
+  for (let i = 0; i < keys.length; i += BATCH) {
+    const batch = keys.slice(i, i + BATCH);
+    const got = await chrome.storage.local.get(batch);
+    batch.forEach((k, j) => parts.push((i + j ? ',' : '') + JSON.stringify(got[k])));
+  }
+  parts.push(']}');
+  return { run, blob: new Blob(parts, { type: 'application/json' }) };
 }
 
 async function downloadRun() {
-  const run = await assembledRun();
-  if (!run) return setStatus('No walk is stored yet.');
-  const json = JSON.stringify(run);
-  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  setStatus('Preparing the download...');
+  const file = await runFile();
+  if (!file) return setStatus('No walk is stored yet.');
+  const { run, blob } = file;
+  const url = URL.createObjectURL(blob);
   const stamp = (run.completed_at_utc || new Date().toISOString()).replace(/[:.]/g, '-');
   const kind = run.mode === 'results' ? '-results' : run.mode === 'search' ? '-search' : '';
   await chrome.downloads.download({ url, filename: `public-odds-walk-${run.source_key || 'unknown'}${kind}-${stamp}.json`, saveAs: false });

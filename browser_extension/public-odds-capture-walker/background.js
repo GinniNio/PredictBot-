@@ -104,9 +104,15 @@ async function waitResult(tabId) {
 async function loadRun() { return (await chrome.storage.local.get(RUN_KEY))[RUN_KEY] || null; }
 async function saveRun(run) { run.updated_at_utc = nowIso(); await chrome.storage.local.set({ [RUN_KEY]: run }); }
 
+// Key names only: reading every stored page at once can exceed the 64 MiB
+// an extension message may carry.
+async function storageKeys() {
+  if (chrome.storage.local.getKeys) return chrome.storage.local.getKeys();
+  return Object.keys(await chrome.storage.local.get(null));
+}
+
 async function clearOldCaptures() {
-  const all = await chrome.storage.local.get(null);
-  const keys = Object.keys(all).filter((k) => k.startsWith(CAP_PREFIX));
+  const keys = (await storageKeys()).filter((k) => k.startsWith(CAP_PREFIX));
   if (keys.length) await chrome.storage.local.remove(keys);
 }
 
@@ -120,9 +126,13 @@ async function storeCapture(run, capture) {
 async function assembledRun() {
   const run = await loadRun();
   if (!run) return null;
-  const all = await chrome.storage.local.get(null);
   const prefix = `${CAP_PREFIX}${run.run_id}:`;
-  const captures = Object.keys(all).filter((k) => k.startsWith(prefix)).sort().map((k) => all[k]);
+  const keys = (await storageKeys()).filter((k) => k.startsWith(prefix)).sort();
+  const captures = [];
+  for (let i = 0; i < keys.length; i += 10) {
+    const got = await chrome.storage.local.get(keys.slice(i, i + 10));
+    keys.slice(i, i + 10).forEach((k) => captures.push(got[k]));
+  }
   const { queue, ...rest } = run;
   return { ...rest, captures };
 }

@@ -70,7 +70,9 @@ function loadWalker({ pages, targets, results = [], timing = { listing: 1, ready
   ctx.chrome = {
     runtime: { getManifest: () => ({ version: 'test' }), onMessage: { addListener: (fn) => { listeners.message = fn; } } },
     storage: { local: {
-      get: async (k) => (k === null ? { ...store } : { [k]: store[k] }),
+      get: async (k) => (k === null ? { ...store } : Array.isArray(k) ? Object.fromEntries(k.map((x) => [x, store[x]]))
+        : { [k]: store[k] }),
+      getKeys: async () => Object.keys(store),
       set: async (o) => Object.assign(store, JSON.parse(JSON.stringify(o))),
       remove: async (ks) => ks.forEach((k) => delete store[k]),
     } },
@@ -145,7 +147,7 @@ test('a walk visits only Bet9ja games, waits for odds, skips started matches', a
     truncated: 0, not_on_bet9ja: 1, other_sport: 1, duplicate: 1 });
   assert.match(done.targets_status, /3 Bet9ja fixtures without a benchmark; 3 of 4 listed games match/);
   const run = (await w.send({ type: 'GET_PUBLIC_ODDS_RUN' })).run;
-  assert.deepEqual(run.captures.map((c) => c.role), ['seed', 'event']);   // only the ready match is kept
+  assert.deepEqual([...run.captures.map((c) => c.role)], ['seed', 'event']);   // only the ready match is kept
   assert.equal(run.captures[1].page_title, 'CR Belouizdad - Khenchela Odds');
   assert.equal(run.capture_status, 'CAPTURE_OK');
   assert.deepEqual(run.skipped.map((s) => s.state).sort(), ['NO_ODDS', 'STARTED']);
@@ -276,7 +278,7 @@ test('a find-all walk searches each Bet9ja game and visits only the matches foun
   assert.equal(done.counts.captured, 1);                       // Constantine has started: skipped
   assert.equal(done.counts.started, 1);
   const run = (await w.send({ type: 'GET_PUBLIC_ODDS_RUN' })).run;
-  assert.deepEqual(run.captures.map((c) => c.role), ['event']);
+  assert.deepEqual([...run.captures.map((c) => c.role)], ['event']);
   assert.equal(run.captures[0].page_title, 'CR Belouizdad - Khenchela Odds');
 });
 
