@@ -280,6 +280,15 @@ test('a find-all walk searches each Bet9ja game and visits only the matches foun
   assert.equal(run.captures[0].page_title, 'CR Belouizdad - Khenchela Odds');
 });
 
+test('OddsPortal captures leave out scripts, styles and icons; Polymarket keeps its market JSON', () => {
+  const dom = new JSDOM('<!doctype html><title>A - B Odds</title><body><script>var big = "x";</script><style>.a{}</style>'
+    + '<svg><path d="M0"/></svg><div>Bookmakers</div><p>1.50</p></body>', { url: 'https://www.oddsportal.com/football/h2h/a-AAAAAAAA/b-BBBBBBBB/' });
+  const cap = P.captureCurrentPage(dom.window.document, { href: dom.window.location.href, title: 'A - B Odds', capturedAtUtc: 'now' }, 'full');
+  assert.equal(cap.html_mode, 'NO_SCRIPTS_STYLES_SVG');
+  assert.ok(!/<script|<style|<svg/i.test(cap.html));
+  assert.match(cap.html, /Bookmakers/);
+});
+
 test('searchState waits for the search to answer', () => {
   const doc = (html) => new JSDOM(html).window.document;
   assert.equal(P.searchState(doc('<body><div class="animate-pulse"></div></body>')).state, 'WAITING');

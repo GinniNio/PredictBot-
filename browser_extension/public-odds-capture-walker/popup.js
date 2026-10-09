@@ -36,9 +36,20 @@ function describe(run) {
   ].filter(Boolean).join('\n');
 }
 
+// Built here from storage, not passed through a message: a long walk can
+// exceed the size a single extension message may carry.
+async function assembledRun() {
+  const all = await chrome.storage.local.get(null);
+  const run = all.publicOddsWalkRun;
+  if (!run) return null;
+  const prefix = `publicOddsWalkCapture:${run.run_id}:`;
+  const captures = Object.keys(all).filter((k) => k.startsWith(prefix)).sort().map((k) => all[k]);
+  const { queue, ...rest } = run;
+  return { ...rest, captures };
+}
+
 async function downloadRun() {
-  const response = await send({ type: 'GET_PUBLIC_ODDS_RUN' });
-  const run = response.run;
+  const run = await assembledRun();
   if (!run) return setStatus('No walk is stored yet.');
   const json = JSON.stringify(run);
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));

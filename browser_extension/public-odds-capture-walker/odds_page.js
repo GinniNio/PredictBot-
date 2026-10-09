@@ -36,7 +36,11 @@
     if (!page.ok) return { schema_version: SCHEMA_VERSION, capture_status: 'CAPTURE_FAILED', failure_reason: page.reason };
     const full = documentLike.documentElement.outerHTML;
     const useExcerpt = mode === 'excerpt' && page.source.excerptPattern && full.includes(page.source.excerptPattern);
-    const html = useExcerpt ? excerpt(full, page.source.excerptPattern) : full;
+    // OddsPortal: the app reads only the page's visible text and title, so
+    // scripts, styles and icons (most of the page's size) are left out.
+    const lean = !useExcerpt && page.source_key === 'oddsportal';
+    const html = useExcerpt ? excerpt(full, page.source.excerptPattern)
+      : lean ? full.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<svg[\s\S]*?<\/svg>/gi, '') : full;
     return {
       schema_version: SCHEMA_VERSION,
       capture_status: 'CAPTURE_OK',
@@ -46,7 +50,7 @@
       page_title: page.page_title,
       captured_at_utc: page.captured_at_utc,
       html_length: full.length,
-      html_mode: useExcerpt ? 'EXCERPT_' + page.source.excerptPattern : 'FULL',
+      html_mode: useExcerpt ? 'EXCERPT_' + page.source.excerptPattern : lean ? 'NO_SCRIPTS_STYLES_SVG' : 'FULL',
       html,
     };
   }
