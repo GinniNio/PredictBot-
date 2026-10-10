@@ -14,6 +14,10 @@ Futsal, MMA, Snooker, Squash, Table Tennis, Waterpolo, Outrights — plus
 the `TODAY` / `3H` / `24H` / `72H` / `ALL` time-window filters the site
 itself exposes.
 
+## Runs on its own, sends to the app (0.4.0)
+
+The popup's last section, **Run automatically while Chrome is open**, walks every sport you tick every N hours (default 4) in a Bet9ja tab the walker opens itself in the background (or an open Bet9ja tab, if there is one), and sends each sport's capture to the PredictBot app over `localhost:8000/walker-upload`; the app stores it as `bet9ja-allsports-walk-<sport>-<time>.json` and prices it at once. A manual **Walk sport** is sent the same way, with the download as the fallback when the app is not running or its data folder is read-only. Chrome must be open, the app running, and the Bet9ja session signed in in this Chrome profile (the background tab shares it). **Run all sports now** starts a background run without waiting for the alarm. The walk runs inside the page and reports back by message, so a suspended extension worker still receives the result. One sport is given up after 25 minutes; a capture the app did not take is kept in the extension's storage. The default start page is `https://sports.bet9ja.com/`; if the sports sidebar does not render there, set any prematch competition page instead.
+
 ## Why a snapshot tool first
 
 Every existing capture module in this repository (`soccer_walker.js`,

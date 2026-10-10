@@ -13,7 +13,7 @@ Stop it with the **Stop PredictBot** button (top right) before switching laptops
 ## The daily loop
 
 1. **Capture** with the Chrome extensions:
-   - Bet9ja, one sport at a time: `browser_extension/bet9ja-allsports-evidence-capture-v0.2.2/` (walker 0.3.0, "Walk sport").
+   - Bet9ja: `browser_extension/bet9ja-allsports-evidence-capture-v0.2.2/` (walker 0.4.0). "Walk sport" by hand, or its schedule walks every chosen sport every few hours and sends the captures to the app.
    - Benchmarks: `browser_extension/public-odds-capture-walker/` on OddsPortal, close in time to the Bet9ja walk. **Find all Bet9ja games** (walker 0.5.0) searches OddsPortal for every Bet9ja game the app still lacks a benchmark for; a walk from a sport page only reaches the ~60 matches that page lists. **Polymarket needs no capture**: the app reads its public feed itself (below).
    - Your bets: `browser_extension/bet9ja_capture/` ("Capture open bets", settled bets).
 2. **Opportunities.** Opening it copies new files from Downloads into the data folder (bytes unchanged), fetches Polymarket's upcoming games (at most every 10 minutes), and prices every fixture it can match to a benchmark. The app also does all of this by itself every 10 minutes while it runs, and accepts walks the odds walker sends it directly (`/walker-upload`), so with the walker's schedule on, prices, results and settlements keep arriving without anyone at the keyboard. You see:

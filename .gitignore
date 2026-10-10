@@ -11,3 +11,4 @@ browser_extension/*/node_modules/
 /captures/
 /data/
 /pcbf-ledger*.csv
+node_modules/

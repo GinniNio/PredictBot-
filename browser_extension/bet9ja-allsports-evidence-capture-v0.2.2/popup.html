@@ -93,6 +93,19 @@
     <button id="walk-button" style="margin-top: 10px">Walk sport</button>
     <div id="walk-status"></div>
 
+    <hr />
+    <h1>Run automatically while Chrome is open</h1>
+    <p>Every few hours the walker opens its own Bet9ja tab in the background, walks each sport below, and sends the captures to the PredictBot app (no download). Chrome must be open and the app running.</p>
+    <label><input id="auto-enabled" type="checkbox" style="width:auto"> On</label>
+    <label for="auto-hours">Every <input id="auto-hours" type="number" min="0.5" step="0.5" value="4" style="width:60px;display:inline" /> hours</label>
+    <label for="auto-start">Start page (a Bet9ja page with the sports sidebar)</label>
+    <input id="auto-start" type="text" value="https://sports.bet9ja.com/" style="width:100%;box-sizing:border-box;padding:6px;font-size:12px" />
+    <label>Sports</label>
+    <div id="auto-sports" style="font-size:12px;columns:2"></div>
+    <button id="save-schedule" style="margin-top: 8px">Save schedule</button>
+    <button id="run-now" style="margin-top: 6px">Run all sports now (in the background)</button>
+    <div id="schedule-status" style="margin-top:8px;font-size:12px;color:#444;white-space:pre-wrap"></div>
+
     <script src="catalogue_parser.js"></script>
     <script src="popup.js"></script>
   </body>

@@ -796,6 +796,22 @@ class WalkerUpload(unittest.TestCase):
         self.assertIn("1 fixtures priced", reply["message"])
         self.assertEqual(len(self.app.DF.read("selection")), 3)
 
+    def test_bet9ja_sport_walk_is_stored_under_its_import_name_and_priced(self):
+        w = walker("soccer", [("1x2", [1.6, 4.4, 6.5])], home="France", away="Belgium", fid="9")
+        w["schema_version"] = "bet9ja-allsports-sport-walk.v3"
+        w["captured_at_utc"] = "2026-10-05T16:30:00.000Z"
+        w["results"][0]["fixtures"][0]["kickoff_utc_derived"] = "2026-10-05T18:45:00.000Z"
+        from test_predictbot import OddsPortal
+        page = OddsPortal.page(None, [("b%d" % i, 1.5, 4.5, 6.2, 94.5) for i in range(6)])
+        (self.tmp / "captures" / "public-odds-walk-oddsportal-2026-10-05T16-47.json").write_text(json.dumps(page))
+        self.app.now = lambda: at("2026-10-05T17:00:00Z")
+        raw = json.dumps(w).encode()
+        status, reply = self.post(raw)
+        self.assertEqual(status, 200, reply)
+        self.assertEqual(reply["saved"], "bet9ja-allsports-walk-soccer-2026-10-05T16-30-00-000Z.json")
+        self.assertEqual((self.tmp / "captures" / reply["saved"]).read_bytes(), raw)
+        self.assertEqual(len(self.app.DF.read("selection")), 3)
+
     def test_bad_or_read_only_uploads_are_refused(self):
         self.assertEqual(self.post(b"not json")[0], 409)
         self.assertEqual(self.post(b'{"schema_version": "something-else"}')[0], 409)

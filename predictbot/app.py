@@ -20,6 +20,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 import socket
 import sys
 import threading
@@ -124,13 +125,19 @@ def accept_walk(raw: bytes) -> dict:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         raise InvalidRecord("not valid JSON")
-    if not isinstance(data, dict) or data.get("schema_version") != "public-odds-capture-walk.v1":
-        raise InvalidRecord("not a public-odds-capture-walk.v1 file")
+    schema = data.get("schema_version") if isinstance(data, dict) else None
+    if schema == "public-odds-capture-walk.v1":
+        stamp = (data.get("completed_at_utc") or pcbf.utc(now())).replace(":", "-").replace(".", "-")
+        kind = {"results": "-results", "search": "-search"}.get(data.get("mode") or "", "")
+        name = f"public-odds-walk-{data.get('source_key') or 'unknown'}{kind}-{stamp}.json"
+    elif isinstance(schema, str) and schema.startswith("bet9ja-allsports-sport-walk"):
+        stamp = (data.get("captured_at_utc") or pcbf.utc(now())).replace(":", "-").replace(".", "-")
+        sport = re.sub(r"[^a-z0-9_-]", "", str(data.get("sport") or "unknown").lower())
+        name = f"bet9ja-allsports-walk-{sport}-{stamp}.json"
+    else:
+        raise InvalidRecord("not a public-odds-capture-walk.v1 or bet9ja-allsports-sport-walk file")
     if blocked():
         raise InvalidRecord("data folder is read-only: " + blocked())
-    stamp = (data.get("completed_at_utc") or pcbf.utc(now())).replace(":", "-").replace(".", "-")
-    kind = {"results": "-results", "search": "-search"}.get(data.get("mode") or "", "")
-    name = f"public-odds-walk-{data.get('source_key') or 'unknown'}{kind}-{stamp}.json"
     path = DF.save_capture(name, raw)
     return {"saved": path.name, "message": update_now()}
 
@@ -664,7 +671,7 @@ class Handler(BaseHTTPRequestHandler):
     def _post(self):
         u = urlparse(self.path)
         n = int(self.headers.get("Content-Length", 0))
-        if u.path == "/walker-upload":            # the odds walker sends its finished walk here
+        if u.path == "/walker-upload":            # the walkers send finished captures here
             try:
                 return self.send_json(200, accept_walk(self.rfile.read(n)))
             except InvalidRecord as exc:
