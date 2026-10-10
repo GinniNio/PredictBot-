@@ -3,6 +3,7 @@
 body{width:360px;margin:0;padding:12px;font:13px system-ui;color:#111}h1{font-size:15px;margin:0 0 8px}p{color:#444;line-height:1.4;margin:6px 0}
 button,input[type=number]{width:100%;box-sizing:border-box;padding:9px;margin-top:8px}label{display:block;margin-top:8px}
 .row{display:flex;gap:6px}.row button{flex:1}#status{white-space:pre-wrap;margin-top:10px;font-size:12px;background:#f5f5f5;padding:8px;border-radius:4px}
+.dim{color:#666;font-size:12px;margin-top:6px}
 </style></head><body>
 <h1>Public Odds Capture Walker</h1>
 <p>Open an OddsPortal sport page (e.g. oddsportal.com/football/), then start. Keep the PredictBot app running so the walker visits only games Bet9ja offers. Polymarket needs no walk: the app reads its feed.</p>
@@ -14,5 +15,12 @@ button,input[type=number]{width:100%;box-sizing:border-box;padding:9px;margin-to
 <button id="results">Walk results (finished games the app is waiting on)</button>
 <div class="row"><button id="stop">Stop</button><button id="resume">Resume</button></div>
 <button id="download">Download last walk</button>
+<details id="schedule-box"><summary>Run automatically while Chrome is open</summary>
+<label><input id="auto-enabled" type="checkbox"> On. The walker opens its own OddsPortal tab, walks, and sends the file to the PredictBot app (no download needed).</label>
+<label>Find all Bet9ja games every <input id="auto-search" type="number" min="0.5" step="0.5" value="2" style="width:60px;display:inline"> hours</label>
+<label>Walk results every <input id="auto-results" type="number" min="0.5" step="0.5" value="6" style="width:60px;display:inline"> hours</label>
+<button id="save-schedule">Save schedule</button>
+<div id="schedule-status" class="dim"></div>
+</details>
 <div id="status">Checking for a walk in progress...</div><script src="popup.js"></script>
 </body></html>

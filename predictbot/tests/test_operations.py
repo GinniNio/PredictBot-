@@ -7,6 +7,8 @@ import json
 import shutil
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -744,6 +746,82 @@ class SingleInstance(unittest.TestCase):
             self.assertIsNone(app.open_server(first.server_address[1]))
         finally:
             first.server_close()
+
+
+class WalkerUpload(unittest.TestCase):
+    """The odds walker sends a finished walk to the running app over
+    localhost; the app stores it like an imported capture and prices it."""
+
+    def setUp(self):
+        import app
+        self.tmp = Path(tempfile.mkdtemp())
+        self.app = app
+        self.saved = (app.DF, app.DOWNLOADS, app.feeds.fetch_polymarket)
+        app.DF = DataFolder(self.tmp, host="HP")
+        app.DOWNLOADS = self.tmp / "none"
+        app.feeds.fetch_polymarket = lambda df, now, **kw: {"status": "recent", "events": 0, "file": None, "error": ""}
+        self.server = app.open_server(0)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.port = self.server.server_address[1]
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.app.DF, self.app.DOWNLOADS, self.app.feeds.fetch_polymarket = self.saved
+        shutil.rmtree(self.tmp)
+
+    def post(self, body: bytes):
+        import urllib.request, urllib.error
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/walker-upload", data=body, method="POST",
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as err:
+            return err.code, json.loads(err.read())
+
+    def test_walk_is_stored_byte_for_byte_and_priced(self):
+        from test_predictbot import OddsPortal
+        page = OddsPortal.page(None, [("b%d" % i, 1.5, 4.5, 6.2, 94.5) for i in range(6)])
+        page.update(schema_version="public-odds-capture-walk.v1", mode="search", completed_at_utc="2026-10-05T16:48:00.000Z")
+        w = walker("soccer", [("1x2", [1.6, 4.4, 6.5])], home="France", away="Belgium", fid="9")
+        w["results"][0]["fixtures"][0]["kickoff_utc_derived"] = "2026-10-05T18:45:00.000Z"
+        (self.tmp / "captures" / "bet9ja-allsports-walk-soccer-2026-10-05.json").write_text(json.dumps(w))
+        self.app.now = lambda: at("2026-10-05T17:00:00Z")
+        raw = json.dumps(page).encode()
+        status, reply = self.post(raw)
+        self.assertEqual(status, 200, reply)
+        self.assertEqual(reply["saved"], "public-odds-walk-oddsportal-search-2026-10-05T16-48-00-000Z.json")
+        self.assertEqual((self.tmp / "captures" / reply["saved"]).read_bytes(), raw)
+        self.assertIn("1 fixtures priced", reply["message"])
+        self.assertEqual(len(self.app.DF.read("selection")), 3)
+
+    def test_bad_or_read_only_uploads_are_refused(self):
+        self.assertEqual(self.post(b"not json")[0], 409)
+        self.assertEqual(self.post(b'{"schema_version": "something-else"}')[0], 409)
+        (self.tmp / "predictbot-session.json").write_text(json.dumps({"host": "HUAWAI", "released": False,
+                                                                        "last_seen_utc": "2026-10-05T16:00Z"}))
+        status, reply = self.post(b'{"schema_version": "public-odds-capture-walk.v1", "captures": []}')
+        self.assertEqual(status, 409)
+        self.assertIn("read-only", reply["error"])
+        self.assertEqual(list((self.tmp / "captures").glob("public-odds-walk-*")), [])
+
+    def test_automatic_update_runs_on_the_timer_and_survives_errors(self):
+        import app
+        app.AUTO_EVERY = 0.05
+        app.LAST_AUTO.clear()
+        stop = threading.Event()
+        t = threading.Thread(target=app.auto_update_loop, args=(stop,), daemon=True)
+        t.start()
+        for _ in range(100):
+            if app.LAST_AUTO:
+                break
+            time.sleep(0.02)
+        stop.set()
+        t.join(2)
+        self.assertIn("message", app.LAST_AUTO)
+        self.assertNotIn("failed", app.LAST_AUTO["message"])
+        app.AUTO_EVERY = 600
 
 
 if __name__ == "__main__":

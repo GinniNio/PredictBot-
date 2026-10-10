@@ -13,22 +13,26 @@ function describe(run) {
   const c = run.counts || {};
   if (run.mode === 'search') {
     return [
-      `Find-all walk ${run.status}${run.message ? ': ' + run.message : ''}`,
+      `${run.scheduled ? 'Scheduled f' : 'F'}ind-all walk ${run.status}${run.message ? ': ' + run.message : ''}`,
+      run.uploaded ? `Sent to the app: ${run.upload_message}` : (run.upload_message ? `Not sent to the app (${run.upload_message}); download it instead.` : ''),
       run.targets_status,
       `${c.found || 0} of ${c.games || 0} games found on OddsPortal (${c.searched || 0} searches; ${c.found_elsewhere || 0} found by another game's search, so not searched again). Match pages: ${c.visited || 0} visited of ${c.queued || 0} found, ${c.captured || 0} captured with odds, ${c.started || 0} already started, ${c.no_odds || 0} without odds, ${c.failed || 0} failed.`,
       `${c.not_on_bet9ja || 0} search hits were other games; ${c.truncated || 0} over the page limit${c.search_timeout ? `; ${c.search_timeout} searches never finished loading` : ''}.`,
-    ].join('\n');
+    ].filter(Boolean).join('\n');
   }
   if (run.mode === 'results') {
     return [
-      `Results walk ${run.status}${run.message ? ': ' + run.message : ''}`,
+      `${run.scheduled ? 'Scheduled r' : 'R'}esults walk ${run.status}${run.message ? ': ' + run.message : ''}`,
+      run.uploaded ? `Sent to the app: ${run.upload_message}` : (run.upload_message ? `Not sent to the app (${run.upload_message}); download it instead.` : ''),
       run.targets_status,
       `Pages ${run.cursor} of ${run.queued} visited: ${c.results || 0} final results, ${c.not_final || 0} not played or not completed, ${c.no_result || 0} without a result yet, ${c.failed || 0} failed.`,
       c.truncated ? `${c.truncated} more over the page limit: run it again.` : '',
     ].filter(Boolean).join('\n');
   }
+  const handoff = run.uploaded ? `Sent to the app: ${run.upload_message}` : (run.upload_message ? `Not sent to the app (${run.upload_message}); download it instead.` : '');
   return [
-    `${run.status}${run.message ? ': ' + run.message : ''}`,
+    `${run.scheduled ? 'Scheduled ' : ''}${run.status}${run.message ? ': ' + run.message : ''}`,
+    handoff,
     `${run.source_key} from ${run.seed_url || '?'}`,
     run.targets_status,
     `Pages ${run.cursor} of ${run.queued} visited: ${c.captured || 0} captured with odds (incl. start page), ${c.started || 0} already started, ${c.no_odds || 0} without odds, ${c.failed || 0} failed.`,
@@ -85,7 +89,21 @@ async function refresh() {
   $('search').disabled = running;
   $('stop').disabled = !running;
   $('resume').disabled = !run || !['INTERRUPTED', 'STOPPED'].includes(run.status) || run.cursor >= run.queued;
-  if (run && ['COMPLETE', 'STOPPED'].includes(run.status) && !run.downloaded && run.cursor >= run.queued) await downloadRun();
+  if (run && ['COMPLETE', 'STOPPED'].includes(run.status) && !run.downloaded && !run.uploaded && run.cursor >= run.queued) {
+    const sent = (await send({ type: 'UPLOAD_RUN' })).run;        // the app takes it if it is running
+    if (!(sent && sent.uploaded)) await downloadRun();
+  }
+}
+
+async function refreshSchedule() {
+  const r = await send({ type: 'GET_SCHEDULE' });
+  const sc = r.schedule || {};
+  $('auto-enabled').checked = !!sc.enabled;
+  $('auto-search').value = sc.search_hours;
+  $('auto-results').value = sc.results_hours;
+  const last = r.last ? `Last scheduled ${r.last.kind} walk at ${r.last.at_utc.slice(11, 16)} UTC: ${r.last.outcome}` : '';
+  $('schedule-status').textContent = (sc.enabled ? 'Schedule on. ' : 'Schedule off. ') + last;
+  if (sc.enabled) $('schedule-box').open = true;
 }
 
 $('walk').addEventListener('click', async () => {
@@ -122,5 +140,13 @@ $('resume').addEventListener('click', async () => {
   if (!response.ok) setStatus(`Failed: ${response.error}`); else await refresh();
 });
 $('download').addEventListener('click', downloadRun);
+$('save-schedule').addEventListener('click', async () => {
+  await send({ type: 'SET_SCHEDULE', schedule: { enabled: $('auto-enabled').checked,
+    search_hours: Number($('auto-search').value) || 2, results_hours: Number($('auto-results').value) || 6,
+    max_events: Number($('max-events').value) || 300 } });
+  await refreshSchedule();
+});
 refresh();
+refreshSchedule();
 setInterval(refresh, 1500);
+setInterval(refreshSchedule, 10000);

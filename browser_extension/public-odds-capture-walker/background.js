@@ -18,6 +18,10 @@ const READY_POLL_MS = T.poll;
 const STALE_MS = 90000;           // a RUNNING run not updated for this long was interrupted
 const DAYS_AHEAD = 1;
 const APP_TARGETS = ['http://localhost:8000/walker-targets.json', 'http://127.0.0.1:8000/walker-targets.json'];
+const APP_UPLOAD = ['http://localhost:8000/walker-upload', 'http://127.0.0.1:8000/walker-upload'];
+const SCHEDULE_KEY = 'publicOddsSchedule';
+const LAST_SCHEDULED_KEY = 'publicOddsLastScheduled';
+const ODDSPORTAL_HOME = 'https://www.oddsportal.com/';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const nowIso = () => new Date().toISOString();
 let driving = false;
@@ -141,6 +145,7 @@ function summary(run) {
   if (!run) return null;
   const stale = run.status === 'RUNNING' && Date.now() - Date.parse(run.updated_at_utc || 0) > STALE_MS;
   return { run_id: run.run_id, mode: run.mode || 'odds', status: stale ? 'INTERRUPTED' : run.status, message: run.message || '',
+    uploaded: !!run.uploaded, upload_message: run.upload_message || '', scheduled: !!run.scheduled,
     source_key: run.source_key, seed_url: run.seed_url, counts: run.counts, cursor: run.cursor,
     queued: (run.queue || []).length, targets_status: run.targets_status || '', downloaded: !!run.downloaded,
     completed_at_utc: run.completed_at_utc || null };
@@ -437,6 +442,7 @@ async function drive() {
       run.capture_status = run.failures.length || run.status === 'STOPPED' ? 'CAPTURE_PARTIAL' : 'CAPTURE_OK';
       run.completed_at_utc = nowIso();
       await saveRun(run);
+      await finishRun();
     }
   } finally {
     driving = false;
@@ -456,9 +462,140 @@ async function resume(tabId) {
   return summary(run);
 }
 
+// ------------------------------------------------------- upload to the app
+
+// The finished walk goes straight to the running app over localhost, so
+// nothing needs downloading. Built a few pages at a time (storage reads are
+// messages, capped at 64 MiB); a fetch body has no such cap.
+async function runJson(run) {
+  const prefix = `${CAP_PREFIX}${run.run_id}:`;
+  const keys = (await storageKeys()).filter((k) => k.startsWith(prefix)).sort();
+  const { queue, ...rest } = run;
+  const parts = [JSON.stringify({ ...rest, captures: [] }).slice(0, -2)];
+  for (let i = 0; i < keys.length; i += 10) {
+    const batch = keys.slice(i, i + 10);
+    const got = await chrome.storage.local.get(batch);
+    batch.forEach((k, j) => parts.push((i + j ? ',' : '') + JSON.stringify(got[k])));
+  }
+  parts.push(']}');
+  return parts.join('');
+}
+
+async function uploadRun() {
+  const run = await loadRun();
+  if (!run || run.status === 'RUNNING' || run.uploaded) return run;
+  const body = await runJson(run);
+  let last = 'PredictBot app not reachable on localhost:8000';
+  for (const url of APP_UPLOAD) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const reply = await r.json().catch(() => ({}));
+      if (r.ok) {
+        run.uploaded = true;
+        run.upload_message = `sent to the app as ${reply.saved || 'a capture'}: ${reply.message || ''}`;
+        await saveRun(run);
+        return run;
+      }
+      last = reply.error || `app refused the walk (HTTP ${r.status})`;
+      break;                                        // the app answered: the other address would say the same
+    } catch (_) { /* app not running on this address */ }
+  }
+  run.upload_message = last;
+  await saveRun(run);
+  return run;
+}
+
+// ------------------------------------------------------------ schedule
+
+// Runs on their own while Chrome is open: every N hours, a find-all walk
+// and a results walk, in a tab the walker opens itself, uploaded to the app
+// when done. Nothing needs the operator at the keyboard.
+const DEFAULT_SCHEDULE = { enabled: false, search_hours: 2, results_hours: 6, max_events: 300 };
+
+async function loadSchedule() { return { ...DEFAULT_SCHEDULE, ...((await chrome.storage.local.get(SCHEDULE_KEY))[SCHEDULE_KEY] || {}) }; }
+
+async function applySchedule(schedule) {
+  await chrome.storage.local.set({ [SCHEDULE_KEY]: schedule });
+  await chrome.alarms.clear('walk:search');
+  await chrome.alarms.clear('walk:results');
+  if (!schedule.enabled) return;
+  const hours = (h, fallback) => Math.max(0.25, Number(h) || fallback);
+  await chrome.alarms.create('walk:search', { delayInMinutes: 1, periodInMinutes: hours(schedule.search_hours, 2) * 60 });
+  await chrome.alarms.create('walk:results', { delayInMinutes: 3, periodInMinutes: hours(schedule.results_hours, 6) * 60 });
+}
+
+async function noteScheduled(kind, outcome) {
+  await chrome.storage.local.set({ [LAST_SCHEDULED_KEY]: { kind, outcome, at_utc: nowIso() } });
+}
+
+function waitForTab(tabId, timeoutMs = 30000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => { if (!done) { done = true; clearTimeout(timer); chrome.tabs.onUpdated.removeListener(listener); resolve(ok); } };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    function listener(id, info) { if (id === tabId && info.status === 'complete') finish(true); }
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId).then((t) => { if (t && t.status === 'complete') finish(true); }).catch(() => finish(false));
+  });
+}
+
+// An OddsPortal tab to walk in: an open one, else a new background tab.
+async function oddsportalTab() {
+  const open = await chrome.tabs.query({ url: '*://*.oddsportal.com/*' });
+  if (open.length) return { tabId: open[0].id, created: false };
+  const tab = await chrome.tabs.create({ url: ODDSPORTAL_HOME, active: false });
+  await waitForTab(tab.id);
+  return { tabId: tab.id, created: true };
+}
+
+async function scheduledWalk(kind) {
+  const schedule = await loadSchedule();
+  if (!schedule.enabled) return;
+  const current = await loadRun();
+  const s = summary(current);
+  if (s && s.status === 'RUNNING') return noteScheduled(kind, 'skipped: a walk is already running');
+  if (current && !current.uploaded && !current.downloaded && (current.counts || {}).captured) {
+    const prev = await uploadRun();                 // never discard a walk nobody has received
+    if (!prev.uploaded) return noteScheduled(kind, `skipped: the last walk is not yet with the app (${prev.upload_message})`);
+  }
+  let tab;
+  try {
+    tab = await oddsportalTab();
+    const run = kind === 'results' ? await beginResults(tab.tabId, schedule.max_events) : await beginSearch(tab.tabId, schedule.max_events);
+    const stored = await loadRun();
+    if (stored && stored.run_id === run.run_id) {
+      stored.scheduled = true;
+      stored.auto_tab = tab.created ? tab.tabId : null;
+      await saveRun(stored);
+    }
+    await noteScheduled(kind, `started (${run.targets_status})`);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    await noteScheduled(kind, `not started: ${msg}`);
+    if (tab && tab.created) chrome.tabs.remove(tab.tabId).catch(() => {});
+  }
+}
+
+// After any finished walk: hand it to the app; close a tab the schedule opened.
+async function finishRun() {
+  const run = await uploadRun();
+  if (run && run.auto_tab) {
+    chrome.tabs.remove(run.auto_tab).catch(() => {});
+    run.auto_tab = null;
+    await saveRun(run);
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'walk:search') scheduledWalk('search');
+  if (alarm.name === 'walk:results') scheduledWalk('results');
+});
+
 // A run left RUNNING by a suspended or restarted service worker resumes on
 // its own when the worker wakes, if its tab still exists.
 (async () => {
+  const schedule = await loadSchedule();
+  if (schedule.enabled && !(await chrome.alarms.get('walk:search'))) await applySchedule(schedule);
   const run = await loadRun();
   if (run && run.status === 'RUNNING' && run.cursor < (run.queue || []).length) {
     try { await chrome.tabs.get(run.tab_id); drive(); } catch (_) {
@@ -495,6 +632,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === 'RESUME_PUBLIC_ODDS_WALK') { reply(resume(message.tabId).then((run) => ({ run }))); return true; }
+  if (message.type === 'GET_SCHEDULE') {
+    reply((async () => ({ schedule: await loadSchedule(),
+      last: (await chrome.storage.local.get(LAST_SCHEDULED_KEY))[LAST_SCHEDULED_KEY] || null }))());
+    return true;
+  }
+  if (message.type === 'SET_SCHEDULE') {
+    reply(applySchedule({ ...DEFAULT_SCHEDULE, ...message.schedule }).then(loadSchedule).then((schedule) => ({ schedule })));
+    return true;
+  }
+  if (message.type === 'UPLOAD_RUN') { reply(uploadRun().then((run) => ({ run: summary(run) }))); return true; }
   if (message.type === 'MARK_DOWNLOADED') {
     reply(loadRun().then(async (run) => { if (run) { run.downloaded = true; await saveRun(run); } return { run: summary(run) }; }));
     return true;

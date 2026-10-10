@@ -101,6 +101,38 @@ def review_banner() -> str:
 
 
 LAST_RESULTS: dict = {}   # the last automatic results pass, shown on Pending
+AUTO_EVERY = 600          # seconds between automatic updates while the app runs
+LAST_AUTO: dict = {}      # {"at": datetime, "message": str} from the last automatic update
+
+
+def auto_update_loop(stop: threading.Event) -> None:
+    """The same work as opening Opportunities, every AUTO_EVERY seconds: import
+    Downloads, fetch Polymarket, link tickets, settle results, price. So the
+    app keeps itself current while it runs, whatever the laptop is doing."""
+    while not stop.wait(AUTO_EVERY):
+        with LOCK:
+            try:
+                LAST_AUTO.update(at=now(), message=update_now())
+            except Exception as exc:  # keep the loop alive; the next page load shows the error
+                LAST_AUTO.update(at=now(), message=f"automatic update failed: {type(exc).__name__}: {exc}")
+
+
+def accept_walk(raw: bytes) -> dict:
+    """A walk sent by the odds walker over localhost, instead of a file in
+    Downloads. Stored byte-for-byte like an imported capture, then priced."""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise InvalidRecord("not valid JSON")
+    if not isinstance(data, dict) or data.get("schema_version") != "public-odds-capture-walk.v1":
+        raise InvalidRecord("not a public-odds-capture-walk.v1 file")
+    if blocked():
+        raise InvalidRecord("data folder is read-only: " + blocked())
+    stamp = (data.get("completed_at_utc") or pcbf.utc(now())).replace(":", "-").replace(".", "-")
+    kind = {"results": "-results", "search": "-search"}.get(data.get("mode") or "", "")
+    name = f"public-odds-walk-{data.get('source_key') or 'unknown'}{kind}-{stamp}.json"
+    path = DF.save_capture(name, raw)
+    return {"saved": path.name, "message": update_now()}
 
 
 def update_now() -> str:
@@ -187,8 +219,11 @@ def page_opportunities(msg="") -> str:
     watch = sorted([s for s in upcoming if s["tier"] == "WATCH"], key=lambda s: -float(s["edge_pct"] or -9))
     pending = sum(1 for r in status["rows"] if r["state"] == "match review")
     old = workflow.earlier_captures(status, t)
+    auto = (f"Automatic update every {AUTO_EVERY // 60} minutes while the app runs; last at "
+            f"{e(pcbf.utc(LAST_AUTO['at'])[11:16])} UTC: {e(LAST_AUTO['message'])}" if LAST_AUTO else
+            f"The app updates itself every {AUTO_EVERY // 60} minutes while it runs.")
     out = [f"<p class='msg'>{e(msg)}</p>" if msg else "",
-           f"<p><b>Checked at {e(pcbf.utc(t)[11:16])} UTC.</b> {e(note)}</p>", review_banner()]
+           f"<p><b>Checked at {e(pcbf.utc(t)[11:16])} UTC.</b> {e(note)}</p><p class='dim'>{auto}</p>", review_banner()]
     if old["fixtures"]:
         out.append(f"<p class='err'>{old['fixtures']} fixtures come from captures taken before today (oldest "
                    f"{e(old['oldest_utc'][:16].replace('T', ' '))} UTC, {e(old['oldest_file'])}); "
@@ -618,9 +653,22 @@ class Handler(BaseHTTPRequestHandler):
         except InvalidRecord as exc:
             self.send(layout(u.path, f"<p class='err'>{e(str(exc))}</p>"))
 
+    def send_json(self, status: int, payload: dict):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _post(self):
         u = urlparse(self.path)
         n = int(self.headers.get("Content-Length", 0))
+        if u.path == "/walker-upload":            # the odds walker sends its finished walk here
+            try:
+                return self.send_json(200, accept_walk(self.rfile.read(n)))
+            except InvalidRecord as exc:
+                return self.send_json(409, {"error": str(exc)})
         form = parse_qs(self.rfile.read(n).decode("utf-8"), keep_blank_values=True)
         get = lambda k: (form.get(k) or [""])[0]
         try:
@@ -746,6 +794,7 @@ def main():
           "button (or Ctrl+C here) before switching laptops.")
     stop = threading.Event()
     threading.Thread(target=heartbeat_loop, args=(stop,), daemon=True).start()
+    threading.Thread(target=auto_update_loop, args=(stop,), daemon=True).start()
     webbrowser.open(url)
     try:
         server.serve_forever()

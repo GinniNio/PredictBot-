@@ -54,15 +54,24 @@ test('matches OddsPortal links to Bet9ja fixtures by name and sport', () => {
 
 // ---------------------------------------------------- the background runner
 
-function loadWalker({ pages, targets, results = [], timing = { listing: 1, ready: 60, poll: 5, settleCap: 1 } }) {
+function loadWalker({ pages, targets, results = [], uploadOk = true, timing = { listing: 1, ready: 60, poll: 5, settleCap: 1 } }) {
   const store = {};
-  const listeners = { updated: new Set(), message: null };
+  const listeners = { updated: new Set(), message: null, alarm: null };
   const tab = { id: 7, url: null, exists: true };
+  const uploads = [];
+  const alarms = {};
+  const tabs = { created: [], removed: [], open: [] };
   const ctx = {
     console, setTimeout, clearTimeout, URL, Intl, Date, JSON, Promise, Map, Set, Object, String, Number, Math,
     WALKER_TIMING: timing,
-    fetch: async () => (targets === null ? Promise.reject(new Error('refused'))
-      : { ok: true, json: async () => ({ fixtures: targets, results }) }),
+    fetch: async (url, opts) => {
+      if (opts && opts.method === 'POST') {
+        uploads.push(opts.body);
+        return uploadOk ? { ok: true, status: 200, json: async () => ({ saved: 'walk.json', message: '2 fixtures priced' }) }
+          : { ok: false, status: 409, json: async () => ({ error: 'data folder is read-only' }) };
+      }
+      return targets === null ? Promise.reject(new Error('refused')) : { ok: true, json: async () => ({ fixtures: targets, results }) };
+    },
   };
   ctx.globalThis = ctx;
   ctx.importScripts = (...files) => files.forEach((f) =>
@@ -76,8 +85,17 @@ function loadWalker({ pages, targets, results = [], timing = { listing: 1, ready
       set: async (o) => Object.assign(store, JSON.parse(JSON.stringify(o))),
       remove: async (ks) => ks.forEach((k) => delete store[k]),
     } },
+    alarms: {
+      create: async (name, info) => { alarms[name] = info; },
+      clear: async (name) => { delete alarms[name]; },
+      get: async (name) => alarms[name] || null,
+      onAlarm: { addListener: (fn) => { listeners.alarm = fn; } },
+    },
     tabs: {
-      get: async (id) => { if (!tab.exists || id !== tab.id) throw new Error(`No tab with id: ${id}.`); return { ...tab }; },
+      query: async () => tabs.open.map((id) => ({ id, url: SEED })),
+      create: async ({ url }) => { tabs.created.push(url); tab.url = url; tab.exists = true; return { id: tab.id, url, status: 'complete' }; },
+      remove: async (id) => { tabs.removed.push(id); },
+      get: async (id) => { if (!tab.exists || id !== tab.id) throw new Error(`No tab with id: ${id}.`); return { ...tab, status: 'complete' }; },
       update: async (id, { url }) => {
         if (!tab.exists) throw new Error(`No tab with id: ${id}.`);
         tab.url = url;
@@ -109,10 +127,12 @@ function loadWalker({ pages, targets, results = [], timing = { listing: 1, ready
     }
     throw new Error('timed out waiting for the walk');
   };
-  return { tab, send, until, store };
+  const fire = (name) => listeners.alarm({ name });
+  return { tab, send, until, store, uploads, alarms, tabs, fire };
 }
 
 const SEED = 'https://www.oddsportal.com/football/';
+const ODDSPORTAL_HOME = 'https://www.oddsportal.com/';
 const U = (path) => `https://www.oddsportal.com/${path}`;
 const later = new Date(Date.now() + 6 * 3600e3);
 const past = new Date(Date.now() - 3 * 3600e3);
@@ -327,6 +347,71 @@ test('a find-all walk needs the app and an OddsPortal tab', async () => {
   const w2 = loadWalker({ pages: {}, targets: [] });
   w2.tab.url = SEED;
   assert.match((await w2.send({ type: 'START_SEARCH_WALK', tabId: 7 })).error, /already has a benchmark/);
+});
+
+// ------------------------------------------------ upload and schedule
+
+test('a finished walk is sent to the app as one JSON file; the popup then has nothing to download', async () => {
+  const { pages, targets } = footballDay();
+  const w = loadWalker({ pages, targets });
+  w.tab.url = SEED;
+  await w.send({ type: 'START_PUBLIC_ODDS_WALK', tabId: 7, maxEvents: 50, onlyBet9ja: true });
+  const done = await w.until((s) => s && s.status === 'COMPLETE' && s.uploaded);
+  assert.equal(w.uploads.length, 1);
+  const file = JSON.parse(w.uploads[0]);
+  assert.equal(file.schema_version, 'public-odds-capture-walk.v1');
+  assert.equal(file.captures.length, 2);
+  assert.equal(file.queue, undefined);
+  assert.match(done.upload_message, /2 fixtures priced/);
+});
+
+test('when the app refuses or is absent the walk stays for download', async () => {
+  const { pages, targets } = footballDay();
+  const w = loadWalker({ pages, targets, uploadOk: false });
+  w.tab.url = SEED;
+  await w.send({ type: 'START_PUBLIC_ODDS_WALK', tabId: 7, maxEvents: 50, onlyBet9ja: true });
+  const done = await w.until((s) => s && s.status === 'COMPLETE');
+  assert.equal(done.uploaded, false);
+  assert.match(done.upload_message, /read-only/);
+  assert.equal(done.downloaded, false);
+});
+
+test('the schedule opens its own OddsPortal tab, runs a find-all walk, uploads and closes the tab', async () => {
+  const { pages } = footballDay();
+  const S = (t) => `https://www.oddsportal.com/search/${t}/`;
+  pages[S('belouizdad')] = '<body>Next Matches (1)<a href="/football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M">CR Belouizdad-Khenchela</a></body>';
+  pages[ODDSPORTAL_HOME] = '<body>OddsPortal</body>';
+  const targets = [{ sport: 'football', home: 'CR Belouizdad', away: 'Khenchela' }];
+  const w = loadWalker({ pages, targets, timing: { listing: 1, ready: 60, poll: 5, settleCap: 1, search: 40 } });
+  const set = await w.send({ type: 'SET_SCHEDULE', schedule: { enabled: true, search_hours: 2, results_hours: 6, max_events: 50 } });
+  assert.equal(set.schedule.enabled, true);
+  assert.equal(w.alarms['walk:search'].periodInMinutes, 120);
+  assert.equal(w.alarms['walk:results'].periodInMinutes, 360);
+  w.fire('walk:search');
+  const done = await w.until((s) => s && s.status === 'COMPLETE' && s.uploaded);
+  assert.equal(done.mode, 'search');
+  assert.equal(done.scheduled, true);
+  assert.deepEqual([...w.tabs.created], [ODDSPORTAL_HOME]);
+  assert.deepEqual([...w.tabs.removed], [7]);
+  assert.equal(done.counts.captured, 1);
+  const last = (await w.send({ type: 'GET_SCHEDULE' })).last;
+  assert.match(last.outcome, /started/);
+  await w.send({ type: 'SET_SCHEDULE', schedule: { enabled: false } });
+  assert.equal(w.alarms['walk:search'], undefined);
+});
+
+test('a scheduled walk never discards a walk the app has not received', async () => {
+  const { pages, targets } = footballDay();
+  const w = loadWalker({ pages, targets, uploadOk: false });
+  w.tab.url = SEED;
+  await w.send({ type: 'START_PUBLIC_ODDS_WALK', tabId: 7, maxEvents: 50, onlyBet9ja: true });
+  const first = await w.until((s) => s && s.status === 'COMPLETE');
+  await w.send({ type: 'SET_SCHEDULE', schedule: { enabled: true } });
+  w.fire('walk:search');
+  await new Promise((r) => setTimeout(r, 100));
+  const still = (await w.send({ type: 'GET_PUBLIC_ODDS_STATUS' })).run;
+  assert.equal(still.run_id, first.run_id);
+  assert.match((await w.send({ type: 'GET_SCHEDULE' })).last.outcome, /not yet with the app/);
 });
 
 test('allowlisted hosts only (unchanged)', () => {
