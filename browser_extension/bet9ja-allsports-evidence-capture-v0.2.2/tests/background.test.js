@@ -144,3 +144,14 @@ test('stopping a background run ends it after the current sport and closes the t
   assert.ok(after.sports.length < 3);
   assert.deepEqual([...w.tabs.removed], [40]);
 });
+
+test('progress from the page shows on the sport being walked', async () => {
+  const w = loadWorker({ walkResult: (sport) => ({ schema_version: 'bet9ja-allsports-sport-walk.v3', sport, capture_status: 'COMPLETE' }) });
+  await w.send({ type: 'SET_BET9JA_SCHEDULE', schedule: { enabled: true, sports: ['soccer'] } });
+  w.fire('bet9ja:walk');
+  const running = await w.until((r) => r.state && r.state.sports.length === 1);
+  await w.send({ type: 'BET9JA_PROGRESS', run_id: running.state.run_id, sport: 'soccer', group: 'Zambia', group_index: 58, groups: 60,
+    competition: 'Super League', attempted: 103, parse_result: 'populated' });
+  const after = (await w.send({ type: 'GET_BET9JA_SCHEDULE' })).state;
+  if (!after.sports[0].status) assert.match(after.sports[0].progress, /Zambia › Super League \(country 58 of 60, 103 competitions/);
+});

@@ -576,6 +576,12 @@
         for (const fixture of result.fixtures) fixture.kickoff_utc = kickoffUtc(fixture, capturedAtUtc, timezone.page_utc_offset);
         results.push(result);
         competitionsAttempted += 1;
+        if (typeof options.progress === 'function') {
+          try {
+            options.progress({ group: group.label_raw, group_index: groups.indexOf(group) + 1, groups: groups.length,
+              competition: competitionEntry.label_raw, attempted: competitionsAttempted, parse_result: result.parse_result });
+          } catch (_) { /* progress is a courtesy, never a reason to stop */ }
+        }
         if (result.attempted_click && !result.failure_reason) competitionsSuccessful += 1;
         if (result.parse_result === 'populated' || result.parse_result === 'confirmed_empty') competitionsValidated += 1;
 

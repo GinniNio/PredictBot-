@@ -162,7 +162,7 @@ function describeState(state) {
   const lines = [`${state.trigger === "manual" ? "Background" : "Scheduled"} run ${state.status} (started ${state.started_at_utc.slice(11, 16)} UTC)` +
     (state.message ? `: ${state.message}` : "")];
   for (const s of state.sports || []) {
-    lines.push(`  ${s.sport}: ${s.status || "walking..."}${s.detail ? " - " + s.detail : ""}` +
+    lines.push(`  ${s.sport}: ${s.status || (s.progress ? "walking: " + s.progress : "walking...")}${s.detail ? " - " + s.detail : ""}` +
       (s.uploaded ? " - sent to app" : s.stored ? " - app did not take it: " + s.upload : s.upload ? " - " + s.upload : ""));
   }
   return lines.join("\n");

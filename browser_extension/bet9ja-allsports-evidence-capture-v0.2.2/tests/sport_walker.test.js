@@ -375,3 +375,15 @@ test("walkSport waits through options.sleep when given, so a background tab's th
   assert.ok(waits.length > 0);
   assert.ok(waits.every((ms) => ms === 25));
 });
+
+test("walkSport reports progress after every competition", async () => {
+  const dom = buildFakeIceHockeySite();
+  const seen = [];
+  await walkSport(dom.window.document, { sportId: 4, sportSlug: "ice_hockey", oddsWaitMs: 0, identityWaitMs: 0,
+    now: () => "2026-10-11T12:00:00.000Z", progress: (p) => seen.push(p) });
+  assert.ok(seen.length >= 3);
+  assert.equal(seen[0].group, "USA");
+  assert.equal(seen[0].competition, "NHL");
+  assert.equal(seen[0].groups, 2);
+  assert.equal(seen[seen.length - 1].attempted, seen.length);
+});

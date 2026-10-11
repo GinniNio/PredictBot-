@@ -15,7 +15,7 @@ const DEFAULT_SPORTS = ['soccer', 'basketball', 'tennis', 'ice_hockey', 'basebal
 const DEFAULT_SCHEDULE = { enabled: false, every_hours: 4, sports: DEFAULT_SPORTS, start_url: DEFAULT_START_URL };
 const APP_UPLOAD = ['http://localhost:8000/walker-upload', 'http://127.0.0.1:8000/walker-upload'];
 // Timings; tests shorten them through globalThis.BET9JA_TIMING.
-const T = Object.assign({ sport: 45 * 60 * 1000, settle: 4000 }, globalThis.BET9JA_TIMING || {});
+const T = Object.assign({ sport: 90 * 60 * 1000, settle: 4000 }, globalThis.BET9JA_TIMING || {});
 const SPORT_TIMEOUT_MS = T.sport;           // give up on one sport after this (soccer is the long one)
 const STALE_RUN_MS = 2 * 60 * 60 * 1000;    // a RUNNING state older than this is a dead run
 const nowIso = () => new Date().toISOString();
@@ -50,9 +50,10 @@ function walkInPage(sportId, sportSlug, runId) {
   const sleep = (ms) => new Promise((resolve) => {
     try { chrome.runtime.sendMessage({ type: 'BET9JA_SLEEP', ms }, () => resolve()); } catch (_) { setTimeout(resolve, ms); }
   });
+  const progress = (p) => { try { chrome.runtime.sendMessage({ type: 'BET9JA_PROGRESS', run_id: runId, sport: sportSlug, ...p }); } catch (_) { /* reloaded */ } };
   return window.Bet9jaAllSportsWalker.walkSport(document, {
     sportId, sportSlug, maxGroups: null, maxCompetitionsPerGroup: null,
-    now: () => new Date().toISOString(), sleep,
+    now: () => new Date().toISOString(), sleep, progress,
   }).then((result) => {
     chrome.runtime.sendMessage({ type: 'BET9JA_WALK_DONE', run_id: runId, sport: sportSlug, started, result });
     return { ok: true, sport: sportSlug };
@@ -178,6 +179,12 @@ async function scheduledWalk(trigger = 'schedule') {
         entry.status = 'failed';
         entry.detail = outcome.error;
         if (/No tab with id|tab was closed/i.test(outcome.error)) { state.message = 'The Bet9ja tab was closed.'; break; }
+        if (/no result after/.test(outcome.error)) {
+          // The walk may still be clicking in the page: reload the tab so the
+          // next sport never shares a page with it.
+          try { await chrome.tabs.update(tab.tabId, { url: schedule.start_url || DEFAULT_START_URL }); await waitForTab(tab.tabId);
+            await new Promise((r) => setTimeout(r, T.settle)); } catch (_) { /* tab gone: the next sport reports it */ }
+        }
       } else {
         entry.status = outcome.result.capture_status;
         entry.detail = summarize(outcome.result);
@@ -220,6 +227,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     .catch((err) => sendResponse({ ok: false, error: err && err.message ? err.message : String(err) }));
   if (message.type === 'BET9JA_SLEEP') {          // a page's wait, done here where timers are not throttled
     setTimeout(() => sendResponse({ ok: true }), Math.max(0, Math.min(Number(message.ms) || 0, 60000)));
+    return true;
+  }
+  if (message.type === 'BET9JA_PROGRESS') {
+    reply((async () => {
+      const state = await loadState();
+      const entry = state && state.run_id === message.run_id && state.sports.find((s) => s.sport === message.sport && !s.status);
+      if (entry) {
+        entry.progress = `${message.group} › ${message.competition} (country ${message.group_index} of ${message.groups}, `
+          + `${message.attempted} competitions so far)`;
+        await saveState(state);
+      }
+      return {};
+    })());
     return true;
   }
   if (message.type === 'BET9JA_WALK_DONE') { reply(handleWalkDone(message)); return true; }
