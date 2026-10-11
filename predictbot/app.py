@@ -760,6 +760,13 @@ class Server(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
 
+    def handle_error(self, request, client_address):
+        # A browser or the walker closing its connection mid-response is not
+        # an error worth a stack trace in the console.
+        if isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
 
 def open_server(port: int = PORT) -> Server | None:
     """The app's server, or None if PredictBot already runs on this laptop."""
