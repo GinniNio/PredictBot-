@@ -122,3 +122,25 @@ test('a manual walk from the popup is uploaded by the worker; an alarm never sta
   assert.equal(w.tabs.created.length, 1);
   assert.equal(w.uploads.length, 2);          // the manual one and the scheduled one, each once
 });
+
+
+test('the worker answers a page sleep after the asked delay', async () => {
+  const w = loadWorker();
+  const t0 = Date.now();
+  await w.send({ type: 'BET9JA_SLEEP', ms: 30 });
+  assert.ok(Date.now() - t0 >= 25);
+});
+
+test('stopping a background run ends it after the current sport and closes the tab the walker opened', async () => {
+  const w = loadWorker({ walkResult: (sport) => ({ schema_version: 'bet9ja-allsports-sport-walk.v3', sport, capture_status: 'COMPLETE' }) });
+  await w.send({ type: 'SET_BET9JA_SCHEDULE', schedule: { enabled: true, sports: ['soccer', 'tennis', 'darts'] } });
+  w.fire('bet9ja:walk');
+  await w.until((r) => r.state && r.state.status === 'RUNNING');
+  const stopped = await w.send({ type: 'STOP_BET9JA_RUN' });
+  assert.equal(stopped.state.status, 'STOPPED');
+  await new Promise((r) => setTimeout(r, 150));
+  const after = (await w.send({ type: 'GET_BET9JA_SCHEDULE' })).state;
+  assert.equal(after.status, 'STOPPED');
+  assert.ok(after.sports.length < 3);
+  assert.deepEqual([...w.tabs.removed], [40]);
+});

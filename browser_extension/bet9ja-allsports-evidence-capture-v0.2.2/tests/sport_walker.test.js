@@ -359,3 +359,19 @@ test("a priced one-selection Specials Combo market is complete", async () => {
   assert.equal(summary.capture_status, 'COMPLETE');
   assert.equal(summary.fixtures_with_priced_market, 1);
 });
+
+
+test("walkSport waits through options.sleep when given, so a background tab's throttled timers are never used", async () => {
+  const dom = buildFakeIceHockeySite();
+  const doc = dom.window.document;
+  const toggle = doc.getElementById("left_prematch_sport-4_ice_hockey_label-toggle");
+  toggle.remove();                                             // the sidebar renders a moment after load
+  setTimeout(() => doc.body.appendChild(toggle), 5);
+  const waits = [];
+  await walkSport(doc, {
+    sportId: 4, sportSlug: "ice_hockey", oddsWaitMs: 0, identityWaitMs: 0, now: () => "2026-10-11T12:00:00.000Z",
+    sleep: (ms) => { waits.push(ms); return new Promise((r) => setTimeout(r, 1)); },
+  });
+  assert.ok(waits.length > 0);
+  assert.ok(waits.every((ms) => ms === 25));
+});

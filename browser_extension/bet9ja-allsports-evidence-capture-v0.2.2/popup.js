@@ -202,5 +202,9 @@ $("run-now").addEventListener("click", async () => {
   $("schedule-status").textContent = "Starting a background run of every selected sport...";
   setTimeout(refreshSchedule, 1500);
 });
+$("stop-run").addEventListener("click", async () => {
+  await scheduleSend({ type: "STOP_BET9JA_RUN" });
+  await refreshSchedule();
+});
 refreshSchedule();
 setInterval(refreshSchedule, 3000);

@@ -100,12 +100,17 @@
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+  // The wait used between polls. A background tab's own timers are
+  // throttled by Chrome (to one per minute after five minutes hidden), so a
+  // scheduled walk passes `options.sleep`, which waits in the extension
+  // worker instead (see background.js BET9JA_SLEEP).
+  let sleepImpl = sleep;
 
   async function waitFor(predicate, timeoutMs, intervalMs) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (predicate()) return true;
-      await sleep(intervalMs);
+      await sleepImpl(intervalMs);
     }
     return predicate();
   }
@@ -492,6 +497,7 @@
   async function walkSport(doc, options) {
     const sportId = options.sportId;
     const sportSlug = options.sportSlug;
+    sleepImpl = typeof options.sleep === 'function' ? options.sleep : sleep;
     const now = typeof options.now === 'function' ? options.now : () => new Date().toISOString();
     const capturedAtUtc = now();
     const timezone = pageTimezone(doc, capturedAtUtc);
