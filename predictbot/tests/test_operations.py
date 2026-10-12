@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -746,6 +747,34 @@ class SingleInstance(unittest.TestCase):
             self.assertIsNone(app.open_server(first.server_address[1]))
         finally:
             first.server_close()
+
+
+class UnreadableFiles(unittest.TestCase):
+    def test_unreadable_capture_is_skipped_and_reported(self):
+        import storage
+        root = Path(tempfile.mkdtemp())
+        df = DataFolder(root, host="HP")
+        (root / "captures").mkdir(parents=True, exist_ok=True)
+        good = root / "captures" / "bet9ja-good-2026-10-12.json"
+        good.write_text('{"schema_version": "x"}', encoding="utf-8")
+        bad = root / "captures" / "bet9ja-cloud-2026-10-12.json"
+        bad.write_text("{}", encoding="utf-8")
+        real = Path.read_bytes
+
+        def flaky(self):
+            if self == bad:
+                raise OSError(22, "Invalid argument")
+            return real(self)
+        with mock.patch.object(Path, "read_bytes", flaky):
+            got = df._read_unique([good, bad])
+            self.assertEqual([p for p, _ in got], [good])
+            self.assertIn(str(bad), storage.UNREADABLE)
+            downloads = root / "dl"
+            downloads.mkdir()
+            (downloads / "bet9ja-new-2026-10-12.json").write_text('{"a": 1}', encoding="utf-8")
+            self.assertEqual(df.import_captures(downloads), 1)      # the unreadable file never blocks the import
+        self.assertEqual(df.import_captures(downloads), 0)
+        storage.UNREADABLE.clear()
 
 
 class WalkerUpload(unittest.TestCase):

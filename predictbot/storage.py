@@ -69,6 +69,21 @@ def _stamp(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 
+UNREADABLE: dict[str, str] = {}   # path -> error, for files the OS would not hand over (e.g. OneDrive cloud-only placeholders)
+
+
+def read_bytes(p: Path) -> bytes | None:
+    """The file's bytes, or None when the OS refuses: a OneDrive file kept
+    online-only with the client not running reads as OSError 22 on Windows."""
+    try:
+        raw = p.read_bytes()
+    except OSError as err:
+        UNREADABLE[str(p)] = f"{err.strerror or err} (errno {err.errno})"
+        return None
+    UNREADABLE.pop(str(p), None)
+    return raw
+
+
 def _read_json(p: Path) -> dict:
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
@@ -398,7 +413,9 @@ class DataFolder:
     def _read_unique(paths) -> list[tuple[Path, bytes]]:
         seen, out = set(), []
         for p in paths:
-            raw = p.read_bytes()
+            raw = read_bytes(p)
+            if raw is None:
+                continue
             h = hashlib.sha256(raw).hexdigest()
             if h not in seen:
                 seen.add(h)
@@ -414,11 +431,16 @@ class DataFolder:
         folder = Path(folder)
         if not folder.exists():
             return 0
+        sources = sorted([*folder.glob("bet9ja-*.json"), *folder.glob("public-odds-walk-*.json")])
+        if not sources or self.write_block():      # a read-only laptop never copies into the shared folder
+            return 0
         dest = self.root / "captures"
-        have = {hashlib.sha256(p.read_bytes()).hexdigest() for p in dest.glob("*.json")}
+        have = {hashlib.sha256(raw).hexdigest() for p in dest.glob("*.json") if (raw := read_bytes(p)) is not None}
         n = 0
-        for src in sorted([*folder.glob("bet9ja-*.json"), *folder.glob("public-odds-walk-*.json")]):
-            raw = src.read_bytes()
+        for src in sources:
+            raw = read_bytes(src)
+            if raw is None:
+                continue
             h = hashlib.sha256(raw).hexdigest()
             if h in have:
                 continue

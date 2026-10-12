@@ -38,6 +38,7 @@ import pcbf  # noqa: E402
 import schemas  # noqa: E402
 import tickets  # noqa: E402
 import workflow  # noqa: E402
+import storage  # noqa: E402
 from storage import DataFolder, InvalidRecord  # noqa: E402
 
 PORT = 8000
@@ -147,7 +148,7 @@ def update_now() -> str:
     imported = DF.import_captures(DOWNLOADS)
     msg = [f"{imported} new capture files from Downloads" if imported else "no new capture files"]
     if blocked():
-        return "; ".join(msg) + ". Pricing paused: data folder is read-only (see Pending)."
+        return "; ".join(msg) + ". Pricing paused: data folder is read-only (see Pending)." + unreadable_note()
     f = feeds.fetch_polymarket(DF, now())
     if f["status"] == "fetched":
         msg.append(f"Polymarket feed: {f['events']} upcoming games" + (f" (partial: {f['error']})" if f["error"] else ""))
@@ -169,7 +170,16 @@ def update_now() -> str:
         msg.append(f"{len(r['review'])} matches wait for review")
     if r["closes"]:
         msg.append(f"{len(r['closes'])} closing prices / pre-kickoff snapshots stored")
-    return "; ".join(msg) + "."
+    return "; ".join(msg) + "." + unreadable_note()
+
+
+def unreadable_note() -> str:
+    if not storage.UNREADABLE:
+        return ""
+    first = next(iter(storage.UNREADABLE))
+    return (f" WARNING: {len(storage.UNREADABLE)} data files could not be read and were skipped (e.g. {Path(first).name}: "
+            f"{storage.UNREADABLE[first]}). If they are OneDrive online-only files, right-click the PredictBot folder in "
+            "OneDrive and choose 'Always keep on this device', then make sure OneDrive is running and signed in.")
 
 
 def coverage_table(status, t=None) -> str:
