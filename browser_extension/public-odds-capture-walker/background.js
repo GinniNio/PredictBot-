@@ -11,7 +11,7 @@ const CAP_PREFIX = 'publicOddsWalkCapture:';
 const MAX_CAPTURES = 300;
 const MAX_LISTINGS = 40;
 // Timings; tests shorten them through globalThis.WALKER_TIMING.
-const T = Object.assign({ listing: 3000, ready: 15000, poll: 1000, settleCap: 2000, search: 15000 }, globalThis.WALKER_TIMING || {});
+const T = Object.assign({ listing: 3000, ready: 15000, poll: 1000, settleCap: 2000, search: 15000, app: 90000 }, globalThis.WALKER_TIMING || {});
 const LISTING_SETTLE_MS = T.listing;
 const READY_TIMEOUT_MS = T.ready;   // stop waiting for a page's odds after this
 const READY_POLL_MS = T.poll;
@@ -153,14 +153,40 @@ function summary(run) {
 
 // -------------------------------------------------------------- the walk
 
+const START_KEY = 'publicOddsStarting';   // what the last start attempt is doing, for the popup
+
+// The popup shows this while a walk is being set up (asking the app can
+// take a while) and, when the start failed, why: a closed popup would
+// otherwise come back to 'No walk yet'.
+async function noteStart(status, message) {
+  await chrome.storage.local.set({ [START_KEY]: { status, message, at_utc: nowIso() } });
+}
+
 async function appTargetList() {
+  let timedOut = false;
   for (const url of APP_TARGETS) {
+    const abort = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = abort && setTimeout(() => { timedOut = true; abort.abort(); }, T.app);
     try {
-      const r = await fetch(url, { cache: 'no-store' });
+      const r = await fetch(url, { cache: 'no-store', signal: abort ? abort.signal : undefined });
       if (r.ok) return await r.json();
-    } catch (_) { /* app not running on this address */ }
+    } catch (_) { /* app not running on this address, or too slow */ } finally { if (timer) clearTimeout(timer); }
   }
+  if (timedOut) throw new Error(`The PredictBot app did not answer within ${Math.round(T.app / 1000)} s (still starting, or busy with its first update?). Try again in a minute.`);
   return null;
+}
+
+// Set-up steps shared by every start: progress and failure are noted for the popup.
+async function starting(mode, work) {
+  await noteStart('STARTING', `Asking the PredictBot app for the ${mode === 'results' ? 'finished games' : 'games'} to walk...`);
+  try {
+    const run = await work();
+    await chrome.storage.local.remove([START_KEY]);
+    return run;
+  } catch (err) {
+    await noteStart('FAILED', err && err.message ? err.message : String(err));
+    throw err;
+  }
 }
 
 async function appTargets() {
@@ -170,7 +196,9 @@ async function appTargets() {
 
 // Results mode: visit the finished games the app is still waiting on (it
 // lists their OddsPortal match pages) and copy each final result.
-async function beginResults(tabId, maxEvents) {
+async function beginResults(tabId, maxEvents) { return starting('results', () => _beginResults(tabId, maxEvents)); }
+
+async function _beginResults(tabId, maxEvents) {
   const s = summary(await loadRun());
   if (s && s.status === 'RUNNING') throw new Error('A walk is already running. Stop it first, or wait for it to finish.');
   const tab = await chrome.tabs.get(tabId);
@@ -216,7 +244,9 @@ function searchTerms(target) {
   return [...new Set(terms.filter((t) => t && t.length >= 3))].slice(0, MAX_TERMS);
 }
 
-async function beginSearch(tabId, maxEvents) {
+async function beginSearch(tabId, maxEvents) { return starting('search', () => _beginSearch(tabId, maxEvents)); }
+
+async function _beginSearch(tabId, maxEvents) {
   const s = summary(await loadRun());
   if (s && s.status === 'RUNNING') throw new Error('A walk is already running. Stop it first, or wait for it to finish.');
   const tab = await chrome.tabs.get(tabId);
@@ -632,7 +662,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     reply(beginResults(message.tabId, message.maxEvents).then((run) => ({ run })));
     return true;
   }
-  if (message.type === 'GET_PUBLIC_ODDS_STATUS') { reply(loadRun().then((run) => ({ run: summary(run) }))); return true; }
+  if (message.type === 'GET_PUBLIC_ODDS_STATUS') {
+    reply((async () => ({ run: summary(await loadRun()), starting: (await chrome.storage.local.get(START_KEY))[START_KEY] || null }))());
+    return true;
+  }
   if (message.type === 'GET_PUBLIC_ODDS_RUN') { reply(assembledRun().then((run) => ({ run }))); return true; }
   if (message.type === 'STOP_PUBLIC_ODDS_WALK') {
     reply(loadRun().then(async (run) => {

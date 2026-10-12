@@ -8,7 +8,10 @@ async function activeTabId() {
   return tab.id;
 }
 
-function describe(run) {
+function describe(run, starting) {
+  if (starting && (!run || starting.at_utc > (run.started_at_utc || ''))) {
+    return starting.status === 'FAILED' ? `Could not start the walk: ${starting.message}` : starting.message;
+  }
   if (!run) return 'No walk yet.';
   const c = run.counts || {};
   if (run.mode === 'search') {
@@ -82,7 +85,7 @@ async function downloadRun() {
 async function refresh() {
   const response = await send({ type: 'GET_PUBLIC_ODDS_STATUS' });
   const run = response.run;
-  setStatus(describe(run));
+  setStatus(describe(run, response.starting));
   const running = run && run.status === 'RUNNING';
   $('walk').disabled = running;
   $('results').disabled = running;

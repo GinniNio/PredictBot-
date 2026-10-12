@@ -436,6 +436,17 @@ test('a scheduled walk wraps up a stalled walk, hands its captures to the app, a
   assert.match((await w.send({ type: 'GET_SCHEDULE' })).last.outcome, /started/);
 });
 
+test('a start that fails is reported to the popup instead of "No walk yet"', async () => {
+  const w = loadWalker({ pages: {}, targets: null });      // the app is not reachable
+  w.tab.url = SEED;
+  const r = await w.send({ type: 'START_SEARCH_WALK', tabId: 7, maxEvents: 50 });
+  assert.equal(r.ok, false);
+  const status = await w.send({ type: 'GET_PUBLIC_ODDS_STATUS' });
+  assert.equal(status.run, null);
+  assert.equal(status.starting.status, 'FAILED');
+  assert.match(status.starting.message, /not reachable/);
+});
+
 test('allowlisted hosts only (unchanged)', () => {
   assert.equal(R.findSource('https://oddsportal.evil.example/'), null);
 });
