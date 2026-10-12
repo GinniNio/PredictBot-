@@ -5,8 +5,11 @@ replaced without touching model logic or records."""
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
+import os
 import re
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -227,13 +230,28 @@ def import_pcbf_ledger(df: DataFolder, csv_path, now: datetime) -> dict:
 
 
 _QUOTE_CACHE: dict = {}   # (path, size, mtime) -> quotes parsed from that file
+QUOTE_CACHE_DIR = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "PredictBot" / "quotes"
+
+
+def _parse_quotes(path: Path, raw: bytes) -> list[dict]:
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    if path.name.startswith("polymarket-feed-"):
+        return odds_sources.quotes_from_feed(data, path.name)
+    return odds_sources.quotes_from_walk(data, path.name)
 
 
 def _quotes_in(paths) -> list[dict]:
     """Quotes from walker captures and feed files. Walk files run to tens of
-    MB, so each file is parsed once per app run and kept in memory; a file
-    that changes on disk (size or time) is parsed again. The same file in
-    Downloads and in captures/ counts once."""
+    MB, so each file is parsed once: kept in memory for this run, and on
+    this laptop (QUOTE_CACHE_DIR, keyed by the file's content hash) for the
+    next start, so the first page load does not re-read a week of walks. A
+    file that changes on disk is parsed again. The same file in Downloads
+    and in captures/ counts once."""
     quotes, seen = [], set()
     for path in paths:
         try:
@@ -246,15 +264,25 @@ def _quotes_in(paths) -> list[dict]:
         key = (str(path), st.st_size, st.st_mtime_ns)
         if key not in _QUOTE_CACHE:
             try:
-                data = json.loads(path.read_bytes().decode("utf-8"))
-            except (OSError, UnicodeDecodeError, ValueError):
-                data = None
-            if not isinstance(data, dict):
-                parsed = []
-            elif path.name.startswith("polymarket-feed-"):
-                parsed = odds_sources.quotes_from_feed(data, path.name)
-            else:
-                parsed = odds_sources.quotes_from_walk(data, path.name)
+                raw = path.read_bytes()
+            except OSError:
+                continue
+            digest = hashlib.sha256(raw).hexdigest()
+            cached = QUOTE_CACHE_DIR / f"{digest}.json"
+            parsed = None
+            try:
+                parsed = json.loads(cached.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
+            if not isinstance(parsed, list):
+                parsed = _parse_quotes(path, raw)
+                try:
+                    QUOTE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                    tmp = cached.with_suffix(".tmp")
+                    tmp.write_text(json.dumps(parsed), encoding="utf-8")
+                    os.replace(tmp, cached)
+                except OSError:
+                    pass                                 # no cache is only slower, never wrong
             _QUOTE_CACHE[key] = parsed
         quotes.extend(dict(q) for q in _QUOTE_CACHE[key])
     return quotes

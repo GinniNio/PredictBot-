@@ -781,9 +781,12 @@ def host_name() -> str:
 
 
 def heartbeat_loop(stop: threading.Event) -> None:
+    taken = False
     while not stop.wait(60):
-        if not DF.heartbeat(now()):
+        ok = DF.heartbeat(now())
+        if not ok and not taken:
             print("Another laptop has taken over the data folder; this app is now read-only.")
+        taken = not ok
 
 
 def main():
