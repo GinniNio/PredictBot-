@@ -377,6 +377,39 @@ def same_side(bet9ja_name: str, quote_name: str) -> bool:
     return side_match(bet9ja_name, quote_name) is not None
 
 
+class QuoteList(list):
+    """A list of quotes with a lazily built index, so matching a fixture
+    looks only at quotes of its sport, outcome count and start day instead
+    of every quote in two days of feeds (hundreds of thousands), and parses
+    each quote's start time once rather than once per fixture."""
+
+    def index(self) -> dict:
+        idx = getattr(self, "_index", None)
+        if idx is None or idx["n"] != len(self):
+            by = {}
+            for q in self:
+                start = parse_time(q.get("start_utc"))
+                day = utc(start)[:10] if start else None       # None: dated by capture instead
+                by.setdefault((q["sport"] or "", len(q["outcomes"]), day), []).append((start, q))
+            idx = self._index = {"n": len(self), "by": by}
+        return idx["by"]
+
+    def near(self, sport: str, n: int, kick) -> list:
+        """(start, quote) pairs worth comparing: this sport (or none stated),
+        n outcomes, starting within a day of the kickoff, or undated."""
+        by = self.index()
+        days = {None}
+        if kick:
+            days |= {utc(kick + timedelta(days=d))[:10] for d in (-1, 0, 1)}
+        else:
+            days |= {d for (_, _, d) in by if d}
+        out = []
+        for sp in {sport, ""}:
+            for day in days:
+                out.extend(by.get((sp, n, day), ()))
+        return out
+
+
 def find_matches(candidate: dict, quotes: list[dict]) -> list[dict]:
     """Every quote that could be this Bet9ja fixture: same sport, same number
     of outcomes, both sides matched, kickoff within 3h (or, without a page
@@ -387,13 +420,10 @@ def find_matches(candidate: dict, quotes: list[dict]) -> list[dict]:
         return []
     kick = parse_time(candidate.get("kickoff_utc"))
     home, away = candidate["home"], candidate["away"]
+    if not isinstance(quotes, QuoteList):
+        quotes = QuoteList(quotes)
     out = []
-    for q in quotes:
-        if q["sport"] and q["sport"] != candidate["sport"]:
-            continue
-        if len(q["outcomes"]) != n:
-            continue
-        start = parse_time(q["start_utc"])
+    for start, q in quotes.near(candidate["sport"], n, kick):
         if kick and start and abs(kick - start) > KICKOFF_TOLERANCE:
             continue
         if kick and not start and q["captured_at_utc"][:10] not in (utc(kick)[:10], utc(kick - timedelta(days=1))[:10]):

@@ -316,7 +316,7 @@ def _quotes_in(paths) -> list[dict]:
                     pass                                 # no cache is only slower, never wrong
             _QUOTE_CACHE[key] = parsed
         quotes.extend(dict(q) for q in _QUOTE_CACHE[key])
-    return quotes
+    return odds_sources.QuoteList(quotes)
 
 
 def benchmark_quotes(df: DataFolder, extra_folders=(), now: datetime | None = None) -> list[dict]:

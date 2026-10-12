@@ -24,6 +24,7 @@ import re
 import socket
 import sys
 import threading
+import time
 import webbrowser
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -130,12 +131,23 @@ def run_update() -> str:
     return LAST_AUTO["message"]
 
 
+EMPTY_STATUS = {"loaded": {"files": [], "duplicates": [], "accepted": [], "rejected": []}, "rows": [], "quotes": []}
+
+
 def current_status() -> dict:
     """The day's fixture picture from the last update (pages render from
-    this instead of re-reading every capture), computed once if none yet."""
-    if not SNAPSHOT:
-        SNAPSHOT.update(status=workflow.day_status(DF, now(), [DOWNLOADS]), at=now())
-    return SNAPSHOT["status"]
+    this instead of re-reading every capture); empty until the first update
+    has finished, so a page never does that work itself."""
+    return SNAPSHOT["status"] if SNAPSHOT else EMPTY_STATUS
+
+
+def timed(label: str, steps: list, fn):
+    """Run fn, noting how long it took (printed per update on the console)."""
+    t0 = time.perf_counter()
+    try:
+        return fn()
+    finally:
+        steps.append(f"{label} {time.perf_counter() - t0:.1f}s")
 
 
 def accept_walk(raw: bytes) -> dict:
@@ -165,33 +177,36 @@ def accept_walk(raw: bytes) -> dict:
 def update_now() -> str:
     """Import new captures and price them; one at a time, and the fixture
     picture the pages show is refreshed afterwards."""
+    steps, t0 = [], time.perf_counter()
     with UPDATE_LOCK:
         try:
-            return _update_now()
+            return _update_now(steps)
         finally:
-            SNAPSHOT.update(status=workflow.day_status(DF, now(), [DOWNLOADS]), at=now())
+            status = timed("picture", steps, lambda: workflow.day_status(DF, now(), [DOWNLOADS]))
+            SNAPSHOT.update(status=status, at=now())
+            print(f"update {pcbf.utc(now())[11:16]} UTC took {time.perf_counter() - t0:.1f}s: {', '.join(steps)}")
 
 
-def _update_now() -> str:
-    imported = DF.import_captures(DOWNLOADS)
+def _update_now(steps: list) -> str:
+    imported = timed("import", steps, lambda: DF.import_captures(DOWNLOADS))
     msg = [f"{imported} new capture files from Downloads" if imported else "no new capture files"]
     if blocked():
         return "; ".join(msg) + ". Pricing paused: data folder is read-only (see Pending)." + unreadable_note()
-    f = feeds.fetch_polymarket(DF, now())
+    f = timed("polymarket", steps, lambda: feeds.fetch_polymarket(DF, now()))
     if f["status"] == "fetched":
         msg.append(f"Polymarket feed: {f['events']} upcoming games" + (f" (partial: {f['error']})" if f["error"] else ""))
     elif f["status"] == "failed":
         msg.append(f"Polymarket feed unavailable ({f['error']}); using earlier fetches")
-    t = workflow.sync_tickets(DF, now(), [DOWNLOADS])
+    t = timed("tickets", steps, lambda: workflow.sync_tickets(DF, now(), [DOWNLOADS]))
     if t["bets"] or t["settled"]:
         msg.append(f"Bet9ja tickets: {t['bets']} bets linked, {t['settled']} selections settled")
-    res = workflow.settle_from_results(DF, now(), [DOWNLOADS])
+    res = timed("results", steps, lambda: workflow.settle_from_results(DF, now(), [DOWNLOADS]))
     LAST_RESULTS.update(res, at=now())
     if res["games"]:
         msg.append(f"results: {res['games']} finished games settled ({res['settled']} selections)")
     if res["fetch"] and res["fetch"]["status"] == "failed":
         msg.append(f"Polymarket results unavailable ({res['fetch']['error']})")
-    r = workflow.auto_benchmark(DF, now(), [DOWNLOADS])
+    r = timed("pricing", steps, lambda: workflow.auto_benchmark(DF, now(), [DOWNLOADS]))
     events = {x["selection_id"].rsplit(":", 1)[0] for x in r["records"]}
     msg.append(f"{len(events)} fixtures priced from captured odds pages")
     if r["review"]:
@@ -264,11 +279,11 @@ def page_opportunities(msg="") -> str:
     pending = sum(1 for r in status["rows"] if r["state"] == "match review")
     old = workflow.earlier_captures(status, t)
     auto = (f"<b>Last update {e(pcbf.utc(LAST_AUTO['at'])[11:16])} UTC:</b> {e(LAST_AUTO['message'])}" if LAST_AUTO else
-            "<b>First update running</b> (reading the captures; refresh in a minute).")
+            "<b>First update running</b> (reading the captures; the tables below fill in when it finishes: refresh in a minute).")
     out = [f"<p class='msg'>{e(msg)}</p>" if msg else "",
            f"<p>{auto} {form_button('/update', 'Update now')}</p>"
            f"<p class='dim'>Page shown at {e(pcbf.utc(t)[11:16])} UTC from the fixture picture of "
-           f"{e(pcbf.utc(SNAPSHOT['at'])[11:16])} UTC. The app updates itself every "
+           f"{e(pcbf.utc(SNAPSHOT['at'])[11:16]) if SNAPSHOT else 'no update yet'} UTC. The app updates itself every "
            f"{AUTO_EVERY // 60} minutes while it runs: imports Downloads, fetches Polymarket, links tickets, "
            "settles results and prices new captures. Update now does the same at once.</p>", review_banner()]
     if old["fixtures"]:
@@ -670,8 +685,12 @@ def layout(path, body):
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        t0 = time.perf_counter()
         with LOCK:
             self._get()
+        took = time.perf_counter() - t0
+        if took > 2:
+            print(f"GET {self.path} took {took:.1f}s")
 
     def do_POST(self):
         with LOCK:
