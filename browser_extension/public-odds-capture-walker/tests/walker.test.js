@@ -414,6 +414,28 @@ test('a scheduled walk never discards a walk the app has not received', async ()
   assert.match((await w.send({ type: 'GET_SCHEDULE' })).last.outcome, /not yet with the app/);
 });
 
+test('a scheduled walk wraps up a stalled walk, hands its captures to the app, and goes on', async () => {
+  const { pages } = footballDay();
+  const S = (t) => `https://www.oddsportal.com/search/${t}/`;
+  pages[S('belouizdad')] = '<body>Next Matches (1)<a href="/football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M">CR Belouizdad-Khenchela</a></body>';
+  pages[ODDSPORTAL_HOME] = '<body>OddsPortal</body>';
+  const targets = [{ sport: 'football', home: 'CR Belouizdad', away: 'Khenchela' }];
+  const w = loadWalker({ pages, targets, timing: { listing: 1, ready: 60, poll: 5, settleCap: 1, search: 40 } });
+  w.tab.url = SEED;
+  await w.send({ type: 'START_PUBLIC_ODDS_WALK', tabId: 7, maxEvents: 50, onlyBet9ja: true });
+  const first = await w.until((s) => s && s.status === 'COMPLETE');
+  const run = w.store.publicOddsWalkRun;              // make it look stalled: RUNNING, untouched for two minutes
+  Object.assign(run, { status: 'RUNNING', uploaded: false, cursor: 0, updated_at_utc: new Date(Date.now() - 120000).toISOString() });
+  await w.send({ type: 'SET_SCHEDULE', schedule: { enabled: true, max_events: 50 } });
+  const before = w.uploads.length;
+  w.fire('walk:search');
+  const done = await w.until((s) => s && s.run_id !== first.run_id && s.status === 'COMPLETE');
+  assert.equal(done.mode, 'search');
+  assert.equal(w.uploads.length, before + 2);         // the stalled walk's captures, then the new walk
+  assert.equal(JSON.parse(w.uploads[before]).status, 'INTERRUPTED');
+  assert.match((await w.send({ type: 'GET_SCHEDULE' })).last.outcome, /started/);
+});
+
 test('allowlisted hosts only (unchanged)', () => {
   assert.equal(R.findSource('https://oddsportal.evil.example/'), null);
 });

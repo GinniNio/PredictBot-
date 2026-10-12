@@ -554,9 +554,19 @@ async function scheduledWalk(kind) {
   const current = await loadRun();
   const s = summary(current);
   if (s && s.status === 'RUNNING') return noteScheduled(kind, 'skipped: a walk is already running');
+  if (current && current.status === 'RUNNING') {
+    // Stalled: the page never settled, or Chrome suspended the worker mid-walk.
+    // Wrap it up with what it captured so the schedule can move on.
+    if (driving) return noteScheduled(kind, 'skipped: a walk is already running');
+    current.status = 'INTERRUPTED';
+    current.capture_status = 'CAPTURE_PARTIAL';
+    current.completed_at_utc = nowIso();
+    current.message = `Stalled at page ${current.cursor + 1} of ${(current.queue || []).length}; wrapped up by the schedule.`;
+    await saveRun(current);
+  }
   if (current && !current.uploaded && !current.downloaded && (current.counts || {}).captured) {
     const prev = await uploadRun();                 // never discard a walk nobody has received
-    if (!prev.uploaded) return noteScheduled(kind, `skipped: the last walk is not yet with the app (${prev.upload_message})`);
+    if (!prev.uploaded) return noteScheduled(kind, `skipped: the last walk is not yet with the app (${prev.upload_message || 'not sent'})`);
   }
   let tab;
   try {
