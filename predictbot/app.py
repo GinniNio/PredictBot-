@@ -111,12 +111,22 @@ def auto_update_loop(stop: threading.Event) -> None:
     """The same work as opening Opportunities, every AUTO_EVERY seconds: import
     Downloads, fetch Polymarket, link tickets, settle results, price. So the
     app keeps itself current while it runs, whatever the laptop is doing."""
-    while not stop.wait(AUTO_EVERY):
-        with LOCK:
-            try:
-                LAST_AUTO.update(at=now(), message=update_now())
-            except Exception as exc:  # keep the loop alive; the next page load shows the error
-                LAST_AUTO.update(at=now(), message=f"automatic update failed: {type(exc).__name__}: {exc}")
+    while True:                       # once at startup, then every AUTO_EVERY seconds
+        run_update()
+        if stop.wait(AUTO_EVERY):
+            return
+
+
+def run_update() -> str:
+    """One update under the lock, its note kept for the pages (they never
+    run the update themselves: reading hundreds of captures off OneDrive can
+    take minutes, and a page load must not wait on that)."""
+    with LOCK:
+        try:
+            LAST_AUTO.update(at=now(), message=update_now())
+        except Exception as exc:  # keep the loop alive; the next page load shows the error
+            LAST_AUTO.update(at=now(), message=f"automatic update failed: {type(exc).__name__}: {exc}")
+    return LAST_AUTO["message"]
 
 
 def accept_walk(raw: bytes) -> dict:
@@ -223,7 +233,6 @@ OPP_HEAD = ["Tier", "Kickoff UTC", "Sport", "Game", "Selection", "Bet9ja", "Min 
 
 
 def page_opportunities(msg="") -> str:
-    note = update_now()
     t = now()
     status = workflow.day_status(DF, t, [DOWNLOADS])
     sels = DF.read("selection")
@@ -236,11 +245,13 @@ def page_opportunities(msg="") -> str:
     watch = sorted([s for s in upcoming if s["tier"] == "WATCH"], key=lambda s: -float(s["edge_pct"] or -9))
     pending = sum(1 for r in status["rows"] if r["state"] == "match review")
     old = workflow.earlier_captures(status, t)
-    auto = (f"Automatic update every {AUTO_EVERY // 60} minutes while the app runs; last at "
-            f"{e(pcbf.utc(LAST_AUTO['at'])[11:16])} UTC: {e(LAST_AUTO['message'])}" if LAST_AUTO else
-            f"The app updates itself every {AUTO_EVERY // 60} minutes while it runs.")
+    auto = (f"<b>Last update {e(pcbf.utc(LAST_AUTO['at'])[11:16])} UTC:</b> {e(LAST_AUTO['message'])}" if LAST_AUTO else
+            "<b>First update running</b> (reading the captures; refresh in a minute).")
     out = [f"<p class='msg'>{e(msg)}</p>" if msg else "",
-           f"<p><b>Checked at {e(pcbf.utc(t)[11:16])} UTC.</b> {e(note)}</p><p class='dim'>{auto}</p>", review_banner()]
+           f"<p>{auto} {form_button('/update', 'Update now')}</p>"
+           f"<p class='dim'>Page shown at {e(pcbf.utc(t)[11:16])} UTC. The app updates itself every "
+           f"{AUTO_EVERY // 60} minutes while it runs: imports Downloads, fetches Polymarket, links tickets, "
+           "settles results and prices new captures. Update now does the same at once.</p>", review_banner()]
     if old["fixtures"]:
         out.append(f"<p class='err'>{old['fixtures']} fixtures come from captures taken before today (oldest "
                    f"{e(old['oldest_utc'][:16].replace('T', ' '))} UTC, {e(old['oldest_file'])}); "
@@ -729,6 +740,9 @@ class Handler(BaseHTTPRequestHandler):
                 backup = DF.confirm_handover(now())
                 return self.redirect("/pending", f"{DF.host} is now the designated writer. Records backed up to "
                                                  f"{backup.relative_to(DF.root)}.")
+            if u.path == "/update":
+                LAST_AUTO.update(at=now(), message=update_now())
+                return self.redirect("/", "Updated.")
             if u.path == "/stop":
                 DF.release_session(now())
                 threading.Thread(target=SERVER.shutdown, daemon=True).start()
