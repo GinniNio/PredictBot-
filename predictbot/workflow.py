@@ -18,27 +18,58 @@ import pcbf
 import results
 import schemas
 import tickets
+import storage
 from storage import DataFolder
 
 
 RECENT = timedelta(days=2)   # the daily views read captures from the last two days only
 
 
-def load_candidates(df: DataFolder, now: datetime, extra_folders=(), since: datetime | None = None) -> dict:
-    """Read recent captures, merge by event, screen each candidate."""
-    lists, files = [], []
-    since = since or now - RECENT
-    for path, raw in df.capture_files(extra_folders, since):
+_CANDIDATE_CACHE: dict = {}   # (path, size, mtime) -> (content hash, schema, candidates): a capture is parsed once
+
+
+def _capture_candidates(path: Path) -> tuple[str, str, list] | None:
+    """(content hash, schema, candidates) for one Bet9ja capture, from the
+    cache when the file is unchanged. None when the file cannot be read."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    key = (str(path), st.st_size, st.st_mtime_ns)
+    if key not in _CANDIDATE_CACHE:
+        raw = storage.read_bytes(path)
+        if raw is None:
+            return None
+        digest = hashlib.sha256(raw).hexdigest()
         try:
             data = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
+            _CANDIDATE_CACHE[key] = (digest, "?", None)
+        else:
+            cands = pcbf.candidates_from_capture(data, pcbf.payload_hash(raw), path.name) if isinstance(data, dict) else []
+            schema = data.get("schema_version", "?") if isinstance(data, dict) else "?"
+            _CANDIDATE_CACHE[key] = (digest, schema, cands)
+    return _CANDIDATE_CACHE[key]
+
+
+def load_candidates(df: DataFolder, now: datetime, extra_folders=(), since: datetime | None = None) -> dict:
+    """Read recent captures, merge by event, screen each candidate."""
+    lists, files, seen = [], [], set()
+    since = since or now - RECENT
+    for path in df.paths("bet9ja-*.json", extra_folders, since):
+        got = _capture_candidates(path)
+        if got is None:
+            continue
+        digest, schema, cands = got
+        if digest in seen:                   # the same bytes under another name (Downloads and captures/)
+            continue
+        seen.add(digest)
+        if cands is None:
             files.append((path.name, "?", "unreadable JSON"))
             continue
-        cands = pcbf.candidates_from_capture(data, pcbf.payload_hash(raw), path.name) if isinstance(data, dict) else []
-        schema = data.get("schema_version", "?") if isinstance(data, dict) else "?"
         files.append((path.name, schema, f"{len(cands)} fixtures" if cands else "no fixtures (bets or other)"))
         if cands:
-            lists.append(cands)
+            lists.append([dict(c) for c in cands])
     merged, dups = pcbf.merge_candidates(lists)
     accepted, rejected = [], []
     cutoff = pcbf.utc(since)
@@ -583,11 +614,11 @@ WALKER_SPORT = {"soccer": "football", "ice_hockey": "hockey", "table_tennis": "t
                 "american_football": "american-football"}
 
 
-def walker_targets(df: DataFolder, now: datetime) -> dict:
+def walker_targets(df: DataFolder, now: datetime, status: dict | None = None) -> dict:
     """Read-only list for the odds walker: today's eligible Bet9ja fixtures
     that still have no benchmark, so it visits only games Bet9ja offers.
     Sports use the odds sites' URL names (soccer -> football)."""
-    status = day_status(df, now)
+    status = status or day_status(df, now)
     fixtures = [{"sport": WALKER_SPORT.get(r["c"]["sport"], r["c"]["sport"].replace("_", "-")),
                  "home": r["c"]["home"], "away": r["c"]["away"], "kickoff_utc": r["c"]["kickoff_utc"],
                  "competition": r["c"]["competition"]}

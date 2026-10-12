@@ -105,6 +105,8 @@ def review_banner() -> str:
 LAST_RESULTS: dict = {}   # the last automatic results pass, shown on Pending
 AUTO_EVERY = 600          # seconds between automatic updates while the app runs
 LAST_AUTO: dict = {}      # {"at": datetime, "message": str} from the last automatic update
+UPDATE_LOCK = threading.Lock()   # one update at a time; pages render meanwhile from SNAPSHOT
+SNAPSHOT: dict = {}       # {"status": workflow.day_status(...), "at": datetime} from the last update
 
 
 def auto_update_loop(stop: threading.Event) -> None:
@@ -118,15 +120,22 @@ def auto_update_loop(stop: threading.Event) -> None:
 
 
 def run_update() -> str:
-    """One update under the lock, its note kept for the pages (they never
-    run the update themselves: reading hundreds of captures off OneDrive can
-    take minutes, and a page load must not wait on that)."""
-    with LOCK:
-        try:
-            LAST_AUTO.update(at=now(), message=update_now())
-        except Exception as exc:  # keep the loop alive; the next page load shows the error
-            LAST_AUTO.update(at=now(), message=f"automatic update failed: {type(exc).__name__}: {exc}")
+    """One update, its note kept for the pages (they never run the update
+    themselves: reading hundreds of captures off OneDrive can take minutes,
+    and a page load must not wait on that)."""
+    try:
+        LAST_AUTO.update(at=now(), message=update_now())
+    except Exception as exc:  # keep the loop alive; the next page load shows the error
+        LAST_AUTO.update(at=now(), message=f"automatic update failed: {type(exc).__name__}: {exc}")
     return LAST_AUTO["message"]
+
+
+def current_status() -> dict:
+    """The day's fixture picture from the last update (pages render from
+    this instead of re-reading every capture), computed once if none yet."""
+    if not SNAPSHOT:
+        SNAPSHOT.update(status=workflow.day_status(DF, now(), [DOWNLOADS]), at=now())
+    return SNAPSHOT["status"]
 
 
 def accept_walk(raw: bytes) -> dict:
@@ -154,7 +163,16 @@ def accept_walk(raw: bytes) -> dict:
 
 
 def update_now() -> str:
-    """Import new captures and price them (Opportunities does this on load)."""
+    """Import new captures and price them; one at a time, and the fixture
+    picture the pages show is refreshed afterwards."""
+    with UPDATE_LOCK:
+        try:
+            return _update_now()
+        finally:
+            SNAPSHOT.update(status=workflow.day_status(DF, now(), [DOWNLOADS]), at=now())
+
+
+def _update_now() -> str:
     imported = DF.import_captures(DOWNLOADS)
     msg = [f"{imported} new capture files from Downloads" if imported else "no new capture files"]
     if blocked():
@@ -234,7 +252,7 @@ OPP_HEAD = ["Tier", "Kickoff UTC", "Sport", "Game", "Selection", "Bet9ja", "Min 
 
 def page_opportunities(msg="") -> str:
     t = now()
-    status = workflow.day_status(DF, t, [DOWNLOADS])
+    status = current_status()
     sels = DF.read("selection")
     rcs = workflow.latest_rechecks(DF)
     bets_for = {b["selection_record_id"] for b in DF.read("bet")}
@@ -249,7 +267,8 @@ def page_opportunities(msg="") -> str:
             "<b>First update running</b> (reading the captures; refresh in a minute).")
     out = [f"<p class='msg'>{e(msg)}</p>" if msg else "",
            f"<p>{auto} {form_button('/update', 'Update now')}</p>"
-           f"<p class='dim'>Page shown at {e(pcbf.utc(t)[11:16])} UTC. The app updates itself every "
+           f"<p class='dim'>Page shown at {e(pcbf.utc(t)[11:16])} UTC from the fixture picture of "
+           f"{e(pcbf.utc(SNAPSHOT['at'])[11:16])} UTC. The app updates itself every "
            f"{AUTO_EVERY // 60} minutes while it runs: imports Downloads, fetches Polymarket, links tickets, "
            "settles results and prices new captures. Update now does the same at once.</p>", review_banner()]
     if old["fixtures"]:
@@ -312,7 +331,7 @@ def watch_row(s, bets_for):
 
 
 def page_pending(msg="") -> str:
-    status = workflow.day_status(DF, now(), [DOWNLOADS])
+    status = current_status()
     out = [f"<p class='msg'>{e(msg)}</p>" if msg else ""]
     # handover / conflicts
     other, conflicts = DF.foreign_session(), DF.conflict_copies()
@@ -657,6 +676,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         with LOCK:
             self._post()
+            if urlparse(self.path).path not in ("/update", "/walker-upload"):
+                SNAPSHOT.clear()          # a decision or record was written: the next page recomputes the picture
 
     def _get(self):
         u = urlparse(self.path)
@@ -667,7 +688,7 @@ class Handler(BaseHTTPRequestHandler):
                  "/pack": lambda: page_pack("research"), "/settle": lambda: page_pack("settle"),
                  "/selections": lambda: page_selections(q), "/bets": lambda: page_bets(msg, (q.get("rid") or [""])[0])}
         if u.path == "/walker-targets.json":     # read-only, for the odds walker extension
-            body = json.dumps(workflow.walker_targets(DF, now())).encode("utf-8")
+            body = json.dumps(workflow.walker_targets(DF, now(), current_status())).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
