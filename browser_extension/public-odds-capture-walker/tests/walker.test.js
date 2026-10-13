@@ -447,6 +447,31 @@ test('a start that fails is reported to the popup instead of "No walk yet"', asy
   assert.match(status.starting.message, /not reachable/);
 });
 
+test('a scheduled results walk due during a search walk runs as soon as that walk finishes', async () => {
+  const { pages } = footballDay();
+  const S = (t) => `https://www.oddsportal.com/search/${t}/`;
+  pages[S('belouizdad')] = '<body>Next Matches (1)<a href="/football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M">CR Belouizdad-Khenchela</a></body>';
+  pages[ODDSPORTAL_HOME] = '<body>OddsPortal</body>';
+  pages[U('football/h2h/x-aaaa/y-bbbb/#hash1')] = '<body>Final result 2:1 (1:0, 1:1)</body>';
+  pages[S('nobody')] = '<body>loading</body>';                    // a search that never answers: keeps the walk busy
+  const targets = [{ sport: 'football', home: 'CR Belouizdad', away: 'Khenchela' }, { sport: 'football', home: 'Nobody', away: 'Nothing' }];
+  const results = [{ url: U('football/h2h/x-aaaa/y-bbbb/#hash1'), sport: 'football', home: 'X', away: 'Y', kickoff_utc: '2026-10-11T12:00Z' }];
+  const w = loadWalker({ pages, targets, results, timing: { listing: 1, ready: 60, poll: 5, settleCap: 1, search: 400 } });
+  await w.send({ type: 'SET_SCHEDULE', schedule: { enabled: true, max_events: 50 } });
+  w.fire('walk:search');
+  await w.until((s) => s && s.status === 'RUNNING');
+  w.fire('walk:results');
+  let last = null;
+  for (let i = 0; i < 50 && !(last && last.kind === 'results'); i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    last = (await w.send({ type: 'GET_SCHEDULE' })).last;
+  }
+  assert.match(last.outcome, /waiting/);
+  const done = await w.until((s) => s && s.mode === 'results' && s.status === 'COMPLETE');
+  assert.equal(done.scheduled, true);
+  assert.equal(w.uploads.length, 2);                                   // the search walk, then the results walk
+});
+
 test('allowlisted hosts only (unchanged)', () => {
   assert.equal(R.findSource('https://oddsportal.evil.example/'), null);
 });

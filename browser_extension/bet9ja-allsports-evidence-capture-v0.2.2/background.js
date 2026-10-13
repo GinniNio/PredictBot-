@@ -1,4 +1,4 @@
-/* Scheduled Bet9ja walks (0.4.0). Every N hours, while Chrome is open, the
+/* Scheduled Bet9ja walks (0.5.0). Every N hours, while Chrome is open, the
  * worker opens (or reuses) a Bet9ja tab in the background, walks each
  * chosen sport in turn with the same walkSport() the popup runs, and sends
  * each sport's capture to the PredictBot app over localhost. A manual
@@ -42,8 +42,9 @@ async function applySchedule(schedule) {
 
 // ------------------------------------------------------------- the page
 
-// Runs inside the Bet9ja tab. Walks one sport and reports the capture by
-// message, so the result arrives even if the caller's worker was suspended.
+// Runs inside the Bet9ja tab. Starts one sport's walk and returns at once;
+// the capture arrives by message when the walk ends, so the worker may be
+// suspended and restarted meanwhile without losing it.
 function walkInPage(sportId, sportSlug, runId) {
   const started = new Date().toISOString();
   // Waits go through the worker: a hidden tab's own timers are throttled.
@@ -51,41 +52,20 @@ function walkInPage(sportId, sportSlug, runId) {
     try { chrome.runtime.sendMessage({ type: 'BET9JA_SLEEP', ms }, () => resolve()); } catch (_) { setTimeout(resolve, ms); }
   });
   const progress = (p) => { try { chrome.runtime.sendMessage({ type: 'BET9JA_PROGRESS', run_id: runId, sport: sportSlug, ...p }); } catch (_) { /* reloaded */ } };
-  return window.Bet9jaAllSportsWalker.walkSport(document, {
+  window.Bet9jaAllSportsWalker.walkSport(document, {
     sportId, sportSlug, maxGroups: null, maxCompetitionsPerGroup: null,
     now: () => new Date().toISOString(), sleep, progress,
   }).then((result) => {
     chrome.runtime.sendMessage({ type: 'BET9JA_WALK_DONE', run_id: runId, sport: sportSlug, started, result });
-    return { ok: true, sport: sportSlug };
   }, (err) => {
     chrome.runtime.sendMessage({ type: 'BET9JA_WALK_DONE', run_id: runId, sport: sportSlug, started,
       error: err && err.message ? err.message : String(err) });
-    return { ok: false, sport: sportSlug };
   });
+  return { ok: true, sport: sportSlug };
 }
 
 async function injectWalker(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ['catalogue_parser.js', 'fixture_parser.js', 'sport_walker.js'] });
-}
-
-// Resolves when the page reports this sport's result (or the timeout passes).
-const waiting = new Map();   // `${run_id}:${sport}` -> resolve
-function awaitWalk(runId, sport, timeoutMs) {
-  return new Promise((resolve) => {
-    const key = `${runId}:${sport}`;
-    const timer = setTimeout(() => { waiting.delete(key); resolve({ error: `no result after ${timeoutMs / 60000} min` }); }, timeoutMs);
-    waiting.set(key, (msg) => { clearTimeout(timer); waiting.delete(key); resolve(msg); });
-  });
-}
-
-async function walkOneSport(tabId, runId, sport) {
-  const sportId = SPORT_IDS[sport];
-  if (!sportId) return { error: `unknown sport ${sport}` };
-  await injectWalker(tabId);
-  const done = awaitWalk(runId, sport, SPORT_TIMEOUT_MS);
-  chrome.scripting.executeScript({ target: { tabId }, func: walkInPage, args: [sportId, sport, runId] })
-    .catch((err) => { const r = waiting.get(`${runId}:${sport}`); if (r) r({ error: err && err.message ? err.message : String(err) }); });
-  return done;
 }
 
 // --------------------------------------------------------------- upload
@@ -105,22 +85,15 @@ async function uploadCapture(result, sport) {
   return { uploaded: false, message: last };
 }
 
-// A walk's result arriving by message. A scheduled run is waiting for it
-// and uploads it itself; a manual walk (popup) is uploaded here. Captures
-// the app did not take stay for download (the popup holds the result).
-async function handleWalkDone(msg) {
-  const key = `${msg.run_id}:${msg.sport}`;
-  const resolver = waiting.get(key);
-  if (resolver) { resolver(msg); return { handled: true }; }
-  if (!msg.result) return { uploaded: false, message: msg.error || 'walk failed' };
-  const sent = await uploadCapture(msg.result, msg.sport);
-  const state = (await loadState()) || { sports: [] };
-  state.last_upload = { sport: msg.sport, at_utc: nowIso(), ...sent };
-  await saveState(state);
-  return sent;
-}
+// -------------------------------------------------------------- the run
+//
+// A run is a list of sports in storage, driven by events rather than by one
+// long-lived function: start a sport, return; when the page reports the
+// sport (BET9JA_WALK_DONE) or its timeout alarm fires, record the outcome
+// and start the next. Chrome may suspend and restart this worker at any
+// time during a sport, and the run carries on regardless.
 
-// -------------------------------------------------------------- schedule
+const SPORT_ALARM = 'bet9ja:sport';
 
 function summarize(result) {
   if (!result) return 'no capture';
@@ -148,78 +121,146 @@ async function bet9jaTab(startUrl) {
   return { tabId: tab.id, created: true };
 }
 
+const current = (state) => (state.sports || []).find((s) => !s.status);
+
 async function scheduledWalk(trigger = 'schedule') {
   const schedule = await loadSchedule();
   if (trigger === 'schedule' && !schedule.enabled) return;
-  const current = await loadState();
-  if (current && current.status === 'RUNNING' && Date.now() - Date.parse(current.updated_at_utc || 0) < STALE_RUN_MS) {
+  const running = await loadState();
+  if (running && running.status === 'RUNNING' && Date.now() - Date.parse(running.updated_at_utc || 0) < STALE_RUN_MS) {
     return;                                         // one run at a time
   }
-  const runId = Date.now().toString(36);
-  const state = { run_id: runId, status: 'RUNNING', trigger, started_at_utc: nowIso(), sports: [], tab_created: false };
+  const state = { run_id: Date.now().toString(36), status: 'RUNNING', trigger, started_at_utc: nowIso(),
+    sports: (schedule.sports || DEFAULT_SPORTS).map((sport) => ({ sport })), tab_created: false };
   await saveState(state);
-  let tab = null;
+  let tab;
   try {
     tab = await bet9jaTab(schedule.start_url);
-    state.tab_created = tab.created;
-    state.tab_id = tab.tabId;
-    for (const sport of schedule.sports || DEFAULT_SPORTS) {
-      const latest = await loadState();
-      if (!latest || latest.run_id !== runId || latest.status !== 'RUNNING') return;   // stopped from the popup
-      const entry = { sport, started_at_utc: nowIso() };
-      state.sports.push(entry);
-      await saveState(state);
-      let outcome;
-      try {
-        outcome = await walkOneSport(tab.tabId, runId, sport);
-      } catch (err) {
-        outcome = { error: err && err.message ? err.message : String(err) };
-      }
-      if (outcome.error) {
-        entry.status = 'failed';
-        entry.detail = outcome.error;
-        if (/No tab with id|tab was closed/i.test(outcome.error)) { state.message = 'The Bet9ja tab was closed.'; break; }
-        if (/no result after/.test(outcome.error)) {
-          // The walk may still be clicking in the page: reload the tab so the
-          // next sport never shares a page with it.
-          try { await chrome.tabs.update(tab.tabId, { url: schedule.start_url || DEFAULT_START_URL }); await waitForTab(tab.tabId);
-            await new Promise((r) => setTimeout(r, T.settle)); } catch (_) { /* tab gone: the next sport reports it */ }
-        }
-      } else {
-        entry.status = outcome.result.capture_status;
-        entry.detail = summarize(outcome.result);
-        const sent = await uploadCapture(outcome.result, sport);
-        entry.uploaded = sent.uploaded;
-        entry.upload = sent.message;
-        if (!sent.uploaded) {                       // keep it: the popup can download it
-          await chrome.storage.local.set({ [`bet9jaCapture:${runId}:${sport}`]: outcome.result });
-          entry.stored = true;
-        }
-      }
-      entry.finished_at_utc = nowIso();
-      const check = await loadState();
-      if (check && check.run_id === runId && check.status !== 'RUNNING') return;      // stopped meanwhile
-      await saveState(state);
-    }
-    state.status = 'COMPLETE';
   } catch (err) {
-    state.status = 'FAILED';
-    state.message = err && err.message ? err.message : String(err);
-  } finally {
-    const cur = await loadState();
-    if (cur && cur.run_id === runId && cur.status === 'RUNNING') {   // not stopped from the popup meanwhile
-      state.finished_at_utc = nowIso();
-      await saveState(state);
-    }
-    if (tab && tab.created) chrome.tabs.remove(tab.tabId).catch(() => {});
+    return endRun(state, 'FAILED', err && err.message ? err.message : String(err));
+  }
+  const cur = await loadState();                    // the popup may have stopped it while the tab opened
+  if (!cur || cur.run_id !== state.run_id || cur.status !== 'RUNNING') {
+    if (tab.created) chrome.tabs.remove(tab.tabId).catch(() => {});
+    return;
+  }
+  cur.tab_created = tab.created;
+  cur.tab_id = tab.tabId;
+  await saveState(cur);
+  await startSport(cur);
+}
+
+// Starts the next sport of the run, or ends the run when none is left.
+async function startSport(stale) {
+  const state = (await loadState()) || stale;       // always the stored state: the popup may have changed it
+  if (state.run_id !== stale.run_id || state.status !== 'RUNNING') return;
+  const entry = current(state);
+  if (!entry) return endRun(state, 'COMPLETE');
+  entry.started_at_utc = nowIso();
+  await saveState(state);
+  await chrome.alarms.create(SPORT_ALARM, { delayInMinutes: Math.max(0.5, SPORT_TIMEOUT_MS / 60000) });
+  const sportId = SPORT_IDS[entry.sport];
+  if (!sportId) return sportDone(state.run_id, entry.sport, { error: `unknown sport ${entry.sport}` });
+  try {
+    await injectWalker(state.tab_id);
+    await chrome.scripting.executeScript({ target: { tabId: state.tab_id }, func: walkInPage, args: [sportId, entry.sport, state.run_id] });
+  } catch (err) {
+    await sportDone(state.run_id, entry.sport, { error: err && err.message ? err.message : String(err) });
   }
 }
 
-chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === 'bet9ja:walk') scheduledWalk('schedule'); });
+// Records one sport's outcome (capture, error or timeout) and moves on.
+async function sportDone(runId, sport, outcome) {
+  const state = await loadState();
+  if (!state || state.run_id !== runId) return false;
+  const entry = (state.sports || []).find((s) => s.sport === sport && !s.status);
+  if (!entry) return false;                         // already recorded (a late or duplicate report)
+  await chrome.alarms.clear(SPORT_ALARM);
+  if (outcome.error) {
+    entry.status = 'failed';
+    entry.detail = outcome.error;
+  } else {
+    entry.status = outcome.result.capture_status;
+    entry.detail = summarize(outcome.result);
+    const sent = await uploadCapture(outcome.result, sport);
+    entry.uploaded = sent.uploaded;
+    entry.upload = sent.message;
+    if (!sent.uploaded) {                           // keep it: the popup can download it
+      await chrome.storage.local.set({ [`bet9jaCapture:${runId}:${sport}`]: outcome.result });
+      entry.stored = true;
+    }
+  }
+  entry.finished_at_utc = nowIso();
+  await saveState(state);
+  if (state.status !== 'RUNNING') return true;      // stopped from the popup: this sport was the last
+  if (outcome.error && /No tab with id|tab was closed/i.test(outcome.error)) return endRun(state, 'FAILED', 'The Bet9ja tab was closed.');
+  if (outcome.error && /no result after/.test(outcome.error)) {
+    // The walk may still be clicking in the page: reload the tab so the
+    // next sport never shares a page with it.
+    const schedule = await loadSchedule();
+    try {
+      await chrome.tabs.update(state.tab_id, { url: schedule.start_url || DEFAULT_START_URL });
+      await waitForTab(state.tab_id);
+      await new Promise((r) => setTimeout(r, T.settle));
+    } catch (_) { /* tab gone: the next sport reports it */ }
+  }
+  await startSport(state);
+  return true;
+}
 
+async function endRun(state, status, message) {
+  await chrome.alarms.clear(SPORT_ALARM);
+  const cur = await loadState();
+  if (cur && cur.run_id === state.run_id && cur.status === 'RUNNING') {   // not stopped from the popup meanwhile
+    state.status = status;
+    if (message) state.message = message;
+    state.finished_at_utc = nowIso();
+    await saveState(state);
+  }
+  if (state.tab_created && state.tab_id) chrome.tabs.remove(state.tab_id).catch(() => {});
+  return true;
+}
+
+// A sport that never reported within SPORT_TIMEOUT_MS.
+async function sportTimedOut() {
+  const state = await loadState();
+  const entry = state && state.status === 'RUNNING' && current(state);
+  if (entry) await sportDone(state.run_id, entry.sport, { error: `no result after ${SPORT_TIMEOUT_MS / 60000} min` });
+}
+
+// A walk's result arriving by message: a run's sport, or a manual walk
+// from the popup (uploaded here; captures the app did not take stay for
+// download, the popup holds the result).
+async function handleWalkDone(msg) {
+  const outcome = msg.result ? { result: msg.result } : { error: msg.error || 'walk failed' };
+  if (await sportDone(msg.run_id, msg.sport, outcome)) return { handled: true };
+  if (!msg.result) return { uploaded: false, message: msg.error || 'walk failed' };
+  const sent = await uploadCapture(msg.result, msg.sport);
+  const state = (await loadState()) || { sports: [] };
+  state.last_upload = { sport: msg.sport, at_utc: nowIso(), ...sent };
+  await saveState(state);
+  return sent;
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'bet9ja:walk') scheduledWalk('schedule');
+  if (alarm.name === SPORT_ALARM) sportTimedOut();
+});
+
+// On a worker start: keep the schedule alarm, and pick a run back up. A
+// sport still walking in the page reports on its own; one whose timeout
+// alarm was lost gets it back, and one whose tab is gone ends the run.
 (async () => {
   const schedule = await loadSchedule();
   if (schedule.enabled && !(await chrome.alarms.get('bet9ja:walk'))) await applySchedule(schedule);
+  const state = await loadState();
+  const entry = state && state.status === 'RUNNING' && current(state);
+  if (!entry) return;
+  try { await chrome.tabs.get(state.tab_id); } catch (_) { return endRun(state, 'FAILED', 'The Bet9ja tab was closed.'); }
+  if (!entry.started_at_utc) return startSport(state);
+  const left = SPORT_TIMEOUT_MS - (Date.now() - Date.parse(entry.started_at_utc));
+  if (left <= 0) return sportTimedOut();
+  if (!(await chrome.alarms.get(SPORT_ALARM))) await chrome.alarms.create(SPORT_ALARM, { delayInMinutes: Math.max(0.5, left / 60000) });
 })();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -250,6 +291,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         state.status = 'STOPPED';
         state.message = 'stopped by you; a sport still walking in the page is sent to the app when it finishes';
         await saveState(state);
+        await chrome.alarms.clear(SPORT_ALARM);
         if (state.tab_created && state.tab_id) chrome.tabs.remove(state.tab_id).catch(() => {});
       }
       return { state };

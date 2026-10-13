@@ -21,6 +21,7 @@ const APP_TARGETS = ['http://localhost:8000/walker-targets.json', 'http://127.0.
 const APP_UPLOAD = ['http://localhost:8000/walker-upload', 'http://127.0.0.1:8000/walker-upload'];
 const SCHEDULE_KEY = 'publicOddsSchedule';
 const LAST_SCHEDULED_KEY = 'publicOddsLastScheduled';
+const PENDING_KEY = 'publicOddsPendingWalk';   // a scheduled walk that found another running
 const ODDSPORTAL_HOME = 'https://www.oddsportal.com/';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const nowIso = () => new Date().toISOString();
@@ -583,7 +584,12 @@ async function scheduledWalk(kind) {
   if (!schedule.enabled) return;
   const current = await loadRun();
   const s = summary(current);
-  if (s && s.status === 'RUNNING') return noteScheduled(kind, 'skipped: a walk is already running');
+  if (s && s.status === 'RUNNING') {
+    // A find-all walk over hundreds of games can outlast the interval; the
+    // walk due now runs as soon as the current one has finished.
+    await chrome.storage.local.set({ [PENDING_KEY]: kind });
+    return noteScheduled(kind, 'waiting: a walk is already running; this one starts when it finishes');
+  }
   if (current && current.status === 'RUNNING') {
     // Stalled: the page never settled, or Chrome suspended the worker mid-walk.
     // Wrap it up with what it captured so the schedule can move on.
@@ -616,13 +622,19 @@ async function scheduledWalk(kind) {
   }
 }
 
-// After any finished walk: hand it to the app; close a tab the schedule opened.
+// After any finished walk: hand it to the app; close a tab the schedule
+// opened; start the scheduled walk that was waiting for this one, if any.
 async function finishRun() {
   const run = await uploadRun();
   if (run && run.auto_tab) {
     chrome.tabs.remove(run.auto_tab).catch(() => {});
     run.auto_tab = null;
     await saveRun(run);
+  }
+  const pending = (await chrome.storage.local.get(PENDING_KEY))[PENDING_KEY];
+  if (pending) {
+    await chrome.storage.local.remove([PENDING_KEY]);
+    if ((await loadSchedule()).enabled) scheduledWalk(pending);
   }
 }
 

@@ -49,6 +49,7 @@ function loadWorker({ uploadOk = true, walkResult = (sport) => ({ schema_version
       query: async () => tabs.open.map((id) => ({ id })),
       create: async ({ url }) => { const id = nextTab++; tabs.created.push(url); return { id, url, status: 'complete' }; },
       remove: async (id) => { tabs.removed.push(id); },
+      update: async (id, { url }) => ({ id, url, status: 'complete' }),
       get: async (id) => ({ id, status: 'complete' }),
       onUpdated: { addListener: (fn) => listeners.updated.add(fn), removeListener: (fn) => listeners.updated.delete(fn) },
     },
@@ -56,8 +57,8 @@ function loadWorker({ uploadOk = true, walkResult = (sport) => ({ schema_version
       if (files) { injected.push(files); return [{ result: undefined }]; }
       const [sportId, sport, runId] = args;
       // the page-side walk: report back by message, as walkInPage does
-      setTimeout(() => ctx.chrome.runtime.sendMessage({ type: 'BET9JA_WALK_DONE', run_id: runId, sport, started: 'now',
-        result: walkResult(sport, sportId) }), 5);
+      const result = walkResult(sport, sportId);         // null: the page never reports this sport
+      if (result) setTimeout(() => ctx.chrome.runtime.sendMessage({ type: 'BET9JA_WALK_DONE', run_id: runId, sport, started: 'now', result }), 5);
       return [{ result: { ok: true, sport } }];
     } },
   };
@@ -141,8 +142,21 @@ test('stopping a background run ends it after the current sport and closes the t
   await new Promise((r) => setTimeout(r, 150));
   const after = (await w.send({ type: 'GET_BET9JA_SCHEDULE' })).state;
   assert.equal(after.status, 'STOPPED');
-  assert.ok(after.sports.length < 3);
+  assert.ok(after.sports.filter((s) => s.status).length < 3);
   assert.deepEqual([...w.tabs.removed], [40]);
+});
+
+test('a sport that never reports is timed out by its alarm and the run moves on; a restarted worker picks the run up', async () => {
+  const w = loadWorker({ walkResult: (sport) => (sport === 'soccer' ? null : { schema_version: 'bet9ja-allsports-sport-walk.v3', sport, capture_status: 'COMPLETE' }) });
+  await w.send({ type: 'SET_BET9JA_SCHEDULE', schedule: { enabled: true, sports: ['soccer', 'tennis'] } });
+  w.fire('bet9ja:walk');
+  await w.until((r) => r.state && r.state.sports[0].started_at_utc);
+  assert.ok(w.alarms['bet9ja:sport'], 'a timeout alarm guards the sport');
+  w.fire('bet9ja:sport');
+  const done = await w.until((r) => r.state && r.state.status === 'COMPLETE');
+  assert.deepEqual(done.state.sports.map((s) => [s.sport, s.status]), [['soccer', 'failed'], ['tennis', 'COMPLETE']]);
+  assert.match(done.state.sports[0].detail, /no result after/);
+  assert.equal(w.uploads.length, 1);
 });
 
 test('progress from the page shows on the sport being walked', async () => {

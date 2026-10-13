@@ -14,6 +14,10 @@ Futsal, MMA, Snooker, Squash, Table Tennis, Waterpolo, Outrights — plus
 the `TODAY` / `3H` / `24H` / `72H` / `ALL` time-window filters the site
 itself exposes.
 
+## Survives Chrome suspending the worker (0.5.0)
+
+A scheduled run used to be one long function in the extension's service worker. Chrome suspends such workers; when it did, the sport walking in the page still reported and was sent to the app, but nobody started the next sport, so a day's run delivered soccer alone. The run is now a list of sports in storage driven by events: start a sport and return; when the page reports it (or its 90-minute timeout alarm fires) record the outcome, send the capture, start the next. A restarted worker picks the run up where it was. The popup lists sports as queued, walking since HH:MM, or done.
+
 ## Runs on its own, sends to the app (0.4.0)
 
 The popup's last section, **Run automatically while Chrome is open**, walks every sport you tick every N hours (default 4) in a Bet9ja tab the walker opens itself in the background (or an open Bet9ja tab, if there is one), and sends each sport's capture to the PredictBot app over `localhost:8000/walker-upload`; the app stores it as `bet9ja-allsports-walk-<sport>-<time>.json` and prices it at once. A manual **Walk sport** is sent the same way, with the download as the fallback when the app is not running or its data folder is read-only. Chrome must be open, the app running, and the Bet9ja session signed in in this Chrome profile (the background tab shares it). **Run all sports now** starts a background run without waiting for the alarm. The walk runs inside the page and reports back by message, so a suspended extension worker still receives the result. One sport is given up after 25 minutes; a capture the app did not take is kept in the extension's storage. The default start page is `https://sports.bet9ja.com/`; if the sports sidebar does not render there, set any prematch competition page instead.
