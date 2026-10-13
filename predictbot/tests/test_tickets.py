@@ -192,6 +192,27 @@ class LedgerImportChecks(unittest.TestCase):
         self.assertNotIn("bet365", q["bookmakers"])
 
 
+class ActivityLog(unittest.TestCase):
+    def test_files_and_records_by_day(self):
+        tmp = Path(tempfile.mkdtemp())
+        df = DataFolder(tmp, host="HP")
+        caps = tmp / "captures"
+        caps.mkdir(parents=True, exist_ok=True)
+        for name in ("bet9ja-allsports-walk-soccer-2026-10-12T09-01-00-000Z.json", "bet9ja-allsports-walk-tennis-2026-10-12T09-30-00-000Z.json",
+                     "public-odds-walk-oddsportal-search-2026-10-12T11-00-00Z.json", "polymarket-feed-2026-10-12T08-00-00Z.json",
+                     "polymarket-feed-2026-10-12T12-10-00Z.json", "polymarket-feed-2026-10-11T23-50-00Z.json"):
+            (caps / name).write_text("{}", encoding="utf-8")
+        df.append("selection", [sel("e1", 0, "Alpha FC (home)", priced="2026-10-12T12:00Z"), sel("e1", 1, "Draw", priced="2026-10-12T12:00Z")])
+        today, yesterday = workflow.activity_log(df, at("2026-10-12T15:00:00Z"))
+        self.assertEqual(today["date"], "2026-10-12")
+        self.assertEqual(sorted(today["files"]), ["Bet9ja walk: soccer", "Bet9ja walk: tennis", "OddsPortal search walk", "Polymarket feed"])
+        self.assertEqual(today["files"]["Polymarket feed"], {"count": 2, "first": "08:00", "last": "12:10"})
+        self.assertEqual(today["records"]["selections priced"]["count"], 2)
+        self.assertEqual(yesterday["files"], {"Polymarket feed": {"count": 1, "first": "23:50", "last": "23:50"}})
+        self.assertEqual(yesterday["records"], {})
+        shutil.rmtree(tmp)
+
+
 class Breakdowns(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())

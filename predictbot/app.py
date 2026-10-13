@@ -225,6 +225,33 @@ def unreadable_note() -> str:
             "OneDrive and choose 'Always keep on this device', then make sure OneDrive is running and signed in.")
 
 
+def activity_table(t) -> str:
+    """Per day: which files the walkers and feeds delivered (count and
+    times, from file names) and which records the app wrote."""
+    rows = []
+    for day in workflow.activity_log(DF, t):
+        files = day["files"]
+        bet9ja = [k for k in files if k.startswith("Bet9ja walk: ")]
+        got = []
+        if bet9ja:
+            last = max(files[k]["last"] for k in bet9ja)
+            got.append(f"Bet9ja walk: {len(bet9ja)} sports ({', '.join(k[13:] for k in sorted(bet9ja))}), last {last} UTC")
+        for k in ("OddsPortal search walk", "OddsPortal results walk", "odds walk", "Polymarket feed", "Polymarket results"):
+            if k in files:
+                f = files[k]
+                got.append(f"{k}: {f['count']} ({f['first']}–{f['last']} UTC)" if f["count"] > 1 else f"{k}: 1 ({f['last']} UTC)")
+        wrote = []
+        for label, r in day["records"].items():
+            tiers = ", ".join(f"{n} {tier}" for tier, n in sorted(r["tiers"].items())) if r["tiers"] else ""
+            wrote.append(f"{r['count']} {label}" + (f" ({tiers})" if tiers else ""))
+        rows.append([e(day["date"]), "<br>".join(e(g) for g in got) or "<span class='err'>nothing arrived</span>",
+                     "<br>".join(e(w) for w in wrote) or "<span class='dim'>nothing written</span>"])
+    return (table(["Day (UTC)", "Arrived (walkers and feeds)", "Written by the app"], rows)
+            + "<p class='dim'>No Bet9ja walk means the Bet9ja walker's schedule did not run on this laptop; no OddsPortal "
+              "search walk means the odds walker's schedule did not run; no Polymarket feed means the app itself was not "
+              "running or had no internet. Times are from the file names.</p>")
+
+
 def coverage_table(status, t=None) -> str:
     rows = []
     cols = ("captured", "usable", "screened_out", "benchmarked", "unresolved", "shortlist")
@@ -291,7 +318,7 @@ def page_opportunities(msg="") -> str:
                    f"{e(old['oldest_utc'][:16].replace('T', ' '))} UTC, {e(old['oldest_file'])}); "
                    f"{old['earlier_games']} of them were played on an earlier day and are left out of the coverage "
                    "table. Move old capture files out of captures/ if they should not count.</p>")
-    out += ["<h2>Coverage by sport</h2>", coverage_table(status, t)]
+    out += ["<h2>Did anything happen today?</h2>", activity_table(t), "<h2>Coverage by sport</h2>", coverage_table(status, t)]
     if pending:
         out.append(f"<p><a href='/pending'>{pending} fixtures wait for a match review</a></p>")
     out.append(f"<h2>Shortlist ({len(short)})</h2>")

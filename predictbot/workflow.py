@@ -1071,3 +1071,44 @@ def betting_breakdown(df: DataFolder, tks: list[dict], extra_folders=()) -> dict
             "by_week": sorted(tickets.breakdown(tks, lambda t: tickets.week_start(t["placed"])),
                               key=lambda r: r["key"], reverse=True),
             "singles_by_sport": by(singles.values())}
+
+
+# ------------------------------------------------------------ daily activity
+
+STAMP = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})")
+ACTIVITY_KINDS = [("bet9ja-allsports-walk-", "Bet9ja walk"), ("public-odds-walk-oddsportal-search-", "OddsPortal search walk"),
+                  ("public-odds-walk-oddsportal-results-", "OddsPortal results walk"), ("public-odds-walk-", "odds walk"),
+                  ("polymarket-feed-", "Polymarket feed"), ("polymarket-results-", "Polymarket results")]
+
+
+def activity_log(df: DataFolder, now: datetime, days: int = 2) -> list[dict]:
+    """What arrived and what was written on each of the last `days` days,
+    newest first, from file names and record timestamps alone (no capture
+    is read): the answer to 'the app ran all day; did anything happen?'."""
+    dates = [(now - timedelta(days=d)).strftime("%Y-%m-%d") for d in range(days)]
+    out = {d: {"date": d, "files": {}, "records": {}} for d in dates}
+    for p in df.paths("*.json", (), now - timedelta(days=days)):
+        m = STAMP.search(p.name)
+        if not m or m.group(1) not in out:
+            continue
+        kind = next((label for prefix, label in ACTIVITY_KINDS if p.name.startswith(prefix)), None)
+        if not kind:
+            continue
+        if kind == "Bet9ja walk":
+            sport = p.name[len("bet9ja-allsports-walk-"):m.start()].rstrip("-")
+            kind = f"Bet9ja walk: {sport}"
+        slot = out[m.group(1)]["files"].setdefault(kind, {"count": 0, "first": "99:99", "last": "00:00"})
+        hm = f"{m.group(2)}:{m.group(3)}"
+        slot["count"] += 1
+        slot["first"], slot["last"] = min(slot["first"], hm), max(slot["last"], hm)
+    for kind, field, label in (("selection", "priced_at_utc", "selections priced"), ("settlement", "settled_at_utc", "selections settled"),
+                               ("closing", "captured_at_utc", "closing prices / snapshots stored"),
+                               ("bet", "placed_at_utc", "bets linked from tickets"), ("match_review", "decided_at_utc", "match reviews decided")):
+        for r in df.read(kind):
+            d = str(r.get(field) or "")[:10]
+            if d in out:
+                rec = out[d]["records"].setdefault(label, {"count": 0, "tiers": {}})
+                rec["count"] += 1
+                if kind == "selection":
+                    rec["tiers"][r["tier"]] = rec["tiers"].get(r["tier"], 0) + 1
+    return [out[d] for d in dates]
