@@ -203,7 +203,7 @@ class ActivityLog(unittest.TestCase):
                      "polymarket-feed-2026-10-12T12-10-00Z.json", "polymarket-feed-2026-10-11T23-50-00Z.json"):
             (caps / name).write_text("{}", encoding="utf-8")
         df.append("selection", [sel("e1", 0, "Alpha FC (home)", priced="2026-10-12T12:00Z"), sel("e1", 1, "Draw", priced="2026-10-12T12:00Z")])
-        today, yesterday = workflow.activity_log(df, at("2026-10-12T15:00:00Z"))
+        today, yesterday = workflow.activity_log(df, datetime(2026, 10, 12, 15, 0, tzinfo=timezone.utc))
         self.assertEqual(today["date"], "2026-10-12")
         self.assertEqual(sorted(today["files"]), ["Bet9ja walk: soccer", "Bet9ja walk: tennis", "OddsPortal search walk", "Polymarket feed"])
         self.assertEqual(today["files"]["Polymarket feed"], {"count": 2, "first": "08:00", "last": "12:10"})
