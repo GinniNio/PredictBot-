@@ -482,6 +482,35 @@ def results_waiting() -> str:
             + (f"<p class='err'>Not settled automatically:</p><ul>{probs}</ul>" if probs else ""))
 
 
+CLV_ROWS = 25   # best and worst selections by CLV shown on Performance
+
+
+def clv_tables(perf: dict) -> str:
+    """Which competitions and which games had the best closing line value."""
+    head = ["Group", "n", "Settled", "With CLV", "Mean CLV", "Median CLV", "CLV +/-", "Win rate", "Unit ROI"]
+    pct = lambda v, d=1: "" if v is None else f"{v * 100:+.{d}f}%"
+    comp_rows = [[e(k), v["n"], v["settled"], v["with_clv"], pct(v["mean_clv"]), pct(v["median_clv"]),
+                  f"{v['positive_clv']} / {v['negative_clv']}", pct(v["win_rate"], 0).lstrip("+"), pct(v["unit_roi"])]
+                 for k, v in perf["by_competition"].items()]
+    rows = perf["clv_rows"]
+    sel_head = ["Kickoff UTC", "Sport", "Competition", "Game", "Selection", "Tier", "Bet9ja", "Closing fair", "CLV", "Close from", "Result"]
+    row = lambda r: [e(r["kickoff_utc"][:16].replace("T", " ")), e(r["sport"]), e(r["competition"]), e(r["event_name"]),
+                     e(r["selection"]), e(r["tier"]), e(r["bookmaker_odds"]), e(r["closing_fair_odds"]), pct(r["clv_pct"]),
+                     e(f"{r['source']}, {r['snapshot_label']}"), e(r["result"])]
+    best, worst = rows[:CLV_ROWS], rows[-CLV_ROWS:][::-1] if len(rows) > CLV_ROWS else []
+    return ("<h2>Where the closing line value is</h2>"
+            f"<p class='dim'>Competitions with at least {pcbf.MIN_CLV_GROUP} closing prices, all priced tiers together, best mean CLV "
+            "first. A competition that stays positive over a few weeks is one where Bet9ja prices softly; one that stays "
+            "negative is where its margin is widest.</p>"
+            + (table(head, comp_rows, "num") if comp_rows else "<p>No competition has enough closing prices yet.</p>")
+            + f"<h3>Best {len(best)} selections by CLV</h3><p class='dim'>Bet9ja's price at pricing time against the market's "
+            "final fair price. Positive means Bet9ja paid more than the close; the result column says what happened, "
+            "which over one game is mostly luck.</p>"
+            + (table(sel_head, [row(r) for r in best], "num") if best else "<p>No closing prices yet.</p>")
+            + (f"<details><summary>Worst {len(worst)} selections by CLV</summary>" + table(sel_head, [row(r) for r in worst], "num")
+               + "</details>" if worst else ""))
+
+
 def page_performance(msg="") -> str:
     perf = perf_now()
     prob = pcbf.probability_metrics(DF.read("selection"), DF.read("settlement"))
@@ -513,6 +542,7 @@ def page_performance(msg="") -> str:
            "pre-kickoff snapshots.</p>"]
     for dim in ("sport", "market", "odds_band", "benchmark_source"):
         out.append(f"<details><summary>By {dim.replace('_', ' ')}</summary>" + table(head, rows(perf[f"by_{dim}"]), "num") + "</details>")
+    out.append(clv_tables(perf))
     b = perf["bets"]
     out.append(f"<h2>Actual wagers (separate from paper)</h2><p>{b['n']} logged against selections, {b['settled']} settled, "
                f"stake-weighted ROI {pct(b['stake_weighted_roi'])}. <a href='/bets'>Bets and Bet9ja ticket P&amp;L</a></p>")

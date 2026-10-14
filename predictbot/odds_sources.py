@@ -281,7 +281,17 @@ def quotes_from_walk(run: dict, file_name: str = "") -> list[dict]:
     key = run.get("source_key")
     quotes = []
     for cap in run.get("captures") or []:
-        if cap.get("capture_status") != "CAPTURE_OK" or cap.get("role") == "result":
+        if cap.get("role") == "result":
+            # A finished OddsPortal page (results walk) shows the closing odds.
+            # Read like any odds page, but marked: never a benchmark, only a
+            # closing price, timed at kickoff since the page gives no quote time.
+            if key == "oddsportal" and cap.get("html"):
+                for q in oddsportal_quotes(cap, run.get("browser_utc_offset_minutes")):
+                    q["closing"] = True
+                    q["closed"] = True                          # quote_problem(): never priced from
+                    quotes.append(q)
+            continue
+        if cap.get("capture_status") != "CAPTURE_OK":
             continue
         if key == "polymarket" and cap.get("role") == "event":
             quotes.extend(polymarket_quotes(cap))

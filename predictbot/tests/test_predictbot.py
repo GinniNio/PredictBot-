@@ -508,6 +508,11 @@ class EndToEnd(unittest.TestCase):
         self.assertNotIn("unlocked", perf["gate"])          # only a written evidence review changes real-money status
         self.assertEqual((perf["gate"]["true_closes"], perf["gate"]["snapshots"]), (3, 0))
         self.assertEqual(perf["by_tier"]["WATCH"]["settled"], 2)
+        rows = perf["clv_rows"]                              # every selection with a closing price, best CLV first
+        self.assertEqual(len(rows), 3)
+        self.assertEqual([r["clv_pct"] for r in rows], sorted((r["clv_pct"] for r in rows), reverse=True))
+        self.assertTrue(all(r["event_name"] and r["closing_fair_odds"] for r in rows))
+        self.assertEqual(perf["by_competition"], {})         # three closing prices: under the 10 a competition needs
 
 
 class Batching(unittest.TestCase):

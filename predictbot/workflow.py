@@ -525,14 +525,23 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
         if not kick or kick > now or s["benchmark_url"] not in by_url:
             continue
         src = pcbf.canonical_source(s["benchmark_source"])
-        later = [q for q in by_url[s["benchmark_url"]]
-                 if pcbf.canonical_source(q["source"]) == src            # an OddsPortal page also carries a Pinnacle row
-                 and all(0 < p < 1 for p in q["probs"]) and not q.get("closed")
+        same = [q for q in by_url[s["benchmark_url"]]
+                if pcbf.canonical_source(q["source"]) == src            # an OddsPortal page also carries a Pinnacle row
+                and all(0 < p < 1 for p in q["probs"])]
+        # The closing odds read off the finished page (results walk) are the
+        # true close; otherwise the last quote captured before kickoff.
+        closing = [q for q in same if q.get("closing")]
+        later = [q for q in same if not q.get("closing") and not q.get("closed")
                  and (pcbf.parse_time(q["captured_at_utc"]) or kick) < kick
                  and (not bench_t or pcbf.parse_time(q["captured_at_utc"]) > bench_t)]
-        if not later:
+        if closing:
+            q = max(closing, key=lambda q: q["captured_at_utc"])
+            quote_time = kick - timedelta(minutes=1)
+        elif later:
+            q = max(later, key=lambda q: q["captured_at_utc"])
+            quote_time = pcbf.parse_time(q["captured_at_utc"])
+        else:
             continue
-        q = max(later, key=lambda q: q["captured_at_utc"])
         home, _, away = s["event_name"].partition(" v ")
         cand = {"event_id": s["selection_id"], "sport": s["sport"], "kickoff_utc": s["kickoff_utc"],
                 "home": home, "away": away, "outcomes": [""] * (3 if s["market"] == pcbf.THREE_WAY else 2)}
@@ -540,8 +549,9 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
         if not m:
             continue
         prices = [1 / q["probs"][i] for i in m[0]["order"]]
-        rec, err = pcbf.closing_record(s, q["source"], q["url"], pcbf.parse_time(q["captured_at_utc"]), prices,
-                                       f"auto: {q['source']} capture {q.get('file') or ''}".strip())
+        rec, err = pcbf.closing_record(s, q["source"], q["url"], quote_time, prices,
+                                       (f"closing odds on the finished page: {q.get('file') or ''}" if q.get("closing")
+                                        else f"auto: {q['source']} capture {q.get('file') or ''}").strip())
         if rec:
             new.append(rec)
             have.add(s["selection_record_id"])

@@ -342,9 +342,15 @@ async function visitResult(run, target) {
   const ready = await waitResult(run.tab_id);
   run.counts.visited += 1;
   if (ready.state === 'FINAL') {
+    // The finished page still shows every bookmaker's last pre-kickoff
+    // price: the closing odds. Captured with the result so the app can
+    // measure closing line value against OddsPortal, not Polymarket alone.
+    let page = {};
+    try { page = await callPage(run.tab_id, 'capture'); } catch (_) { /* result without odds is still a result */ }
     await storeCapture(run, { role: 'result', capture_status: 'RESULT_OK', source_url: target.url,
       captured_at_utc: nowIso(), final_result_raw: ready.final_result_raw, kickoff_raw: ready.kickoff_raw,
-      target: target.target || null });
+      target: target.target || null,
+      ...(page.capture_status === 'CAPTURE_OK' ? { page_title: page.page_title, html: page.html, html_mode: page.html_mode } : {}) });
     run.counts.results += 1;
   } else {
     run.counts[ready.state === 'NOT_FINAL' ? 'not_final' : 'no_result'] += 1;

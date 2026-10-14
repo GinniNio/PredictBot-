@@ -156,6 +156,35 @@ class SettleFromResults(unittest.TestCase):
         self.assertEqual(got["sel_e1_1_12"][0], "WIN")                    # 1:1 after 90 minutes: draw
         self.assertTrue(got["sel_e1_1_12"][1].startswith("oddsportal result"))
 
+    def test_closing_odds_on_the_finished_page_become_the_closing_price(self):
+        import odds_sources
+        op = "https://www.oddsportal.com/football/h2h/alpha-AAAAAAAA/beta-BBBBBBBB/"
+        books = [[2.10, 3.40, 3.60], [2.05, 3.50, 3.50], [2.15, 3.30, 3.70]]
+        html = ("<body><div>07 Oct 2026,</div><div>21:00</div><div>Final result 2:2 (1:1, 1:1)</div><div>Bookmakers</div>"
+                "<div>1</div><div>X</div><div>2</div><div>Payout</div>"
+                + "".join(f"<div>b{i}</div><p>{a}</p><p>{x}</p><p>{c}</p><p>{100 / (1 / a + 1 / x + 1 / c):.1f}%</p>"
+                          for i, (a, x, c) in enumerate(books)) + "<div>My coupon</div></body>")
+        run = {"source_key": "oddsportal", "mode": "results", "browser_utc_offset_minutes": 120,
+               "captures": [{"role": "result", "capture_status": "RESULT_OK", "source_url": op + "#Xy12",
+                             "captured_at_utc": "2026-10-07T22:30:00Z", "final_result_raw": "Final result 2:2 (1:1, 1:1)",
+                             "kickoff_raw": "07 Oct 2026, 21:00", "page_title": "Alpha - Beta United Odds, Predictions & H2H",
+                             "html": html}]}
+        quotes = odds_sources.quotes_from_walk(run, "results.json")
+        self.assertEqual([q["source"] for q in quotes], ["oddsportal"])
+        self.assertTrue(quotes[0]["closing"] and quotes[0]["closed"])     # a closing price, never a benchmark
+        sels = self.df.read("selection")
+        for r in sels:
+            r["benchmark_url"] = op if r["sport"] == "soccer" else ""
+        self.df.append("selection", [])                                   # (records above are in-memory copies)
+        with mock.patch.object(self.df, "read", lambda kind: sels if kind == "selection" else []):
+            with mock.patch.object(self.df, "append", lambda kind, rows: setattr(self, "closes", rows)):
+                new = workflow.snapshot_closes(self.df, NOW, quotes)
+        self.assertEqual(len(new), 3)
+        self.assertEqual({c["snapshot_label"] for c in new}, {"closing price"})
+        self.assertEqual(new[0]["quote_time_utc"], "2026-10-07T18:59Z")   # one minute before the 19:00 kickoff
+        self.assertTrue(new[0]["origin"].startswith("closing odds on the finished page"))
+        self.assertAlmostEqual(float(new[0]["closing_fair_odds"]), 2.20, delta=0.03)   # 2.10 with the 4.8% margin removed
+
     def test_oddsportal_page_for_another_date_is_not_used(self):
         op = "https://www.oddsportal.com/football/h2h/alpha-AAAAAAAA/beta-BBBBBBBB/"
         quotes = [{"source": "oddsportal", "url": op, "sport": "soccer", "start_utc": "2026-10-07T19:00Z",

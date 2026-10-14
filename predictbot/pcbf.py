@@ -700,6 +700,9 @@ def build_settle_pack(selections: list[dict], settled_ids: set, now: datetime,
 
 # ---------------------------------------------------------------- reporting
 
+MIN_CLV_GROUP = 10    # closing prices a competition needs before its mean CLV is shown
+
+
 def odds_band(o: float) -> str:
     for hi, label in ((1.5, "<1.50"), (2.0, "1.50-1.99"), (3.0, "2.00-2.99"), (5.0, "3.00-4.99")):
         if o < hi:
@@ -819,6 +822,28 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
         for s in priced:
             groups.setdefault((s["tier"], fn(s)), []).append(s)
         out[f"by_{dim}"] = {f"{t} | {k}": summarise(v) for (t, k), v in sorted(groups.items())}
+    # Where Bet9ja is soft: competitions (all priced tiers together) with
+    # enough closing prices to mean something, best mean CLV first.
+    comps = {}
+    for s in priced:
+        comps.setdefault(f"{s['sport']} | {s.get('competition') or '?'}", []).append(s)
+    by_comp = {k: summarise(v) for k, v in comps.items()}
+    out["by_competition"] = dict(sorted(((k, v) for k, v in by_comp.items() if v["with_clv"] >= MIN_CLV_GROUP),
+                                        key=lambda kv: -kv[1]["mean_clv"]))
+    # Every selection with a closing price, best CLV first: the games where
+    # Bet9ja's price beat the market's final opinion.
+    rows = []
+    for s in priced:
+        c = cl.get(s["selection_record_id"])
+        if not c:
+            continue
+        r = st.get(s["selection_record_id"])
+        rows.append({"kickoff_utc": s.get("kickoff_utc") or "", "sport": s["sport"], "competition": s.get("competition") or "",
+                     "event_name": s.get("event_name") or "", "selection": s.get("selection") or "", "tier": s["tier"],
+                     "bookmaker_odds": s["bookmaker_odds"], "closing_fair_odds": c["closing_fair_odds"],
+                     "clv_pct": float(c["clv_pct"]), "snapshot_label": c.get("snapshot_label", "closing price"),
+                     "source": c.get("source") or s.get("benchmark_source") or "", "result": r["result"] if r else ""})
+    out["clv_rows"] = sorted(rows, key=lambda r: -r["clv_pct"])
     # Inputs to the written evidence review. Nothing unlocks automatically.
     p = out["by_tier"]["PICK"]
     out["gate"] = {

@@ -27,7 +27,7 @@ Stop it with the **Stop PredictBot** button (top right) before switching laptops
    - **No benchmark yet**: capture those sports on OddsPortal or Polymarket, or send them to a chat as a research pack (optional).
    - **Settlement**: finished games settle themselves (see **Results** below). Pending lists the ones still waiting and why. A settlement pack through a chat is only for what is left.
    - **Handover** and **OneDrive conflicts** when they occur.
-4. **Performance.** Forecast quality, paper results, actual wagers, and the written evidence review.
+4. **Performance.** Forecast quality, paper results, where the closing line value is (competitions with at least 10 closing prices ranked by mean CLV, and the best and worst 25 selections by CLV with their result), actual wagers, and the written evidence review. Closing prices come from the last Polymarket quote before kickoff and, since odds walker 0.6.4, from the closing odds the results walk reads off the finished OddsPortal page.
 5. **Bets.** Your real betting from the open and settled bet captures: every ticket's P&L in total, by week placed and by sport, plus the singles placed on games the app logged, by sport. Ticket captures have no sport, so it is found by matching the teams (or a competition that belongs to one sport) to your Bet9ja sport walks; tickets mixing sports show as *mixed*, games never walked as *unknown*.
 
 An empty shortlist is a valid result. Missing data is shown with a reason, never filled in.
