@@ -69,6 +69,7 @@ def _stamp(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 
+_READ_CACHE: dict = {}            # (path, size, mtime) -> parsed rows of a record file
 UNREADABLE: dict[str, str] = {}   # path -> error, for files the OS would not hand over (e.g. OneDrive cloud-only placeholders)
 
 
@@ -300,11 +301,21 @@ class DataFolder:
 
     # ------------------------------------------------------------- records
     def read(self, kind: str) -> list[dict]:
+        """Every record of a kind. Parsed once per file version: the pages
+        and every update step read the same files many times a minute."""
         p = self.path(kind)
-        if not p.exists():
+        try:
+            st = p.stat()
+        except OSError:
             return []
-        with p.open(newline="", encoding="utf-8") as f:
-            return list(csv.DictReader(f))
+        key = (str(p), st.st_size, st.st_mtime_ns)
+        rows = _READ_CACHE.get(key)
+        if rows is None:
+            with p.open(newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            _READ_CACHE.clear()                      # one live version per file is plenty
+            _READ_CACHE[key] = rows
+        return [dict(r) for r in rows]               # callers may edit their copies
 
     def append(self, kind: str, records: list[dict]) -> int:
         if not records:

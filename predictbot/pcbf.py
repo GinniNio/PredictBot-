@@ -27,7 +27,8 @@ BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker", "oddsapi", "polyma
 # rules under evaluation, not settled policy.
 # The only pages a benchmark may come from (rulebook v1.4.2). A "Pinnacle"
 # price quoted on a preview or aggregator page is not a benchmark.
-BENCHMARK_HOSTS = ("pinnacle.com", "oddsportal.com", "oddschecker.com", "polymarket.com")
+BENCHMARK_HOSTS = ("pinnacle.com", "oddsportal.com", "oddschecker.com", "polymarket.com", "the-odds-api.com")   # the-odds-api.com: operator, 2026-10-14
+HOSTS_TEXT = ", ".join(BENCHMARK_HOSTS[:-1]) + " or " + BENCHMARK_HOSTS[-1]
 MAX_PM_QUOTE_AGE = timedelta(hours=2)   # Polymarket quote vs Bet9ja capture
 CLOSE_WINDOW = timedelta(minutes=5)    # a quote this close to kickoff counts as the closing price
 
@@ -536,8 +537,7 @@ def price_benchmark(captures: list[dict], fields: list[str], now: datetime, pack
     check, check_note = settlement_check(source, captures[0]["sport"], captures[0]["market"], rules)
     if url.lower().startswith("http") and not benchmark_host_ok(url):
         site = re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
-        return [record(c, "RESEARCH", reason=f"benchmark page {site} is not pinnacle.com, oddsportal.com, oddschecker.com "
-                                                "or polymarket.com", note=note, url=url) for c in captures]
+        return [record(c, "RESEARCH", reason=f"benchmark page {site} is not {HOSTS_TEXT}", note=note, url=url) for c in captures]
     reason = None
     if not url.lower().startswith("http"):
         reason = "missing source URL"
@@ -940,7 +940,7 @@ def from_pcbf_row(row: dict, now: datetime) -> tuple[dict, dict]:
         site = re.sub(r"^https?://(www\.)?", "", row["benchmark_url"]).split("/")[0]
         rec = {**base, "benchmark_source": "", "benchmark_odds": "", "fair_odds": "", "edge_pct": "", "tier": "RESEARCH",
                "validation_status": "NO_BENCHMARK", "caution_flags": "", "stake_notional": "",
-               "rejection_reason": f"no benchmark: page {site} is not pinnacle.com, oddsportal.com, oddschecker.com or polymarket.com"}
+               "rejection_reason": f"no benchmark: page {site} is not {HOSTS_TEXT}"}
         return cap, rec
     fair, e = edge(float(row["bet9ja_odds"]), bench, idx)
     url = row.get("benchmark_url", "").lower()

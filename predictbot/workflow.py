@@ -317,7 +317,7 @@ def _quotes_in(paths) -> list[dict]:
                 except OSError:
                     pass                                 # no cache is only slower, never wrong
             _QUOTE_CACHE[key] = parsed
-        quotes.extend(dict(q) for q in _QUOTE_CACHE[key])
+        quotes.extend(_QUOTE_CACHE[key])            # shared, never mutated after parsing
     return odds_sources.QuoteList(quotes)
 
 

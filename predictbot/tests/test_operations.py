@@ -546,6 +546,25 @@ class OddsApiFeed(unittest.TestCase):
         self.assertIsNone(odds_sources.quote_problem(pin))
         self.assertIn("only 3 bookmakers", odds_sources.quote_problem(mean))
 
+    def test_a_bet9ja_fixture_is_priced_from_the_api_pinnacle_row(self):
+        """The path that crashed on 14 Oct: an 'oddsapi' / 'pinnacle' quote
+        reaching reply_fields(), which only knew OddsPortal and Polymarket."""
+        books = [("pinnacle", "Pinnacle", [2.10, 3.60, 3.40]), ("unibet_eu", "Unibet", [2.05, 3.50, 3.50]),
+                 ("onexbet", "1xBet", [2.12, 3.55, 3.45]), ("williamhill", "William Hill", [2.08, 3.50, 3.50]),
+                 ("betsson", "Betsson", [2.10, 3.55, 3.40])]
+        fake = self.opener([[self.event("Arsenal", "Chelsea", books)], []])
+        feeds.fetch_odds_api(self.df, self.now, opener=fake, pause=0)
+        w = walker("soccer", [("1x2", [2.30, 3.40, 3.20])], home="Arsenal", away="Chelsea", fid="9")
+        w["captured_at_utc"] = w["results"][0]["captured_at_utc"] = "2026-10-14T09:00:00.000Z"
+        w["results"][0]["fixtures"][0]["kickoff_utc_derived"] = "2026-10-14T19:00:00.000Z"
+        (self.tmp / "captures" / "bet9ja-allsports-walk-soccer-2026-10-14T09-00-00-000Z.json").write_text(json.dumps(w))
+        r = workflow.auto_benchmark(self.df, self.now)
+        self.assertEqual(len(r["records"]), 3)
+        self.assertEqual({x["benchmark_source"] for x in r["records"]}, {"pinnacle"})
+        self.assertIn("Pinnacle via The Odds API", r["records"][0]["note"] if "note" in r["records"][0] else "Pinnacle via The Odds API")
+        home = next(x for x in r["records"] if x["selection_index"] == "0")
+        self.assertEqual(home["tier"], "PICK")                                   # 2.30 against a 2.10 Pinnacle price
+
     def test_no_key_means_off_and_a_dead_key_backs_off(self):
         (self.tmp / feeds.ODDS_API_CONFIG).unlink()
         self.assertEqual(feeds.fetch_odds_api(self.df, self.now)["status"], "off")

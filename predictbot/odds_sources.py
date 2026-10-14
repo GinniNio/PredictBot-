@@ -575,10 +575,12 @@ def reply_fields(q: dict, order: list[int]) -> list[str]:
         note = "oddsportal: mean of %d bookmakers' cautious de-vigged probabilities%s" % (q["bookmaker_count"], "" if q["start_utc"] else
                                                            "; kickoff time not on page in UTC, matched by names + date")
         return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices), note]
-    if q["source"] == "pinnacle":
-        return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices),
-                "Pinnacle row on OddsPortal page"]
-    mids = " / ".join("%.3f" % q["probs"][i] for i in order)
-    spread = "" if q["spread"] is None else ", spread %.3f" % q["spread"]
-    note = "polymarket mid %s, volume $%s%s" % (mids, format(round(q["volume"]), ","), spread)
+    if q["source"] == "polymarket":
+        mids = " / ".join("%.3f" % q["probs"][i] for i in order)
+        spread = "" if q.get("spread") is None else ", spread %.3f" % q["spread"]
+        volume = "unknown" if q.get("volume") is None else format(round(q["volume"]), ",")
+        note = "polymarket mid %s, volume $%s%s" % (mids, volume, spread)
+        return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices), note]
+    # pinnacle (on an OddsPortal page or via The Odds API), oddsapi, oddschecker: the quote says what it is
+    note = q.get("price_basis") or ("Pinnacle row on OddsPortal page" if q["source"] == "pinnacle" else q["source"])
     return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices), note]

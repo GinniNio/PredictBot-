@@ -171,27 +171,37 @@ def accept_walk(raw: bytes) -> dict:
     if blocked():
         raise InvalidRecord("data folder is read-only: " + blocked())
     path = DF.save_capture(name, raw)
-    return {"saved": path.name, "message": update_now()}
+    # The capture is saved: whatever happens next, the walker must not resend it.
+    try:
+        return {"saved": path.name, "message": update_now(light=True)}
+    except Exception as exc:
+        return {"saved": path.name, "message": f"saved; pricing failed: {type(exc).__name__}: {exc}"}
 
 
-def update_now() -> str:
+def update_now(light: bool = False) -> str:
     """Import new captures and price them; one at a time, and the fixture
-    picture the pages show is refreshed afterwards."""
+    picture the pages show is refreshed afterwards. `light` (a walker just
+    delivered a capture) prices and refreshes only: the feeds, tickets and
+    results wait for the timer."""
     steps, t0 = [], time.perf_counter()
     with UPDATE_LOCK:
         try:
-            return _update_now(steps)
+            return _update_now(steps, light)
         finally:
             status = timed("picture", steps, lambda: workflow.day_status(DF, now(), [DOWNLOADS]))
             SNAPSHOT.update(status=status, at=now())
             print(f"update {pcbf.utc(now())[11:16]} UTC took {time.perf_counter() - t0:.1f}s: {', '.join(steps)}")
 
 
-def _update_now(steps: list) -> str:
-    imported = timed("import", steps, lambda: DF.import_captures(DOWNLOADS))
+def _update_now(steps: list, light: bool = False) -> str:
+    imported = 0 if light else timed("import", steps, lambda: DF.import_captures(DOWNLOADS))
     msg = [f"{imported} new capture files from Downloads" if imported else "no new capture files"]
     if blocked():
         return "; ".join(msg) + ". Pricing paused: data folder is read-only (see Pending)." + unreadable_note()
+    if light:
+        r = timed("pricing", steps, lambda: workflow.auto_benchmark(DF, now(), [DOWNLOADS]))
+        events = {x["selection_id"].rsplit(":", 1)[0] for x in r["records"]}
+        return f"{len(events)} fixtures priced from captured odds pages" + (f"; {len(r['review'])} matches wait for review" if r["review"] else "") + "."
     f = timed("polymarket", steps, lambda: feeds.fetch_polymarket(DF, now()))
     if f["status"] == "fetched":
         msg.append(f"Polymarket feed: {f['events']} upcoming games" + (f" (partial: {f['error']})" if f["error"] else ""))
