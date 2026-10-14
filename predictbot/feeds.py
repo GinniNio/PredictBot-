@@ -171,3 +171,132 @@ def fetch_polymarket_results(df: DataFolder, now: datetime, slugs, force: bool =
                                       "note": "finished games the app logged; moneyline markets with resolution status",
                                       "events": events}, ensure_ascii=False).encode("utf-8"))
     return {"status": "fetched", "events": len(events), "file": name, "error": error}
+
+
+# ------------------------------------------------------------ The Odds API
+#
+# the-odds-api.com: one request returns every upcoming game of one sport
+# key (a league, mostly) in one bookmaker region, every bookmaker's prices.
+# Pinnacle is in the EU region, so this is the rulebook's first-choice
+# benchmark without a page load. The key lives in the data folder
+# (the-odds-api.json: {"key": "...", "every_hours": 3, "sports": [...]}),
+# never in git and never in a saved capture.
+
+ODDS_API = "https://api.the-odds-api.com/v4"
+ODDS_API_CONFIG = "the-odds-api.json"
+ODDS_API_EVERY_HOURS = 3
+ODDS_API_REGION = "eu"
+# Sport keys fetched by default: the leagues Bet9ja and the API both list
+# (all 22 checked against the API's sports list on 14 Oct 2026). 22 keys
+# every 3 hours is ~5,300 requests a month (the $30 tier); on the free 500
+# the fetcher paces itself to about once a day (odds_api_interval).
+ODDS_API_DEFAULT_SPORTS = [
+    "soccer_epl", "soccer_efl_champ", "soccer_spain_la_liga", "soccer_italy_serie_a", "soccer_germany_bundesliga",
+    "soccer_france_ligue_one", "soccer_netherlands_eredivisie", "soccer_portugal_primeira_liga", "soccer_turkey_super_league",
+    "soccer_uefa_champs_league", "soccer_uefa_europa_league", "soccer_uefa_europa_conference_league",
+    "soccer_brazil_campeonato", "soccer_usa_mls", "soccer_spain_segunda_division", "soccer_italy_serie_b",
+    "basketball_nba", "basketball_euroleague", "icehockey_nhl", "baseball_mlb", "americanfootball_nfl",
+    "mma_mixed_martial_arts",
+]
+
+
+def odds_api_config(df: DataFolder) -> dict | None:
+    """The operator's settings, or None when there is no key file."""
+    try:
+        cfg = json.loads((df.root / ODDS_API_CONFIG).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(cfg, dict) or not str(cfg.get("key") or "").strip():
+        return None
+    return {"key": str(cfg["key"]).strip(), "every_hours": float(cfg.get("every_hours") or ODDS_API_EVERY_HOURS),
+            "sports": list(cfg.get("sports") or ODDS_API_DEFAULT_SPORTS), "region": str(cfg.get("region") or ODDS_API_REGION)}
+
+
+def last_odds_api_fetch(df: DataFolder) -> tuple[datetime | None, int | None]:
+    """(time of the last fetch, requests the API said were left then)."""
+    files = sorted((df.root / "captures").glob("the-odds-api-*.json"))
+    if not files:
+        return None, None
+    try:
+        when = datetime.strptime(files[-1].stem[len("the-odds-api-"):], "%Y-%m-%dT%H-%M-%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None, None
+    try:
+        left = json.loads(files[-1].read_text(encoding="utf-8")).get("requests_remaining")
+        return when, int(left) if left is not None else None
+    except (OSError, ValueError, TypeError):
+        return when, None
+
+
+def odds_api_interval(cfg: dict, now: datetime, remaining: int | None) -> float:
+    """Hours between fetches: the configured interval, stretched so the
+    requests left this month last until the month ends (the quota resets
+    monthly; one fetch costs one request per sport key)."""
+    if remaining is None:
+        return cfg["every_hours"]
+    nxt = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) + timedelta(days=32)).replace(day=1)
+    hours_left = max((nxt - now).total_seconds() / 3600, 1.0)
+    fetches_left = max(remaining // max(len(cfg["sports"]), 1), 0)
+    if fetches_left == 0:
+        return hours_left + 1                      # nothing left: wait for the reset
+    return max(cfg["every_hours"], hours_left / fetches_left)
+
+
+def fetch_odds_api(df: DataFolder, now: datetime, force: bool = False, opener=None, pause: float = 0.2) -> dict:
+    """Fetch every configured sport key's h2h odds and save them as one
+    capture. Returns {'status': 'off' | 'fetched' | 'recent' | 'failed',
+    'events', 'requests', 'remaining', 'file', 'error'}. The saved file
+    carries no URL (the key is in the query string)."""
+    cfg = odds_api_config(df)
+    if not cfg:
+        return {"status": "off", "events": 0, "requests": 0, "remaining": None, "file": None, "error": ""}
+    prev, left = last_odds_api_fetch(df)
+    if not force and prev and now - prev < timedelta(hours=odds_api_interval(cfg, now, left)):
+        return {"status": "recent", "events": 0, "requests": 0, "remaining": left, "file": None, "error": "", "last": prev}
+    if not force and _backing_off(df, "oddsapi", now):
+        return {"status": "recent", "events": 0, "requests": 0, "remaining": None, "file": None, "error": "", "last": prev}
+    opener = opener or (lambda url: urllib.request.urlopen(
+        urllib.request.Request(url, headers={"User-Agent": "PredictBot (personal, read-only)"}), timeout=30))
+    events, errors, remaining, used = [], [], None, None
+    for key in cfg["sports"]:
+        url = f"{ODDS_API}/sports/{urllib.parse.quote(key)}/odds?" + urllib.parse.urlencode({
+            "apiKey": cfg["key"], "regions": cfg["region"], "markets": "h2h", "oddsFormat": "decimal", "dateFormat": "iso"})
+        try:
+            with opener(url) as r:
+                batch = json.loads(r.read().decode("utf-8"))
+                headers = getattr(r, "headers", None) or {}
+                remaining = headers.get("x-requests-remaining", remaining)
+                used = headers.get("x-requests-used", used)
+        except Exception as exc:  # one league failing never loses the others
+            errors.append(f"{key}: {type(exc).__name__}: {str(exc).replace(cfg['key'], '***')}")
+            if "401" in str(exc) or "429" in str(exc):          # bad key or quota: stop asking
+                break
+            continue
+        if isinstance(batch, list):
+            events.extend(_trim_odds_api(ev, key) for ev in batch if isinstance(ev, dict))
+        if pause:
+            time.sleep(pause)
+    error = "; ".join(errors)
+    if not events and error:
+        _FAILED[(str(df.root), "oddsapi")] = now
+        return {"status": "failed", "events": 0, "requests": len(cfg["sports"]), "remaining": remaining, "file": None, "error": error}
+    _FAILED.pop((str(df.root), "oddsapi"), None)
+    name = f"the-odds-api-{now.astimezone(timezone.utc).strftime('%Y-%m-%dT%H-%M-%SZ')}.json"
+    df.save_capture(name, json.dumps({"schema_version": "the-odds-api-h2h.v1", "fetched_at_utc": _stamp(now),
+                                      "region": cfg["region"], "sports": cfg["sports"], "requests_remaining": remaining,
+                                      "requests_used": used, "error": error, "events": events}).encode("utf-8"))
+    return {"status": "fetched", "events": len(events), "requests": len(cfg["sports"]), "remaining": remaining,
+            "file": name, "error": error}
+
+
+def _trim_odds_api(ev: dict, sport_key: str) -> dict:
+    """The event's identity, timing and every bookmaker's h2h prices."""
+    books = []
+    for b in ev.get("bookmakers") or []:
+        h2h = next((m for m in b.get("markets") or [] if m.get("key") == "h2h"), None)
+        if h2h:
+            books.append({"key": b.get("key"), "title": b.get("title"), "last_update": b.get("last_update"),
+                          "outcomes": [{"name": o.get("name"), "price": o.get("price")} for o in h2h.get("outcomes") or []]})
+    return {"id": ev.get("id"), "sport_key": ev.get("sport_key") or sport_key, "sport_title": ev.get("sport_title"),
+            "commence_time": ev.get("commence_time"), "home_team": ev.get("home_team"), "away_team": ev.get("away_team"),
+            "bookmakers": books}

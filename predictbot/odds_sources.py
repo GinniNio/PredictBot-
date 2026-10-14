@@ -29,7 +29,7 @@ from pcbf import devig_power, devig_prop, parse_time, utc
 # 7 Oct 2026). Rules under evaluation.
 MAX_POLYMARKET_SPREAD = 0.04       # best ask - best bid; wider = RESEARCH
 MIN_POLYMARKET_LIQUIDITY = 5000.0  # USD resting liquidity on the thinnest leg; shallower or unknown = RESEARCH
-SOURCE_PRIORITY = ("pinnacle", "oddsportal", "oddschecker", "polymarket")   # PCBF Mini order
+SOURCE_PRIORITY = ("pinnacle", "oddsportal", "oddschecker", "oddsapi", "polymarket")   # PCBF Mini order; oddsapi added 2026-10-14
 KICKOFF_TOLERANCE = timedelta(hours=3)
 
 LEAGUE_SPORT = {"soccer": "soccer", "fif": "soccer", "unl": "soccer", "ucl": "soccer", "uel": "soccer", "fifa": "soccer",
@@ -277,6 +277,66 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     return out
 
 
+# The Odds API sport keys start with the sport; the rest names the league.
+ODDS_API_SPORT = {"soccer": "soccer", "basketball": "basketball", "icehockey": "ice_hockey", "baseball": "baseball",
+                  "americanfootball": "american_football", "mma": "mma", "cricket": "cricket", "tennis": "tennis",
+                  "boxing": "boxing", "rugbyleague": "rugby_league", "rugbyunion": "rugby_union", "aussierules": "aussie_rules"}
+EXCHANGE_KEYS = ("betfair_ex", "matchbook", "smarkets")   # exchange prices are not bookmaker prices
+
+
+def _devig_mean(rows: list) -> list[float]:
+    """Each book de-vigged with the rulebook's cautious de-vig, then averaged
+    (the same benchmark as an OddsPortal page)."""
+    per_book = [[min(a, b) for a, b in zip(devig_prop(odds), devig_power(odds))] for odds in rows]
+    return [sum(v[k] for v in per_book) / len(per_book) for k in range(len(rows[0]))]
+
+
+def quotes_from_odds_api(feed: dict, file_name: str = "") -> list[dict]:
+    """Per event in a saved The Odds API capture: the mean of the bookmakers'
+    cautious de-vigged probabilities (source 'oddsapi') and, when Pinnacle
+    is among them, its own row (source 'pinnacle'). Outcomes are in Bet9ja's
+    order: home, [draw,] away."""
+    taken = utc(parse_time(feed.get("fetched_at_utc")))
+    out = []
+    for ev in feed.get("events") or []:
+        sport = ODDS_API_SPORT.get(str(ev.get("sport_key") or "").split("_")[0])
+        home, away = ev.get("home_team"), ev.get("away_team")
+        if not sport or not home or not away:
+            continue
+        books = [b for b in ev.get("bookmakers") or [] if not any(x in str(b.get("key") or "") for x in EXCHANGE_KEYS)
+                 and "bet9ja" not in str(b.get("key") or "")]
+        draw = any(o.get("name") == "Draw" for b in books for o in b.get("outcomes") or [])
+        names = [home, "Draw", away] if draw else [home, away]
+        rows = []
+        for b in books:
+            prices = {o.get("name"): o.get("price") for o in b.get("outcomes") or []}
+            try:
+                odds = [float(prices[n]) for n in names]
+            except (KeyError, TypeError, ValueError):
+                continue
+            if all(o > 1 for o in odds):
+                rows.append((b.get("title") or b.get("key") or "?", str(b.get("key") or ""), odds))
+        if not rows:
+            continue
+        start = parse_time(ev.get("commence_time"))
+        url = f"{feed.get('source') or 'https://api.the-odds-api.com/v4'}/sports/{ev.get('sport_key')}/odds#{ev.get('id')}"
+        base = {"url": url, "page_url": url, "league": ev.get("sport_title") or "", "sport": sport,
+                "captured_at_utc": taken, "quote_time_utc": taken, "start_utc": utc(start), "outcomes": names,
+                "volume": None, "spread": None, "closed": False, "file": file_name,
+                "live": bool(start and parse_time(taken) and parse_time(taken) >= start)}
+        avg = [sum(r[2][k] for r in rows) / len(rows) for k in range(len(names))]
+        out.append(_finish({**base, "source": "oddsapi", "probs": _devig_mean([r[2] for r in rows]),
+                            "odds": [round(o, 3) for o in avg], "bookmakers": "; ".join(r[0] for r in rows),
+                            "bookmaker_count": len(rows), "depth": len(rows),
+                            "price_basis": f"mean of {len(rows)} bookmakers' cautious de-vigged probabilities (The Odds API)"}))
+        pin = next((r for r in rows if r[1].startswith("pinnacle")), None)
+        if pin:
+            out.append(_finish({**base, "source": "pinnacle", "probs": [1 / o for o in pin[2]], "odds": pin[2],
+                                "bookmakers": pin[0], "bookmaker_count": 1, "depth": 1,
+                                "price_basis": "Pinnacle via The Odds API"}))
+    return out
+
+
 def quotes_from_walk(run: dict, file_name: str = "") -> list[dict]:
     key = run.get("source_key")
     quotes = []
@@ -317,7 +377,7 @@ def quote_problem(q: dict) -> str | None:
         return "event start time not readable: cannot rule out an in-play price"
     if start and taken and taken >= start:
         return "captured after the event started (in-play price)"
-    if q["source"] == "oddsportal":
+    if q["source"] in ("oddsportal", "oddsapi"):
         if q["bookmaker_count"] < MIN_ODDSPORTAL_BOOKMAKERS:
             return f"only {q['bookmaker_count']} bookmakers listed (< {MIN_ODDSPORTAL_BOOKMAKERS})"
         return None

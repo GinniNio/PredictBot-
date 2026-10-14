@@ -21,7 +21,7 @@ GATE_PICKS = 200                      # PCBF Mini step 5
 MAX_CAPTURE_BENCHMARK_GAP = timedelta(hours=6)
 CLOCK_SKEW = timedelta(minutes=10)
 MIN_LEAD = timedelta(minutes=60)      # too close to kickoff to research and benchmark
-BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker", "polymarket")   # polymarket added by the operator 2026-10-05
+BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker", "oddsapi", "polymarket")   # polymarket added by the operator 2026-10-05; oddsapi (The Odds API) 2026-10-14
 # Polymarket-only opportunities are a separate paper tier (PM_PAPER) until an
 # evidence review allows them as PICKs (operator, 2026-10-06). These are
 # rules under evaluation, not settled policy.

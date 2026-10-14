@@ -197,6 +197,13 @@ def _update_now(steps: list) -> str:
         msg.append(f"Polymarket feed: {f['events']} upcoming games" + (f" (partial: {f['error']})" if f["error"] else ""))
     elif f["status"] == "failed":
         msg.append(f"Polymarket feed unavailable ({f['error']}); using earlier fetches")
+    o = timed("odds api", steps, lambda: feeds.fetch_odds_api(DF, now()))
+    if o["status"] == "fetched":
+        msg.append(f"The Odds API: {o['events']} games from {o['requests']} requests"
+                   + (f", {o['remaining']} requests left this month" if o["remaining"] is not None else "")
+                   + (f" (partial: {o['error']})" if o["error"] else ""))
+    elif o["status"] == "failed":
+        msg.append(f"The Odds API unavailable ({o['error']})")
     t = timed("tickets", steps, lambda: workflow.sync_tickets(DF, now(), [DOWNLOADS]))
     if t["bets"] or t["settled"]:
         msg.append(f"Bet9ja tickets: {t['bets']} bets linked, {t['settled']} selections settled")
@@ -236,7 +243,7 @@ def activity_table(t) -> str:
         if bet9ja:
             last = max(files[k]["last"] for k in bet9ja)
             got.append(f"Bet9ja walk: {len(bet9ja)} sports ({', '.join(k[13:] for k in sorted(bet9ja))}), last {last} UTC")
-        for k in ("OddsPortal search walk", "OddsPortal results walk", "odds walk", "Polymarket feed", "Polymarket results"):
+        for k in ("OddsPortal search walk", "OddsPortal results walk", "odds walk", "Polymarket feed", "Polymarket results", "The Odds API"):
             if k in files:
                 f = files[k]
                 got.append(f"{k}: {f['count']} ({f['first']}–{f['last']} UTC)" if f["count"] > 1 else f"{k}: 1 ({f['last']} UTC)")

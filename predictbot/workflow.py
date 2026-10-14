@@ -273,6 +273,8 @@ def _parse_quotes(path: Path, raw: bytes) -> list[dict]:
         return []
     if path.name.startswith("polymarket-feed-"):
         return odds_sources.quotes_from_feed(data, path.name)
+    if path.name.startswith("the-odds-api-"):
+        return odds_sources.quotes_from_odds_api(data, path.name)
     return odds_sources.quotes_from_walk(data, path.name)
 
 
@@ -323,7 +325,7 @@ def benchmark_quotes(df: DataFolder, extra_folders=(), now: datetime | None = No
     """Quotes from walker captures and saved Polymarket feed fetches."""
     since = (now - RECENT) if now else None
     return _quotes_in(df.paths("public-odds-walk-*.json", extra_folders, since)
-                      + df.paths("polymarket-feed-*.json", (), since))
+                      + df.paths("polymarket-feed-*.json", (), since) + df.paths("the-odds-api-*.json", (), since))
 
 
 def rules_text(quotes: list[dict]) -> dict:
@@ -809,7 +811,7 @@ def due_results(df: DataFolder, now: datetime) -> dict:
 def _result_quotes(df: DataFolder, extra_folders, now: datetime) -> list[dict]:
     since = now - RESULT_LOOKBACK - timedelta(days=1)
     return _quotes_in(df.paths("public-odds-walk-*.json", extra_folders, since)
-                      + df.paths("polymarket-feed-*.json", (), since))
+                      + df.paths("polymarket-feed-*.json", (), since) + df.paths("the-odds-api-*.json", (), since))
 
 
 def result_matches(df: DataFolder, now: datetime, extra_folders=(), groups=None, quotes=None) -> dict:
@@ -1088,7 +1090,8 @@ def betting_breakdown(df: DataFolder, tks: list[dict], extra_folders=()) -> dict
 STAMP = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})")
 ACTIVITY_KINDS = [("bet9ja-allsports-walk-", "Bet9ja walk"), ("public-odds-walk-oddsportal-search-", "OddsPortal search walk"),
                   ("public-odds-walk-oddsportal-results-", "OddsPortal results walk"), ("public-odds-walk-", "odds walk"),
-                  ("polymarket-feed-", "Polymarket feed"), ("polymarket-results-", "Polymarket results")]
+                  ("polymarket-feed-", "Polymarket feed"), ("polymarket-results-", "Polymarket results"),
+                  ("the-odds-api-", "The Odds API")]
 
 
 def activity_log(df: DataFolder, now: datetime, days: int = 2) -> list[dict]:

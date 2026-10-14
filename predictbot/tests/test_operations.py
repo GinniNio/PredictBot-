@@ -11,11 +11,13 @@ import threading
 import time
 import unittest
 from unittest import mock
+from datetime import timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import feeds  # noqa: E402
 import odds_sources  # noqa: E402
 import pcbf  # noqa: E402
 import schemas  # noqa: E402
@@ -475,6 +477,96 @@ class FakeFeed:
         if isinstance(page, Exception):
             raise page
         return io.BytesIO(json.dumps(page).encode())
+
+
+class OddsApiFeed(unittest.TestCase):
+    """the-odds-api.com h2h feed: fetched with the operator's key, saved
+    without it, read as 'oddsapi' (mean of books) and 'pinnacle' quotes."""
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.df = DataFolder(self.tmp, host="HP")
+        self.now = at("2026-10-14T09:30:00Z")
+        (self.tmp / feeds.ODDS_API_CONFIG).write_text(json.dumps({"key": "SECRET123", "sports": ["soccer_epl", "basketball_nba"]}),
+                                                      encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def opener(self, pages, remaining="480"):
+        urls = []
+        class Resp:
+            def __init__(self, body): self.body, self.headers = body, {"x-requests-remaining": remaining, "x-requests-used": "20"}
+            def read(self): return json.dumps(self.body).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        def fake(url):
+            urls.append(url)
+            page = pages[len(urls) - 1]
+            if isinstance(page, Exception):
+                raise page
+            return Resp(page)
+        fake.urls = urls
+        return fake
+
+    @staticmethod
+    def event(home, away, books, sport_key="soccer_epl", start="2026-10-14T19:00:00Z", draw=True):
+        def mk(key, title, prices):
+            names = [home, away, "Draw"] if draw else [home, away]
+            return {"key": key, "title": title, "last_update": start,
+                    "markets": [{"key": "h2h", "last_update": start,
+                                 "outcomes": [{"name": n, "price": p} for n, p in zip(names, prices)]}]}
+        return {"id": "ev1", "sport_key": sport_key, "sport_title": "EPL", "commence_time": start, "home_team": home,
+                "away_team": away, "bookmakers": [mk(k, t, p) for k, t, p in books]}
+
+    def test_fetch_saves_a_capture_without_the_key_and_reads_the_quota(self):
+        books = [("pinnacle", "Pinnacle", [2.10, 3.60, 3.40]), ("unibet_eu", "Unibet", [2.05, 3.50, 3.50]),
+                 ("betfair_ex_eu", "Betfair", [2.20, 3.80, 3.60]), ("onexbet", "1xBet", [2.12, 3.55, 3.45])]
+        fake = self.opener([[self.event("Arsenal", "Chelsea", books)], []])
+        r = feeds.fetch_odds_api(self.df, self.now, opener=fake, pause=0)
+        self.assertEqual((r["status"], r["events"], r["requests"], r["remaining"]), ("fetched", 1, 2, "480"))
+        self.assertIn("apiKey=SECRET123", fake.urls[0])
+        saved = (self.tmp / "captures" / r["file"]).read_text(encoding="utf-8")
+        self.assertNotIn("SECRET123", saved)
+        self.assertEqual(feeds.fetch_odds_api(self.df, self.now + timedelta(hours=1), opener=fake)["status"], "recent")
+        # 480 requests left for 2 keys with ~17.6 days of October to go: the 3 h interval stands
+        cfg = feeds.odds_api_config(self.df)
+        self.assertEqual(feeds.odds_api_interval(cfg, self.now, 480), 3.0)
+        # 40 left (20 fetches) must last those ~422 hours: about one fetch a day
+        self.assertAlmostEqual(feeds.odds_api_interval(cfg, self.now, 40), 21.1, delta=0.2)
+        self.assertGreater(feeds.odds_api_interval(cfg, self.now, 1), 400)     # nothing left: wait for the reset
+        quotes = workflow.benchmark_quotes(self.df, (), self.now)
+        self.assertEqual([q["source"] for q in quotes], ["oddsapi", "pinnacle"])
+        mean, pin = quotes
+        self.assertEqual(mean["outcomes"], ["Arsenal", "Draw", "Chelsea"])       # Bet9ja order: home, draw, away
+        self.assertEqual(mean["bookmaker_count"], 3)                               # the exchange is left out
+        self.assertEqual(pin["odds"], [2.10, 3.40, 3.60])
+        self.assertAlmostEqual(sum(pin["probs"]), 1 / 2.10 + 1 / 3.40 + 1 / 3.60)
+        self.assertEqual(mean["sport"], "soccer")
+        self.assertFalse(mean["live"])
+        self.assertIsNone(odds_sources.quote_problem(pin))
+        self.assertIn("only 3 bookmakers", odds_sources.quote_problem(mean))
+
+    def test_no_key_means_off_and_a_dead_key_backs_off(self):
+        (self.tmp / feeds.ODDS_API_CONFIG).unlink()
+        self.assertEqual(feeds.fetch_odds_api(self.df, self.now)["status"], "off")
+        (self.tmp / feeds.ODDS_API_CONFIG).write_text(json.dumps({"key": "BAD", "sports": ["soccer_epl", "basketball_nba"]}), encoding="utf-8")
+        fake = self.opener([OSError("HTTP Error 401: Unauthorized"), []])
+        r = feeds.fetch_odds_api(self.df, self.now, opener=fake, pause=0)
+        self.assertEqual(r["status"], "failed")
+        self.assertEqual(len(fake.urls), 1)                                        # a 401 stops the run at once
+        self.assertEqual(feeds.fetch_odds_api(self.df, self.now + timedelta(minutes=1), opener=fake)["status"], "recent")
+
+    def test_pinnacle_via_the_api_outranks_an_oddsportal_quote(self):
+        cand = {"event_id": "bet9ja:x", "sport": "soccer", "home": "Arsenal", "away": "Chelsea",
+                "kickoff_utc": "2026-10-14T19:00Z", "outcomes": ["", "", ""]}
+        q = odds_sources.quotes_from_odds_api({"fetched_at_utc": "2026-10-14T09:30:00Z", "events": [
+            feeds._trim_odds_api(self.event("Arsenal", "Chelsea", [("pinnacle", "Pinnacle", [2.10, 3.60, 3.40])]), "soccer_epl")]}, "f.json")
+        self.assertEqual([x["source"] for x in q], ["oddsapi", "pinnacle"])
+        op = {"source": "oddsportal", "url": "https://www.oddsportal.com/football/h2h/a-A/c-C/", "sport": "soccer",
+              "start_utc": "2026-10-14T19:00Z", "captured_at_utc": "2026-10-14T08:00Z", "outcomes": ["Arsenal", "Draw", "Chelsea"],
+              "probs": [0.45, 0.28, 0.27], "closed": False}
+        choice = odds_sources.choose_quote(cand, [op, *q])
+        self.assertEqual((choice["status"], choice["match"]["quote"]["source"]), ("matched", "pinnacle"))
 
 
 class PolymarketFeed(unittest.TestCase):
