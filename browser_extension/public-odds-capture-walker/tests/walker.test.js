@@ -109,6 +109,7 @@ function loadWalker({ pages, targets, results = [], uploadOk = true, timing = { 
       if (!tab.exists) throw new Error(`No tab with id: ${tab.id}.`);
       if (!func) return [{ result: undefined }];
       const html = pages[P.eventKey(tab.url)] || pages[tab.url];
+      if (html === 'BLOCKED') throw new Error('Cannot access contents of the page. Extension manifest must request permission to access this host.');
       const dom = new JSDOM(html, { url: tab.url });
       ctx.window = { PublicOddsPage: ctx.PublicOddsPage };
       ctx.document = dom.window.document;
@@ -470,6 +471,24 @@ test('a scheduled results walk due during a search walk runs as soon as that wal
   const done = await w.until((s) => s && s.mode === 'results' && s.status === 'COMPLETE');
   assert.equal(done.scheduled, true);
   assert.equal(w.uploads.length, 2);                                   // the search walk, then the results walk
+});
+
+test('a walk whose pages fail one after another stops and says why, keeping what it captured', async () => {
+  const { pages, targets } = footballDay();
+  const S = (t) => `https://www.oddsportal.com/search/${t}/`;
+  pages[ODDSPORTAL_HOME] = '<body>OddsPortal</body>';
+  const L = 'abcdefghijklmnopqrst';
+  const many = Array.from({ length: 20 }, (_, i) => ({ sport: 'football', home: `Blocked${L[i]}${L[i]}${L[i]}`, away: `Away${L[i]}${L[i]}${L[i]}` }));
+  many.forEach((t) => { pages[S(t.home.toLowerCase())] = 'BLOCKED'; });
+  const w = loadWalker({ pages, targets: [...targets, ...many], timing: { listing: 1, ready: 60, poll: 5, settleCap: 1, search: 40 } });
+  w.tab.url = SEED;
+  const r = await w.send({ type: 'START_SEARCH_WALK', tabId: 7, maxEvents: 50 });
+  assert.equal(r.ok, true, r.error);
+  const done = await w.until((s) => s && ['COMPLETE', 'STOPPED'].includes(s.status));
+  assert.equal(done.status, 'STOPPED');
+  assert.match(done.message, /15 pages in a row failed/);
+  assert.match(done.last_failure, /Cannot access contents/);
+  assert.ok(done.counts.failed >= 15 && done.counts.failed < 20);
 });
 
 test('allowlisted hosts only (unchanged)', () => {

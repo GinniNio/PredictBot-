@@ -16,6 +16,7 @@ const LISTING_SETTLE_MS = T.listing;
 const READY_TIMEOUT_MS = T.ready;   // stop waiting for a page's odds after this
 const READY_POLL_MS = T.poll;
 const STALE_MS = 90000;           // a RUNNING run not updated for this long was interrupted
+const MAX_FAILURES_IN_A_ROW = 15;  // then the site is refusing us: stop the walk and say so
 const DAYS_AHEAD = 1;
 const APP_TARGETS = ['http://localhost:8000/walker-targets.json', 'http://127.0.0.1:8000/walker-targets.json'];
 const APP_UPLOAD = ['http://localhost:8000/walker-upload', 'http://127.0.0.1:8000/walker-upload'];
@@ -149,7 +150,8 @@ function summary(run) {
     uploaded: !!run.uploaded, upload_message: run.upload_message || '', scheduled: !!run.scheduled,
     source_key: run.source_key, seed_url: run.seed_url, counts: run.counts, cursor: run.cursor,
     queued: (run.queue || []).length, targets_status: run.targets_status || '', downloaded: !!run.downloaded,
-    completed_at_utc: run.completed_at_utc || null };
+    completed_at_utc: run.completed_at_utc || null,
+    last_failure: run.failures && run.failures.length ? run.failures[run.failures.length - 1].reason : '' };
 }
 
 // -------------------------------------------------------------- the walk
@@ -468,10 +470,19 @@ async function drive() {
         }
         run.counts.failed += 1;
         run.failures.push({ url: target.url, reason: msg, at_utc: nowIso() });
+        // Pages failing one after another mean the site is refusing us (a
+        // block page, a rate limit, a login wall), not that each page is bad:
+        // stop, keep what was captured, and say why.
+        run.failed_in_a_row = (run.failed_in_a_row || 0) + 1;
+        if (run.failed_in_a_row >= MAX_FAILURES_IN_A_ROW) {
+          run.status = 'STOPPED';
+          run.message = `stopped: ${MAX_FAILURES_IN_A_ROW} pages in a row failed (last: ${msg.slice(0, 160)}). The site may be refusing the walker for now; try again later.`;
+        }
       }
+      if (run.failures.length && run.failures[run.failures.length - 1].url === target.url) { /* this page failed */ } else run.failed_in_a_row = 0;
       run.cursor += 1;
       const latest = await loadRun();                // the popup may have stopped the run
-      if (latest && latest.status === 'STOPPED') { run.status = 'STOPPED'; run.message = 'Stopped by you.'; }
+      if (latest && latest.status === 'STOPPED' && run.status !== 'STOPPED') { run.status = 'STOPPED'; run.message = 'Stopped by you.'; }
       await saveRun(run);
     }
     if (run && (run.status === 'RUNNING' || run.status === 'STOPPED')) {

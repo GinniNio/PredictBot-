@@ -21,6 +21,7 @@ function describe(run, starting) {
       run.targets_status,
       `${c.found || 0} of ${c.games || 0} games found on OddsPortal (${c.searched || 0} searches; ${c.found_elsewhere || 0} found by another game's search, so not searched again). Match pages: ${c.visited || 0} visited of ${c.queued || 0} found, ${c.captured || 0} captured with odds, ${c.started || 0} already started, ${c.no_odds || 0} without odds, ${c.failed || 0} failed.`,
       `${c.not_on_bet9ja || 0} search hits were other games; ${c.truncated || 0} over the page limit${c.search_timeout ? `; ${c.search_timeout} searches never finished loading` : ''}.`,
+      run.last_failure ? `Last failure: ${run.last_failure}` : '',
     ].filter(Boolean).join('\n');
   }
   if (run.mode === 'results') {
