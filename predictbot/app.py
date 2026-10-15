@@ -202,11 +202,16 @@ def update_now(light: bool = False) -> str:
     steps, t0 = [], time.perf_counter()
     fetched = None if light or blocked() else _fetch_feeds(steps)   # network first, outside the lock
     with UPDATE_LOCK:
+        prepared = PREPARED.get("results")
         try:
             return _update_now(steps, light, fetched)
         finally:
             status = timed("picture", steps, lambda: workflow.day_status(DF, now(), [DOWNLOADS]))
-            targets = timed("targets", steps, lambda: workflow.walker_targets(DF, now(), status))
+            # The results targets change only when games finish: a light update
+            # (a walker's batch) keeps the last list; a full one rebuilds it from
+            # the matches its fetch phase already made.
+            prev = (SNAPSHOT.get("targets") or {}).get("results") if light else None
+            targets = timed("targets", steps, lambda: workflow.walker_targets(DF, now(), status, prepared, prev))
             SNAPSHOT.update(status=status, targets=targets, at=now())
             print(f"update {pcbf.utc(now())[11:16]} UTC took {time.perf_counter() - t0:.1f}s: {', '.join(steps)}")
 

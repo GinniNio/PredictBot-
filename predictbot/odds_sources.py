@@ -460,13 +460,17 @@ class QuoteList(list):
             for q in self:
                 start = parse_time(q.get("start_utc"))
                 day = utc(start)[:10] if start else None       # None: dated by capture instead
-                by.setdefault((q["sport"] or "", len(q["outcomes"]), day), []).append((start, q))
+                # One event captured 80 times a day shares its names: group its
+                # quotes so the names are compared once, not 80 times.
+                group = by.setdefault((q["sport"] or "", len(q["outcomes"]), day), {})
+                group.setdefault((q["url"], tuple(q["outcomes"])), []).append((start, q))
             idx = self._index = {"n": len(self), "by": by}
         return idx["by"]
 
     def near(self, sport: str, n: int, kick) -> list:
-        """(start, quote) pairs worth comparing: this sport (or none stated),
-        n outcomes, starting within a day of the kickoff, or undated."""
+        """Event groups worth comparing, each a list of (start, quote) with
+        the same page and outcome names: this sport (or none stated), n
+        outcomes, starting within a day of the kickoff, or undated."""
         by = self.index()
         days = {None}
         if kick:
@@ -476,7 +480,7 @@ class QuoteList(list):
         out = []
         for sp in {sport, ""}:
             for day in days:
-                out.extend(by.get((sp, n, day), ()))
+                out.extend(by.get((sp, n, day), {}).values())
         return out
 
 
@@ -493,23 +497,28 @@ def find_matches(candidate: dict, quotes: list[dict]) -> list[dict]:
     if not isinstance(quotes, QuoteList):
         quotes = QuoteList(quotes)
     out = []
-    for start, q in quotes.near(candidate["sport"], n, kick):
-        if kick and start and abs(kick - start) > KICKOFF_TOLERANCE:
-            continue
-        if kick and not start and q["captured_at_utc"][:10] not in (utc(kick)[:10], utc(kick - timedelta(days=1))[:10]):
-            continue
-        a, b = q["outcomes"][0], q["outcomes"][-1]
+    for group in quotes.near(candidate["sport"], n, kick):
+        a, b = group[0][1]["outcomes"][0], group[0][1]["outcomes"][-1]
+        hit = None                                   # (order, m1, m2): the same for every quote of the event
         for order, (x, y) in ((list(range(n)), (a, b)), ([1, 0] if n == 2 else [2, 1, 0], (b, a))):
             m1, m2 = side_match(home, x), side_match(away, y)
             if m1 and m2:
-                why = []
-                if "partial" in (m1, m2):
-                    why.append(f"names only partly agree ({home} / {x}; {away} / {y})")
-                if not start:
-                    why.append("no kickoff time on the source page; matched by date")
-                out.append({"quote": q, "order": order, "quality": "review" if why else "exact",
-                            "why": "; ".join(why)})
+                hit = (order, m1, m2, x, y)
                 break
+        if not hit:
+            continue
+        order, m1, m2, x, y = hit
+        for start, q in group:
+            if kick and start and abs(kick - start) > KICKOFF_TOLERANCE:
+                continue
+            if kick and not start and q["captured_at_utc"][:10] not in (utc(kick)[:10], utc(kick - timedelta(days=1))[:10]):
+                continue
+            why = []
+            if "partial" in (m1, m2):
+                why.append(f"names only partly agree ({home} / {x}; {away} / {y})")
+            if not start:
+                why.append("no kickoff time on the source page; matched by date")
+            out.append({"quote": q, "order": order, "quality": "review" if why else "exact", "why": "; ".join(why)})
     return out
 
 

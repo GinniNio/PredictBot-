@@ -642,7 +642,8 @@ WALKER_SPORT = {"soccer": "football", "ice_hockey": "hockey", "table_tennis": "t
                 "american_football": "american-football"}
 
 
-def walker_targets(df: DataFolder, now: datetime, status: dict | None = None) -> dict:
+def walker_targets(df: DataFolder, now: datetime, status: dict | None = None, prepared: dict | None = None,
+                   results: list | None = None) -> dict:
     """Read-only list for the odds walker: today's eligible Bet9ja fixtures
     that still have no benchmark, so it visits only games Bet9ja offers.
     Sports use the odds sites' URL names (soccer -> football)."""
@@ -652,7 +653,7 @@ def walker_targets(df: DataFolder, now: datetime, status: dict | None = None) ->
                  "competition": r["c"]["competition"]}
                 for r in status["rows"] if r["state"] in ("no benchmark", "match review", "unresolved")]
     return {"schema_version": "predictbot-walker-targets.v1", "generated_at_utc": pcbf.utc(now),
-            "fixtures": fixtures, "results": result_targets(df, now)}
+            "fixtures": fixtures, "results": results if results is not None else result_targets(df, now, prepared)}
 
 
 # ------------------------------------------------------ Bet9ja ticket sync
@@ -858,22 +859,37 @@ def result_matches(df: DataFolder, now: datetime, extra_folders=(), groups=None,
     return out
 
 
+_RESULTS_CACHE: dict = {}   # (path, size, mtime) -> result captures of one results-walk file, without the page HTML
+
+
 def _walk_results(df: DataFolder, extra_folders, now: datetime) -> dict:
     """Final-result captures from the walker's results mode, by match URL
-    (without the #hash); the newest capture of a page wins."""
+    (without the #hash); the newest capture of a page wins. A file is parsed
+    once (it carries a page of HTML per result since odds walker 0.6.4)."""
     out = {}
-    for path, raw in df._read_unique(df.paths("public-odds-walk-*-results-*.json", extra_folders, now - RESULT_LOOKBACK)):
+    for path in df.paths("public-odds-walk-*-results-*.json", extra_folders, now - RESULT_LOOKBACK):
         try:
-            data = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
+            st = path.stat()
+        except OSError:
             continue
-        offset = data.get("browser_utc_offset_minutes") if isinstance(data, dict) else None
-        for cap in (data.get("captures") or []) if isinstance(data, dict) else []:
-            if cap.get("role") != "result" or not cap.get("source_url"):
-                continue
-            key = cap["source_url"].split("#")[0]
-            if key not in out or cap.get("captured_at_utc", "") >= out[key]["captured_at_utc"]:
-                out[key] = {**cap, "file": path.name, "utc_offset": offset}
+        key = (str(path), st.st_size, st.st_mtime_ns)
+        if key not in _RESULTS_CACHE:
+            caps = []
+            raw = storage.read_bytes(path)
+            try:
+                data = json.loads(raw.decode("utf-8")) if raw is not None else None
+            except (UnicodeDecodeError, ValueError):
+                data = None
+            if isinstance(data, dict):
+                offset = data.get("browser_utc_offset_minutes")
+                for cap in data.get("captures") or []:
+                    if cap.get("role") == "result" and cap.get("source_url"):
+                        caps.append({**{k: v for k, v in cap.items() if k != "html"}, "file": path.name, "utc_offset": offset})
+            _RESULTS_CACHE[key] = caps
+        for cap in _RESULTS_CACHE[key]:
+            k = cap["source_url"].split("#")[0]
+            if k not in out or cap.get("captured_at_utc", "") >= out[k]["captured_at_utc"]:
+                out[k] = cap
     return out
 
 
@@ -1004,15 +1020,17 @@ def settle_from_results(df: DataFolder, now: datetime, extra_folders=(), fetch: 
     return {"settled": len(new_st), "games": games, "waiting": waiting, "problems": problems, "fetch": fetched}
 
 
-def result_targets(df: DataFolder, now: datetime) -> list[dict]:
+def result_targets(df: DataFolder, now: datetime, prepared: dict | None = None) -> list[dict]:
     """Finished, unsettled games with an OddsPortal match page and no
-    walked result yet: the walker's results mode visits these."""
-    groups = due_results(df, now)
+    walked result yet: the walker's results mode visits these. `prepared`
+    (from prepare_results) saves matching every due game again."""
+    groups = prepared["groups"] if prepared else due_results(df, now)
     if not groups:
         return []
     walked = _walk_results(df, (), now)
+    matches = prepared["matches"] if prepared else result_matches(df, now, (), groups)
     out = []
-    for ev, m in result_matches(df, now, (), groups).items():
+    for ev, m in matches.items():
         if "oddsportal" not in m:
             continue
         q, _ = m["oddsportal"]
