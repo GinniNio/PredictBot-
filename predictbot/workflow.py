@@ -479,10 +479,13 @@ def auto_benchmark(df: DataFolder, now: datetime, extra_folders=()) -> dict:
     reply line. Fuzzy or ambiguous matches wait for review; in-play and
     closed quotes are skipped; thin, wide or shallow ones are logged as
     RESEARCH."""
+    import time as _time
+    t0 = _time.perf_counter()
     quotes = benchmark_quotes(df, extra_folders, now)
     loaded = load_candidates(df, now, extra_folders)
     decisions, rules, pm_ok = match_decisions(df), confirmed_rules(df), pm_picks_allowed(df)
     existing = df.read("selection")
+    t1 = _time.perf_counter()
     already = {s["selection_id"] for s in existing if s["tier"] in schemas.PRICED_TIERS}
     have_ids = {s["selection_record_id"] for s in existing}
     known_caps = {r["capture_id"] for r in df.read("capture")}
@@ -514,10 +517,13 @@ def auto_benchmark(df: DataFolder, now: datetime, extra_folders=()) -> dict:
         have_ids |= {r["selection_record_id"] for r in out}
         records.extend(out)
         already |= {r["selection_id"] for r in out if r["tier"] in schemas.PRICED_TIERS}
+    t2 = _time.perf_counter()
     df.append("capture", caps)
     df.append("selection", records)
     closes = snapshot_closes(df, now, quotes)
-    return {"quotes": len(quotes), "records": records, "skipped": skipped, "review": review, "closes": closes}
+    t3 = _time.perf_counter()
+    return {"quotes": len(quotes), "records": records, "skipped": skipped, "review": review, "closes": closes,
+            "timing": f"load {t1 - t0:.1f}s, match {t2 - t1:.1f}s, closes {t3 - t2:.1f}s"}
 
 
 def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[dict]:
@@ -529,8 +535,9 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
     for q in quotes:
         by_url.setdefault(q["url"], []).append(q)
     new = []
+    oldest = pcbf.utc(now - RESULT_LOOKBACK)[:10]      # a game older than this has no quote on file to close from
     for s in df.read("selection"):
-        if s["tier"] not in schemas.PRICED_TIERS or s["selection_record_id"] in have:
+        if s["tier"] not in schemas.PRICED_TIERS or s["selection_record_id"] in have or (s.get("kickoff_utc") or "")[:10] < oldest:
             continue
         kick, bench_t = parse_kick(s), pcbf.parse_time(s["benchmark_timestamp_utc"])
         if not kick or kick > now or s["benchmark_url"] not in by_url:

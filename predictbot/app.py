@@ -206,7 +206,8 @@ def update_now(light: bool = False) -> str:
             return _update_now(steps, light, fetched)
         finally:
             status = timed("picture", steps, lambda: workflow.day_status(DF, now(), [DOWNLOADS]))
-            SNAPSHOT.update(status=status, at=now())
+            targets = timed("targets", steps, lambda: workflow.walker_targets(DF, now(), status))
+            SNAPSHOT.update(status=status, targets=targets, at=now())
             print(f"update {pcbf.utc(now())[11:16]} UTC took {time.perf_counter() - t0:.1f}s: {', '.join(steps)}")
 
 
@@ -239,6 +240,7 @@ def _update_now(steps: list, light: bool = False, fetched: list | None = None) -
         return "; ".join(msg) + ". Pricing paused: data folder is read-only (see Pending)." + unreadable_note()
     if light:
         r = timed("pricing", steps, lambda: workflow.auto_benchmark(DF, now(), [DOWNLOADS]))
+        steps[-1] += f" ({r.get('timing', '')})"
         events = {x["selection_id"].rsplit(":", 1)[0] for x in r["records"]}
         return f"{len(events)} fixtures priced from captured odds pages" + (f"; {len(r['review'])} matches wait for review" if r["review"] else "") + "."
     msg.extend(fetched or [])
@@ -252,6 +254,7 @@ def _update_now(steps: list, light: bool = False, fetched: list | None = None) -
     if res["fetch"] and res["fetch"]["status"] == "failed":
         msg.append(f"Polymarket results unavailable ({res['fetch']['error']})")
     r = timed("pricing", steps, lambda: workflow.auto_benchmark(DF, now(), [DOWNLOADS]))
+    steps[-1] += f" ({r.get('timing', '')})"
     events = {x["selection_id"].rsplit(":", 1)[0] for x in r["records"]}
     msg.append(f"{len(events)} fixtures priced from captured odds pages")
     if r["review"]:
@@ -811,7 +814,7 @@ class Handler(BaseHTTPRequestHandler):
                  "/pack": lambda: page_pack("research"), "/settle": lambda: page_pack("settle"),
                  "/selections": lambda: page_selections(q), "/bets": lambda: page_bets(msg, (q.get("rid") or [""])[0])}
         if u.path == "/walker-targets.json":     # read-only, for the odds walker extension
-            body = json.dumps(workflow.walker_targets(DF, now(), current_status())).encode("utf-8")
+            body = json.dumps(SNAPSHOT.get("targets") or workflow.walker_targets(DF, now(), current_status())).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
