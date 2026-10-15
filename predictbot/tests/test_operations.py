@@ -933,7 +933,10 @@ class WalkerUpload(unittest.TestCase):
         self.assertEqual(status, 200, reply)
         self.assertEqual(reply["saved"], "public-odds-walk-oddsportal-search-2026-10-05T16-48-00-000Z.json")
         self.assertEqual((self.tmp / "captures" / reply["saved"]).read_bytes(), raw)
-        self.assertIn("1 fixtures priced", reply["message"])
+        self.assertIn("saved; priced within", reply["message"])
+        self.assertTrue(self.app.WAKE.is_set())                  # the update loop prices the batch, not the upload
+        self.app.WAKE.clear()
+        self.assertIn("1 fixtures priced", self.app.update_now(light=True))
         self.assertEqual(len(self.app.DF.read("selection")), 3)
 
     def test_bet9ja_sport_walk_is_stored_under_its_import_name_and_priced(self):
@@ -950,6 +953,8 @@ class WalkerUpload(unittest.TestCase):
         self.assertEqual(status, 200, reply)
         self.assertEqual(reply["saved"], "bet9ja-allsports-walk-soccer-2026-10-05T16-30-00-000Z.json")
         self.assertEqual((self.tmp / "captures" / reply["saved"]).read_bytes(), raw)
+        self.app.WAKE.clear()
+        self.app.update_now(light=True)                          # what the woken loop does for the batch
         self.assertEqual(len(self.app.DF.read("selection")), 3)
 
     def test_bad_or_read_only_uploads_are_refused(self):

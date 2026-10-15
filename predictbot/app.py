@@ -110,22 +110,40 @@ UPDATE_LOCK = threading.Lock()   # one update at a time; pages render meanwhile 
 SNAPSHOT: dict = {}       # {"status": workflow.day_status(...), "at": datetime} from the last update
 
 
+WAKE = threading.Event()  # a walker delivered a capture: price soon, once for the whole batch
+UPLOAD_SETTLE = 20        # seconds to wait for the rest of a walker's batch (14 sports arrive one by one)
+
+
 def auto_update_loop(stop: threading.Event) -> None:
-    """The same work as opening Opportunities, every AUTO_EVERY seconds: import
-    Downloads, fetch Polymarket, link tickets, settle results, price. So the
-    app keeps itself current while it runs, whatever the laptop is doing."""
-    while True:                       # once at startup, then every AUTO_EVERY seconds
-        run_update()
-        if stop.wait(AUTO_EVERY):
+    """Every AUTO_EVERY seconds the full update (import Downloads, fetch the
+    feeds, link tickets, settle results, price). Between those, a walker
+    upload wakes the loop for a light update (pricing only) after the batch
+    has settled, so fourteen uploads cost one pricing run, not fourteen."""
+    last_full = None
+    while not stop.is_set():
+        if last_full is None:                       # first update right at startup
+            woke = False
+        else:
+            due = max(0.0, AUTO_EVERY - (time.monotonic() - last_full))
+            woke = WAKE.wait(timeout=due)
+        if stop.is_set():
             return
+        if woke:
+            if stop.wait(UPLOAD_SETTLE):
+                return
+            WAKE.clear()
+        full = last_full is None or time.monotonic() - last_full >= AUTO_EVERY
+        run_update(light=not full)
+        if full:
+            last_full = time.monotonic()
 
 
-def run_update() -> str:
+def run_update(light: bool = False) -> str:
     """One update, its note kept for the pages (they never run the update
     themselves: reading hundreds of captures off OneDrive can take minutes,
     and a page load must not wait on that)."""
     try:
-        LAST_AUTO.update(at=now(), message=update_now())
+        LAST_AUTO.update(at=now(), message=update_now(light=light))
     except Exception as exc:  # keep the loop alive; the next page load shows the error
         LAST_AUTO.update(at=now(), message=f"automatic update failed: {type(exc).__name__}: {exc}")
     return LAST_AUTO["message"]
@@ -171,11 +189,8 @@ def accept_walk(raw: bytes) -> dict:
     if blocked():
         raise InvalidRecord("data folder is read-only: " + blocked())
     path = DF.save_capture(name, raw)
-    # The capture is saved: whatever happens next, the walker must not resend it.
-    try:
-        return {"saved": path.name, "message": update_now(light=True)}
-    except Exception as exc:
-        return {"saved": path.name, "message": f"saved; pricing failed: {type(exc).__name__}: {exc}"}
+    WAKE.set()                        # priced by the update loop once the batch has settled
+    return {"saved": path.name, "message": f"saved; priced within about {UPLOAD_SETTLE + 30} s with the rest of this batch"}
 
 
 def update_now(light: bool = False) -> str:
@@ -184,24 +199,22 @@ def update_now(light: bool = False) -> str:
     delivered a capture) prices and refreshes only: the feeds, tickets and
     results wait for the timer."""
     steps, t0 = [], time.perf_counter()
+    fetched = None if light or blocked() else _fetch_feeds(steps)   # network first, outside the lock
     with UPDATE_LOCK:
         try:
-            return _update_now(steps, light)
+            return _update_now(steps, light, fetched)
         finally:
             status = timed("picture", steps, lambda: workflow.day_status(DF, now(), [DOWNLOADS]))
             SNAPSHOT.update(status=status, at=now())
             print(f"update {pcbf.utc(now())[11:16]} UTC took {time.perf_counter() - t0:.1f}s: {', '.join(steps)}")
 
 
-def _update_now(steps: list, light: bool = False) -> str:
-    imported = 0 if light else timed("import", steps, lambda: DF.import_captures(DOWNLOADS))
-    msg = [f"{imported} new capture files from Downloads" if imported else "no new capture files"]
-    if blocked():
-        return "; ".join(msg) + ". Pricing paused: data folder is read-only (see Pending)." + unreadable_note()
-    if light:
-        r = timed("pricing", steps, lambda: workflow.auto_benchmark(DF, now(), [DOWNLOADS]))
-        events = {x["selection_id"].rsplit(":", 1)[0] for x in r["records"]}
-        return f"{len(events)} fixtures priced from captured odds pages" + (f"; {len(r['review'])} matches wait for review" if r["review"] else "") + "."
+def _fetch_feeds(steps: list) -> list[str]:
+    """The network steps (slow, and not the app's doing): fetched before the
+    update lock is taken so a walker's pricing never waits on them. Each
+    only writes a new capture file; the guarded fetch intervals keep two
+    updates from fetching at once."""
+    msg = []
     f = timed("polymarket", steps, lambda: feeds.fetch_polymarket(DF, now()))
     if f["status"] == "fetched":
         msg.append(f"Polymarket feed: {f['events']} upcoming games" + (f" (partial: {f['error']})" if f["error"] else ""))
@@ -214,6 +227,19 @@ def _update_now(steps: list, light: bool = False) -> str:
                    + (f" (partial: {o['error']})" if o["error"] else ""))
     elif o["status"] == "failed":
         msg.append(f"The Odds API unavailable ({o['error']})")
+    return msg
+
+
+def _update_now(steps: list, light: bool = False, fetched: list | None = None) -> str:
+    imported = 0 if light else timed("import", steps, lambda: DF.import_captures(DOWNLOADS))
+    msg = [f"{imported} new capture files from Downloads" if imported else "no new capture files"]
+    if blocked():
+        return "; ".join(msg) + ". Pricing paused: data folder is read-only (see Pending)." + unreadable_note()
+    if light:
+        r = timed("pricing", steps, lambda: workflow.auto_benchmark(DF, now(), [DOWNLOADS]))
+        events = {x["selection_id"].rsplit(":", 1)[0] for x in r["records"]}
+        return f"{len(events)} fixtures priced from captured odds pages" + (f"; {len(r['review'])} matches wait for review" if r["review"] else "") + "."
+    msg.extend(fetched or [])
     t = timed("tickets", steps, lambda: workflow.sync_tickets(DF, now(), [DOWNLOADS]))
     if t["bets"] or t["settled"]:
         msg.append(f"Bet9ja tickets: {t['bets']} bets linked, {t['settled']} selections settled")
@@ -767,9 +793,11 @@ class Handler(BaseHTTPRequestHandler):
             print(f"GET {self.path} took {took:.1f}s")
 
     def do_POST(self):
+        if urlparse(self.path).path == "/walker-upload":   # saves a file and wakes the loop: never waits for a page
+            return self._post()
         with LOCK:
             self._post()
-            if urlparse(self.path).path not in ("/update", "/walker-upload"):
+            if urlparse(self.path).path != "/update":
                 SNAPSHOT.clear()          # a decision or record was written: the next page recomputes the picture
 
     def _get(self):
