@@ -278,6 +278,9 @@ def _parse_quotes(path: Path, raw: bytes) -> list[dict]:
     return odds_sources.quotes_from_walk(data, path.name)
 
 
+_LIST_CACHE: dict = {}   # {"sig": file keys, "list": QuoteList} of the last quote list built
+
+
 def _quotes_in(paths) -> list[dict]:
     """Quotes from walker captures and feed files. Walk files run to tens of
     MB, so each file is parsed once: kept in memory for this run, and on
@@ -285,12 +288,13 @@ def _quotes_in(paths) -> list[dict]:
     next start, so the first page load does not re-read a week of walks. A
     file that changes on disk is parsed again. The same file in Downloads
     and in captures/ counts once."""
-    quotes, seen = [], set()
+    quotes, seen, keys = [], set(), []
     for path in paths:
         try:
             st = path.stat()
         except OSError:
             continue
+        keys.append((str(path), st.st_size, st.st_mtime_ns))
         if (path.name, st.st_size) in seen:
             continue
         seen.add((path.name, st.st_size))
@@ -318,7 +322,12 @@ def _quotes_in(paths) -> list[dict]:
                     pass                                 # no cache is only slower, never wrong
             _QUOTE_CACHE[key] = parsed
         quotes.extend(_QUOTE_CACHE[key])            # shared, never mutated after parsing
-    return odds_sources.QuoteList(quotes)
+    # The same set of files gives the same list: keep the one with its match
+    # index built, so the index is not rebuilt for every pricing and picture.
+    sig = tuple(keys)
+    if _LIST_CACHE.get("sig") != sig:
+        _LIST_CACHE.update(sig=sig, list=odds_sources.QuoteList(quotes))
+    return _LIST_CACHE["list"]
 
 
 def benchmark_quotes(df: DataFolder, extra_folders=(), now: datetime | None = None) -> list[dict]:
@@ -870,7 +879,32 @@ def _page_kickoff(raw: str, offset):
     return (local - timedelta(minutes=offset)).replace(tzinfo=timezone.utc)
 
 
-def settle_from_results(df: DataFolder, now: datetime, extra_folders=(), fetch: bool = True, opener=None) -> dict:
+def prepare_results(df: DataFolder, now: datetime, extra_folders=(), opener=None) -> dict | None:
+    """The network half of settle_from_results: which logged games are due,
+    which source pages they match, and Polymarket's resolutions fetched for
+    them. Done before the update lock so pricing never waits on it."""
+    import feeds
+    groups = due_results(df, now)
+    if not groups:
+        return None
+    matches = result_matches(df, now, extra_folders, groups)
+    rules = confirmed_rules(df)
+    slug = lambda q: q["url"].rstrip("/").rsplit("/", 1)[-1]
+    fetched = feeds.fetch_polymarket_results(df, now, [slug(m["polymarket"][0]) for ev, m in matches.items()
+                                                       if "polymarket" in m and not _pm_rule(groups[ev], rules)], opener=opener)
+    return {"groups": groups, "matches": matches, "rules": rules, "fetched": fetched}
+
+
+def _pm_rule(g: dict, rules: dict) -> str | None:
+    check, _ = pcbf.settlement_check("polymarket", g["sport"], g["market"], rules)
+    variable = bool(pcbf.VARIABLE_RULES.get(g["market"], {}).get(g["sport"]))
+    if check == "differs" or (variable and check != "ok"):
+        return "Polymarket: settlement rule " + ("differs" if check == "differs" else "unconfirmed (Pending)")
+    return None
+
+
+def settle_from_results(df: DataFolder, now: datetime, extra_folders=(), fetch: bool = True, opener=None,
+                        prepared: dict | None = None) -> dict:
     """Settle finished logged games from Polymarket's resolved markets and
     the walker's OddsPortal result pages. A source is used only where its
     settlement matches Bet9ja's: OddsPortal scores are read on Bet9ja's
@@ -880,25 +914,18 @@ def settle_from_results(df: DataFolder, now: datetime, extra_folders=(), fetch: 
     Polymarket only once you have confirmed its rule on Pending, and from
     OddsPortal only when the game finished normally. Two sources that
     disagree settle nothing."""
-    import feeds
-    groups = due_results(df, now)
-    if not groups:
+    if prepared is None:
+        if fetch:
+            prepared = prepare_results(df, now, extra_folders, opener)
+        else:
+            groups = due_results(df, now)
+            prepared = {"groups": groups, "matches": result_matches(df, now, extra_folders, groups) if groups else {},
+                        "rules": confirmed_rules(df), "fetched": None} if groups else None
+    if not prepared:
         return {"settled": 0, "games": 0, "waiting": [], "problems": [], "fetch": None}
-    matches = result_matches(df, now, extra_folders, groups)
-    rules = confirmed_rules(df)
+    groups, matches, rules, fetched = prepared["groups"], prepared["matches"], prepared["rules"], prepared["fetched"]
+    pm_rule = lambda g: _pm_rule(g, rules)
     slug = lambda q: q["url"].rstrip("/").rsplit("/", 1)[-1]
-    def pm_rule(g):
-        check, _ = pcbf.settlement_check("polymarket", g["sport"], g["market"], rules)
-        variable = bool(pcbf.VARIABLE_RULES.get(g["market"], {}).get(g["sport"]))
-        if check == "differs" or (variable and check != "ok"):
-            return "Polymarket: settlement rule " + ("differs" if check == "differs" else "unconfirmed (Pending)")
-        return None
-
-    fetched = None
-    if fetch:
-        fetched = feeds.fetch_polymarket_results(df, now, [slug(m["polymarket"][0]) for ev, m in matches.items()
-                                                           if "polymarket" in m and not pm_rule(groups[ev])],
-                                                 opener=opener)
     pm = {}
     for path, raw in sorted(df.result_files(now - RESULT_LOOKBACK)):
         try:

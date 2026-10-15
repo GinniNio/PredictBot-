@@ -108,6 +108,7 @@ AUTO_EVERY = 600          # seconds between automatic updates while the app runs
 LAST_AUTO: dict = {}      # {"at": datetime, "message": str} from the last automatic update
 UPDATE_LOCK = threading.Lock()   # one update at a time; pages render meanwhile from SNAPSHOT
 SNAPSHOT: dict = {}       # {"status": workflow.day_status(...), "at": datetime} from the last update
+PREPARED: dict = {}       # network results of the fetch phase, handed to the locked phase of the same update
 
 
 WAKE = threading.Event()  # a walker delivered a capture: price soon, once for the whole batch
@@ -227,6 +228,7 @@ def _fetch_feeds(steps: list) -> list[str]:
                    + (f" (partial: {o['error']})" if o["error"] else ""))
     elif o["status"] == "failed":
         msg.append(f"The Odds API unavailable ({o['error']})")
+    PREPARED["results"] = timed("results fetch", steps, lambda: workflow.prepare_results(DF, now(), [DOWNLOADS]))
     return msg
 
 
@@ -243,7 +245,7 @@ def _update_now(steps: list, light: bool = False, fetched: list | None = None) -
     t = timed("tickets", steps, lambda: workflow.sync_tickets(DF, now(), [DOWNLOADS]))
     if t["bets"] or t["settled"]:
         msg.append(f"Bet9ja tickets: {t['bets']} bets linked, {t['settled']} selections settled")
-    res = timed("results", steps, lambda: workflow.settle_from_results(DF, now(), [DOWNLOADS]))
+    res = timed("results", steps, lambda: workflow.settle_from_results(DF, now(), [DOWNLOADS], prepared=PREPARED.pop("results", None)))
     LAST_RESULTS.update(res, at=now())
     if res["games"]:
         msg.append(f"results: {res['games']} finished games settled ({res['settled']} selections)")

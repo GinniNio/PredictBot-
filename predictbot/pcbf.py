@@ -88,7 +88,7 @@ def choose_market(sport: str, markets: dict) -> tuple[str | None, str | None]:
 # source is an exchange-style market (Polymarket), the operator must confirm
 # the match once per source, sport and market (Pending page). Until then the
 # selection carries a caution and cannot be a PICK.
-CONVENTION_SOURCES = {"pinnacle", "oddsportal", "oddschecker"}
+CONVENTION_SOURCES = {"pinnacle", "oddsportal", "oddschecker", "oddsapi"}   # bookmaker prices: standard settlement conventions
 VARIABLE_RULES = {"MATCH_WINNER": {"tennis": "retirement / walkover treatment",
                                    "table_tennis": "retirement treatment",
                                    "cricket": "tie / draw / no-result treatment",
