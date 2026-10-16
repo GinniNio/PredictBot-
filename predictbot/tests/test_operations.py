@@ -639,10 +639,16 @@ class PolymarketFeed(unittest.TestCase):
         import feeds
         page = [feed_event(f"atp-p{i}-2026-10-06", "2026-10-06T12:00:00Z", [f"A{i} X", f"B{i} Y"], [0.5, 0.5])
                 for i in range(feeds.PAGE)]
-        fake = FakeFeed([page, page[:3]])
+        more = [feed_event(f"atp-q{i}-2026-10-06", "2026-10-06T12:00:00Z", [f"C{i} X", f"D{i} Y"], [0.5, 0.5]) for i in range(3)]
+        fake = FakeFeed([page, more])
         r = feeds.fetch_polymarket(self.df, self.now, opener=fake, pause=0)
-        self.assertEqual((len(fake.urls), r["events"]), (2, feeds.PAGE + 3))
+        windows = -(-feeds.HORIZON // feeds.WINDOW)                 # one request per empty later window
+        self.assertEqual((len(fake.urls), r["events"]), (1 + windows, feeds.PAGE + 3))
         self.assertIn("offset=100", fake.urls[1])
+        self.assertIn("start_time_max=", fake.urls[0])
+        # the same game on a window edge is kept once
+        fake = FakeFeed([page[:5], page[:5]])
+        self.assertEqual(feeds.fetch_polymarket(self.df, self.now, force=True, opener=fake, pause=0)["events"], 5)
 
     def test_throttle_and_failure(self):
         import feeds

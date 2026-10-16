@@ -20,6 +20,7 @@ from storage import DataFolder
 
 GAMMA_EVENTS = "https://gamma-api.polymarket.com/events"
 HORIZON = timedelta(hours=36)
+WINDOW = timedelta(hours=6)             # the horizon is fetched in slices this long (offset limit of 2,500)
 FEED_EVERY = timedelta(minutes=10)      # at most one fetch per 10 minutes
 PAGE = 100                              # the feed returns at most 100 events per request
 MAX_PAGES = 30
@@ -80,33 +81,41 @@ def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=
     opener = opener or (lambda url: urllib.request.urlopen(
         urllib.request.Request(url, headers={"User-Agent": "PredictBot (personal, read-only)"}), timeout=30))
     until = now + HORIZON
-    events, requests, error = [], [], ""
-    for page in range(MAX_PAGES):
-        url = GAMMA_EVENTS + "?" + urllib.parse.urlencode({
-            "tag_slug": "games", "closed": "false", "order": "startTime", "ascending": "true",
-            "start_time_min": _stamp(now), "limit": PAGE, "offset": page * PAGE})
-        requests.append(url)
-        try:
-            with opener(url) as r:
-                batch = json.loads(r.read().decode("utf-8"))
-        except Exception as exc:  # network, HTTP or JSON: report, keep what we have
-            error = f"{type(exc).__name__}: {exc}"
-            break
-        if not isinstance(batch, list) or not batch:
-            break
-        late = False
-        for ev in batch:
-            start = odds_sources.parse_time(ev.get("startTime"))
-            if start and start > until:
-                late = True
-                continue
-            t = _trim(ev)
-            if t:
-                events.append(t)
-        if late or len(batch) < PAGE:
-            break
-        if pause:
-            time.sleep(pause)
+    events, requests, error, seen = [], [], "", set()
+    # The API refuses offsets past 2,500 (a busy weekend lists more games
+    # than that within 36 h), so the horizon is walked in WINDOW slices, each
+    # paged from offset 0. A game on a window edge is kept once.
+    window_from = now
+    while window_from < until and not error:
+        window_to = min(window_from + WINDOW, until)
+        for page in range(MAX_PAGES):
+            url = GAMMA_EVENTS + "?" + urllib.parse.urlencode({
+                "tag_slug": "games", "closed": "false", "order": "startTime", "ascending": "true",
+                "start_time_min": _stamp(window_from), "start_time_max": _stamp(window_to), "limit": PAGE, "offset": page * PAGE})
+            requests.append(url)
+            try:
+                with opener(url) as r:
+                    batch = json.loads(r.read().decode("utf-8"))
+            except Exception as exc:  # network, HTTP or JSON: report, keep what we have
+                error = f"{type(exc).__name__}: {exc}"
+                break
+            if not isinstance(batch, list) or not batch:
+                break
+            late = False
+            for ev in batch:
+                start = odds_sources.parse_time(ev.get("startTime"))
+                if start and start > until:
+                    late = True
+                    continue
+                t = _trim(ev)
+                if t and t.get("id") not in seen:
+                    seen.add(t.get("id"))
+                    events.append(t)
+            if late or len(batch) < PAGE:
+                break
+            if pause:
+                time.sleep(pause)
+        window_from = window_to
     if not events and error:
         _FAILED[(str(df.root), "feed")] = now
         return {"status": "failed", "events": 0, "file": None, "error": error}
