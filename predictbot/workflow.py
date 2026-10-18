@@ -264,7 +264,7 @@ _QUOTE_CACHE: dict = {}   # (path, size, mtime) -> quotes parsed from that file
 QUOTE_CACHE_DIR = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "PredictBot" / "quotes"
 # Bump when a parser in odds_sources changes what it reads from a file, so a
 # cached parse from the old code is not reused (2: betfair rows from the feed).
-QUOTE_PARSER_VERSION = 2
+QUOTE_PARSER_VERSION = 3
 
 
 def _parse_quotes(path: Path, raw: bytes) -> list[dict]:
@@ -529,19 +529,32 @@ def auto_benchmark(df: DataFolder, now: datetime, extra_folders=()) -> dict:
             "timing": f"load {t1 - t0:.1f}s, match {t2 - t1:.1f}s, closes {t3 - t2:.1f}s"}
 
 
+FINISHED_PAGE = "closing odds on the finished page:"
+
+
 def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[dict]:
     """For priced selections whose game has started, store the last quote
     from the same source page captured before kickoff, labelled as the
     closing price or as a pre-kickoff snapshot."""
-    have = {c["selection_record_id"] for c in df.read("closing")}
+    stored = {}
+    for c in df.read("closing"):
+        stored[c["selection_record_id"]] = c                    # the last row for a selection is the one in force
+    # Closes read off finished pages before 18 Oct 2026 were on the wrong
+    # side (the page title names the teams away first). Those are read again
+    # and, where the prices differ, a correction row is appended; the
+    # original rows stay (records are append-only).
+    recheck = {k for k, c in stored.items() if (c.get("origin") or "").startswith(FINISHED_PAGE)}
+    have = set(stored) - recheck
     by_url = {}
     for q in quotes:
         by_url.setdefault(q["url"], []).append(q)
-    new, reversed_closes = [], 0
+    new, reversed_closes, corrected = [], 0, 0
     oldest = pcbf.utc(now - RESULT_LOOKBACK)[:10]      # a game older than this has no quote on file to close from
     for s in df.read("selection"):
-        if s["tier"] not in schemas.PRICED_TIERS or s["selection_record_id"] in have or (s.get("kickoff_utc") or "")[:10] < oldest:
+        if s["tier"] not in schemas.PRICED_TIERS or s["selection_record_id"] in have:
             continue
+        if (s.get("kickoff_utc") or "")[:10] < oldest and s["selection_record_id"] not in recheck:
+            continue                                            # a correction may reach further back: its page is on file
         kick, bench_t = parse_kick(s), pcbf.parse_time(s["benchmark_timestamp_utc"])
         if not kick or kick > now or s["benchmark_url"] not in by_url:
             continue
@@ -552,6 +565,8 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
         # The closing odds read off the finished page (results walk) are the
         # true close; otherwise the last quote captured before kickoff.
         closing = [q for q in same if q.get("closing")]
+        if s["selection_record_id"] in recheck and not closing:
+            continue
         later = [q for q in same if not q.get("closing") and not q.get("closed")
                  and (pcbf.parse_time(q["captured_at_utc"]) or kick) < kick
                  and (not bench_t or pcbf.parse_time(q["captured_at_utc"]) > bench_t)]
@@ -579,12 +594,20 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
             reversed_closes += 1
             continue
         rec, err = pcbf.closing_record(s, q["source"], q["url"], quote_time, prices,
-                                       (f"closing odds on the finished page: {q.get('file') or ''}" if q.get("closing")
+                                       (f"{FINISHED_PAGE} {q.get('file') or ''}" if q.get("closing")
                                         else f"auto: {q['source']} capture {q.get('file') or ''}").strip())
+        if rec and s["selection_record_id"] in recheck:
+            old_rec = stored[s["selection_record_id"]]
+            if rec["closing_odds"] == old_rec["closing_odds"]:
+                continue                                        # the same read as before: nothing to correct
+            rec["origin"] = f"correction of a reversed close ({old_rec['closing_odds']}): {rec['origin']}"
+            corrected += 1
         if rec:
             new.append(rec)
             have.add(s["selection_record_id"])
     df.append("closing", new)
+    if corrected:
+        print(f"closing: {corrected} reversed finished-page closes corrected (a correction row appended for each)")
     if reversed_closes:
         print(f"closing: {reversed_closes} finished-page closes disagree with the pricing-time benchmark (favourite on the other side); not stored")
     return new

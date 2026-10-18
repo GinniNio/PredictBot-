@@ -263,6 +263,13 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
         kick = (local - timedelta(minutes=utc_offset_minutes)).replace(tzinfo=timezone.utc)
     sm = re.search(r"oddsportal\.[a-z.]+/([a-z-]+)/", url)
     home, away = title.group(1).strip(), title.group(2).strip()
+    # A finished page's <title> names the teams away first ("Birmingham W -
+    # Arsenal W Odds..." over a page headed Arsenal W 1-1 Birmingham W, seen
+    # 2026-10-18), which put every closing price on the wrong side. The
+    # breadcrumb and header keep the page's own order: when the page shows
+    # the pair the other way round, that order wins.
+    if re.search(r"\|%s - %s\|" % (re.escape(away), re.escape(home)), text) and not re.search(r"\|%s - %s\|" % (re.escape(home), re.escape(away)), text):
+        home, away = away, home
     outcomes = [home, "Draw", away] if n == 3 else [home, away]
     taken = utc(parse_time(capture.get("captured_at_utc")))
     base = {"url": url, "page_url": capture.get("source_url") or url, "league": "",

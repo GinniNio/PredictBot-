@@ -185,6 +185,49 @@ class SettleFromResults(unittest.TestCase):
         self.assertTrue(new[0]["origin"].startswith("closing odds on the finished page"))
         self.assertAlmostEqual(float(new[0]["closing_fair_odds"]), 2.20, delta=0.03)   # 2.10 with the 4.8% margin removed
 
+    def test_a_finished_page_title_naming_the_away_team_first_is_read_in_page_order(self):
+        """18 Oct 2026: the finished page for Arsenal W 1-1 Birmingham W had the
+        <title> 'Birmingham W - Arsenal W Odds...'. The breadcrumb keeps the
+        page's order, so the 1.10 stays Arsenal's."""
+        import odds_sources
+        html = ("<body><a>WSL</a><a>Arsenal W - Birmingham W</a><div>17 Oct 2026,</div><div>15:45</div>"
+                "<div>Final result 1:1 (0:0, 1:1)</div><div>Bookmakers</div><div>1</div><div>X</div><div>2</div><div>Payout</div>"
+                "<div>1xBet</div><p>1.10</p><p>9.54</p><p>19.10</p><p>93.8%</p>"
+                "<div>BetInAsia</div><p>1.08</p><p>13.74</p><p>20.80</p><p>95.5%</p><div>My coupon</div></body>")
+        cap = {"source_url": "https://www.oddsportal.com/football/h2h/arsenal-8CKOoQdn/birmingham-bHZFKao1/#SdYx6KUG",
+               "captured_at_utc": "2026-10-18T20:00:00Z", "page_title": "Birmingham W - Arsenal W Odds, Predictions & H2H", "html": html}
+        q = odds_sources.oddsportal_quotes(cap, 60)[0]
+        self.assertEqual(q["outcomes"], ["Arsenal W", "Draw", "Birmingham W"])
+        self.assertEqual(q["odds"], [1.09, 11.64, 19.95])
+        # The pre-match title order is kept when the page agrees with it.
+        cap["page_title"] = "Arsenal W - Birmingham W Odds, Predictions & H2H"
+        self.assertEqual(odds_sources.oddsportal_quotes(cap, 60)[0]["outcomes"], ["Arsenal W", "Draw", "Birmingham W"])
+
+    def test_a_reversed_finished_page_close_already_stored_gets_a_correction_row(self):
+        op = "https://www.oddsportal.com/football/h2h/alpha-AAAAAAAA/beta-BBBBBBBB/"
+        q = {"source": "oddsportal", "url": op, "sport": "soccer", "start_utc": "2026-10-07T19:00Z",
+             "captured_at_utc": "2026-10-07T22:30:00Z", "outcomes": ["Alpha", "Draw", "Beta United"],
+             "probs": [0.85, 0.10, 0.05], "closing": True, "closed": True, "file": "results.json"}
+        sels = [r for r in self.df.read("selection") if r["sport"] == "soccer"]
+        for r in sels:
+            r["benchmark_url"] = op
+            r["benchmark_odds"] = "1.15/9.00/17.00"
+        home = sels[0]
+        old = {"selection_record_id": home["selection_record_id"], "captured_at_utc": "2026-10-07T18:59Z", "source": "oddsportal",
+               "closing_odds": "20.000/10.000/1.176", "closing_fair_odds": "20.000", "clv_pct": "-0.9",
+               "origin": "closing odds on the finished page: results.json"}
+        with mock.patch.object(self.df, "read", lambda kind: sels if kind == "selection" else [old] if kind == "closing" else []):
+            with mock.patch.object(self.df, "append", lambda kind, rows: None):
+                new = workflow.snapshot_closes(self.df, NOW, [q])
+        fixed = next(c for c in new if c["selection_record_id"] == home["selection_record_id"])
+        self.assertEqual(fixed["closing_odds"], "1.176/10.000/20.000")
+        self.assertTrue(fixed["origin"].startswith("correction of a reversed close (20.000/10.000/1.176)"))
+        # Read again with the same result: no second correction.
+        with mock.patch.object(self.df, "read", lambda kind: sels if kind == "selection" else [old, fixed] if kind == "closing" else []):
+            with mock.patch.object(self.df, "append", lambda kind, rows: None):
+                again = workflow.snapshot_closes(self.df, NOW, [q])
+        self.assertNotIn(home["selection_record_id"], {c["selection_record_id"] for c in again})
+
     def test_a_finished_page_close_with_the_favourite_on_the_other_side_is_not_stored(self):
         """18 Oct 2026: finished-page closes came out reversed (Bet9ja 19.00
         against a 1.16 close). A close that only agrees with the pricing-time
