@@ -21,7 +21,7 @@ GATE_PICKS = 200                      # PCBF Mini step 5
 MAX_CAPTURE_BENCHMARK_GAP = timedelta(hours=6)
 CLOCK_SKEW = timedelta(minutes=10)
 MIN_LEAD = timedelta(minutes=60)      # too close to kickoff to research and benchmark
-BENCHMARK_SOURCES = ("pinnacle", "oddsportal", "oddschecker", "oddsapi", "polymarket")   # polymarket added by the operator 2026-10-05; oddsapi (The Odds API) 2026-10-14
+BENCHMARK_SOURCES = ("pinnacle", "betfair", "oddsportal", "oddschecker", "oddsapi", "polymarket")   # polymarket added by the operator 2026-10-05; oddsapi (The Odds API) 2026-10-14; betfair (exchange back prices via The Odds API, ranked second) 2026-10-18
 # Polymarket-only opportunities are a separate paper tier (PM_PAPER) until an
 # evidence review allows them as PICKs (operator, 2026-10-06). These are
 # rules under evaluation, not settled policy.
@@ -88,7 +88,7 @@ def choose_market(sport: str, markets: dict) -> tuple[str | None, str | None]:
 # source is an exchange-style market (Polymarket), the operator must confirm
 # the match once per source, sport and market (Pending page). Until then the
 # selection carries a caution and cannot be a PICK.
-CONVENTION_SOURCES = {"pinnacle", "oddsportal", "oddschecker", "oddsapi"}   # bookmaker prices: standard settlement conventions
+CONVENTION_SOURCES = {"pinnacle", "betfair", "oddsportal", "oddschecker", "oddsapi"}   # bookmaker/exchange prices: standard settlement conventions
 VARIABLE_RULES = {"MATCH_WINNER": {"tennis": "retirement / walkover treatment",
                                    "table_tennis": "retirement treatment",
                                    "cricket": "tie / draw / no-result treatment",

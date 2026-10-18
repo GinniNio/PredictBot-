@@ -29,7 +29,10 @@ from pcbf import devig_power, devig_prop, parse_time, utc
 # 7 Oct 2026). Rules under evaluation.
 MAX_POLYMARKET_SPREAD = 0.04       # best ask - best bid; wider = RESEARCH
 MIN_POLYMARKET_LIQUIDITY = 5000.0  # USD resting liquidity on the thinnest leg; shallower or unknown = RESEARCH
-SOURCE_PRIORITY = ("pinnacle", "oddsportal", "oddschecker", "oddsapi", "polymarket")   # PCBF Mini order; oddsapi added 2026-10-14
+SOURCE_PRIORITY = ("pinnacle", "betfair", "oddsportal", "oddschecker", "oddsapi", "polymarket")   # PCBF Mini order; oddsapi added 2026-10-14; betfair (exchange back prices via The Odds API) ranked second by the operator 2026-10-18
+# A Betfair exchange book whose back prices sum outside this range is thin
+# (an unmatched longshot, or one side missing): not a benchmark.
+EXCHANGE_BOOK_RANGE = (1.0, 1.10)
 KICKOFF_TOLERANCE = timedelta(hours=3)
 
 LEAGUE_SPORT = {"soccer": "soccer", "fif": "soccer", "unl": "soccer", "ucl": "soccer", "uel": "soccer", "fifa": "soccer",
@@ -316,7 +319,8 @@ def quotes_from_odds_api(feed: dict, file_name: str = "") -> list[dict]:
                 continue
             if all(o > 1 for o in odds):
                 rows.append((b.get("title") or b.get("key") or "?", str(b.get("key") or ""), odds))
-        if not rows:
+        bf = next((b for b in ev.get("bookmakers") or [] if str(b.get("key") or "").startswith("betfair_ex")), None)
+        if not rows and not bf:
             continue
         start = parse_time(ev.get("commence_time"))
         url = f"{feed.get('source') or 'https://api.the-odds-api.com/v4'}/sports/{ev.get('sport_key')}/odds#{ev.get('id')}"
@@ -324,16 +328,31 @@ def quotes_from_odds_api(feed: dict, file_name: str = "") -> list[dict]:
                 "captured_at_utc": taken, "quote_time_utc": taken, "start_utc": utc(start), "outcomes": names,
                 "volume": None, "spread": None, "closed": False, "file": file_name,
                 "live": bool(start and parse_time(taken) and parse_time(taken) >= start)}
-        avg = [sum(r[2][k] for r in rows) / len(rows) for k in range(len(names))]
-        out.append(_finish({**base, "source": "oddsapi", "probs": _devig_mean([r[2] for r in rows]),
-                            "odds": [round(o, 3) for o in avg], "bookmakers": "; ".join(r[0] for r in rows),
-                            "bookmaker_count": len(rows), "depth": len(rows),
-                            "price_basis": f"mean of {len(rows)} bookmakers' cautious de-vigged probabilities (The Odds API)"}))
+        if rows:
+            avg = [sum(r[2][k] for r in rows) / len(rows) for k in range(len(names))]
+            out.append(_finish({**base, "source": "oddsapi", "probs": _devig_mean([r[2] for r in rows]),
+                                "odds": [round(o, 3) for o in avg], "bookmakers": "; ".join(r[0] for r in rows),
+                                "bookmaker_count": len(rows), "depth": len(rows),
+                                "price_basis": f"mean of {len(rows)} bookmakers' cautious de-vigged probabilities (The Odds API)"}))
         pin = next((r for r in rows if r[1].startswith("pinnacle")), None)
         if pin:
             out.append(_finish({**base, "source": "pinnacle", "probs": [1 / o for o in pin[2]], "odds": pin[2],
                                 "bookmakers": pin[0], "bookmaker_count": 1, "depth": 1,
                                 "price_basis": "Pinnacle via The Odds API"}))
+        # Betfair exchange back prices (betfair_ex_eu / _uk / _au): the
+        # operator's second-ranked source (2026-10-18). Left out of the
+        # bookmaker mean above; its own row here, de-vigged by edge() like
+        # any book. quote_problem() rejects a thin book.
+        if bf:
+            prices = {o.get("name"): o.get("price") for o in bf.get("outcomes") or []}
+            try:
+                odds = [float(prices[n]) for n in names]
+            except (KeyError, TypeError, ValueError):
+                odds = []
+            if odds and all(o > 1 for o in odds):
+                out.append(_finish({**base, "source": "betfair", "probs": [1 / o for o in odds], "odds": odds,
+                                    "bookmakers": bf.get("title") or bf.get("key"), "bookmaker_count": 1, "depth": 1,
+                                    "price_basis": f"Betfair exchange back prices ({bf.get('key')}) via The Odds API"}))
     return out
 
 
@@ -377,6 +396,11 @@ def quote_problem(q: dict) -> str | None:
         return "event start time not readable: cannot rule out an in-play price"
     if start and taken and taken >= start:
         return "captured after the event started (in-play price)"
+    if q["source"] == "betfair":
+        total = sum(q["probs"])
+        if not EXCHANGE_BOOK_RANGE[0] <= total <= EXCHANGE_BOOK_RANGE[1]:
+            return f"thin exchange market: back prices sum to {total * 100:.1f}% (outside {EXCHANGE_BOOK_RANGE[0] * 100:.0f}-{EXCHANGE_BOOK_RANGE[1] * 100:.0f}%)"
+        return None
     if q["source"] in ("oddsportal", "oddsapi"):
         if q["bookmaker_count"] < MIN_ODDSPORTAL_BOOKMAKERS:
             return f"only {q['bookmaker_count']} bookmakers listed (< {MIN_ODDSPORTAL_BOOKMAKERS})"
@@ -590,6 +614,6 @@ def reply_fields(q: dict, order: list[int]) -> list[str]:
         volume = "unknown" if q.get("volume") is None else format(round(q["volume"]), ",")
         note = "polymarket mid %s, volume $%s%s" % (mids, volume, spread)
         return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices), note]
-    # pinnacle (on an OddsPortal page or via The Odds API), oddsapi, oddschecker: the quote says what it is
+    # pinnacle (on an OddsPortal page or via The Odds API), betfair, oddsapi, oddschecker: the quote says what it is
     note = q.get("price_basis") or ("Pinnacle row on OddsPortal page" if q["source"] == "pinnacle" else q["source"])
     return [q["source"], q["url"], q["captured_at_utc"], " / ".join(f"{p:.4f}" for p in prices), note]

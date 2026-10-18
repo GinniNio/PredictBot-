@@ -262,6 +262,9 @@ def import_pcbf_ledger(df: DataFolder, csv_path, now: datetime) -> dict:
 
 _QUOTE_CACHE: dict = {}   # (path, size, mtime) -> quotes parsed from that file
 QUOTE_CACHE_DIR = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "PredictBot" / "quotes"
+# Bump when a parser in odds_sources changes what it reads from a file, so a
+# cached parse from the old code is not reused (2: betfair rows from the feed).
+QUOTE_PARSER_VERSION = 2
 
 
 def _parse_quotes(path: Path, raw: bytes) -> list[dict]:
@@ -305,7 +308,7 @@ def _quotes_in(paths) -> list[dict]:
             except OSError:
                 continue
             digest = hashlib.sha256(raw).hexdigest()
-            cached = QUOTE_CACHE_DIR / f"{digest}.json"
+            cached = QUOTE_CACHE_DIR / f"{digest}-v{QUOTE_PARSER_VERSION}.json"
             parsed = None
             try:
                 parsed = json.loads(cached.read_text(encoding="utf-8"))

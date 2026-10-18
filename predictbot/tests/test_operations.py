@@ -520,7 +520,7 @@ class OddsApiFeed(unittest.TestCase):
 
     def test_fetch_saves_a_capture_without_the_key_and_reads_the_quota(self):
         books = [("pinnacle", "Pinnacle", [2.10, 3.60, 3.40]), ("unibet_eu", "Unibet", [2.05, 3.50, 3.50]),
-                 ("betfair_ex_eu", "Betfair", [2.20, 3.80, 3.60]), ("onexbet", "1xBet", [2.12, 3.55, 3.45])]
+                 ("betfair_ex_eu", "Betfair", [2.16, 3.70, 3.55]), ("onexbet", "1xBet", [2.12, 3.55, 3.45])]
         fake = self.opener([[self.event("Arsenal", "Chelsea", books)], []])
         r = feeds.fetch_odds_api(self.df, self.now, opener=fake, pause=0)
         self.assertEqual((r["status"], r["events"], r["requests"], r["remaining"]), ("fetched", 1, 2, "480"))
@@ -535,8 +535,10 @@ class OddsApiFeed(unittest.TestCase):
         self.assertAlmostEqual(feeds.odds_api_interval(cfg, self.now, 40), 21.1, delta=0.2)
         self.assertGreater(feeds.odds_api_interval(cfg, self.now, 1), 400)     # nothing left: wait for the reset
         quotes = workflow.benchmark_quotes(self.df, (), self.now)
-        self.assertEqual([q["source"] for q in quotes], ["oddsapi", "pinnacle"])
-        mean, pin = quotes
+        self.assertEqual([q["source"] for q in quotes], ["oddsapi", "pinnacle", "betfair"])
+        mean, pin, bf = quotes
+        self.assertEqual(bf["odds"], [2.16, 3.55, 3.70])                          # exchange back prices, Bet9ja order
+        self.assertIsNone(odds_sources.quote_problem(bf))                        # a 101.5% back book: liquid enough
         self.assertEqual(mean["outcomes"], ["Arsenal", "Draw", "Chelsea"])       # Bet9ja order: home, draw, away
         self.assertEqual(mean["bookmaker_count"], 3)                               # the exchange is left out
         self.assertEqual(pin["odds"], [2.10, 3.40, 3.60])
@@ -586,6 +588,37 @@ class OddsApiFeed(unittest.TestCase):
               "probs": [0.45, 0.28, 0.27], "closed": False}
         choice = odds_sources.choose_quote(cand, [op, *q])
         self.assertEqual((choice["status"], choice["match"]["quote"]["source"]), ("matched", "pinnacle"))
+
+    def test_betfair_exchange_row_ranks_second_after_pinnacle(self):
+        """Operator decision 2026-10-18: Betfair exchange back prices from
+        the feed outrank an OddsPortal mean, and Pinnacle outranks Betfair."""
+        cand = {"event_id": "bet9ja:x", "sport": "soccer", "home": "Arsenal", "away": "Chelsea",
+                "kickoff_utc": "2026-10-14T19:00Z", "outcomes": ["", "", ""]}
+        op = {"source": "oddsportal", "url": "https://www.oddsportal.com/football/h2h/a-A/c-C/", "sport": "soccer",
+              "start_utc": "2026-10-14T19:00Z", "captured_at_utc": "2026-10-14T08:00Z", "outcomes": ["Arsenal", "Draw", "Chelsea"],
+              "probs": [0.45, 0.28, 0.27], "closed": False}
+        feed = lambda books: odds_sources.quotes_from_odds_api({"fetched_at_utc": "2026-10-14T09:30:00Z", "events": [
+            feeds._trim_odds_api(self.event("Arsenal", "Chelsea", books), "soccer_epl")]}, "f.json")
+        q = feed([("betfair_ex_uk", "Betfair", [2.16, 3.70, 3.55]), ("unibet_eu", "Unibet", [2.05, 3.50, 3.50])])
+        self.assertEqual([x["source"] for x in q], ["oddsapi", "betfair"])
+        self.assertEqual(q[0]["bookmaker_count"], 1)                              # the exchange stays out of the mean
+        self.assertEqual(q[1]["odds"], [2.16, 3.55, 3.70])
+        self.assertIn("betfair_ex_uk", q[1]["price_basis"])
+        choice = odds_sources.choose_quote(cand, [op, *q])
+        self.assertEqual((choice["status"], choice["match"]["quote"]["source"]), ("matched", "betfair"))
+        fields = odds_sources.reply_fields(choice["match"]["quote"], choice["match"]["order"])
+        self.assertEqual(fields[0], "betfair")
+        self.assertTrue(fields[3].startswith("2.1600 / 3.5500 / 3.7000"))
+        q = feed([("betfair_ex_eu", "Betfair", [2.16, 3.70, 3.55]), ("pinnacle", "Pinnacle", [2.10, 3.60, 3.40])])
+        choice = odds_sources.choose_quote(cand, [op, *q])
+        self.assertEqual(choice["match"]["quote"]["source"], "pinnacle")
+        # A thin exchange book (an unmatched longshot at 1000) is no benchmark.
+        thin = feed([("betfair_ex_eu", "Betfair", [1.01, 1000.0, 1000.0])])[-1]
+        self.assertIn("thin exchange market", odds_sources.quote_problem(thin))
+        thin = feed([("betfair_ex_eu", "Betfair", [1.80, 9.00, 9.00])])[-1]      # 77.8%: one side unmatched
+        self.assertIn("thin exchange market", odds_sources.quote_problem(thin))
+        self.assertEqual(pcbf.canonical_source("betfair"), "betfair")
+        self.assertEqual(pcbf.settlement_check("betfair", "soccer", pcbf.THREE_WAY, [])[0], "ok")
 
 
 class PolymarketFeed(unittest.TestCase):
