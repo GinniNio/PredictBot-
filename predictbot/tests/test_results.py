@@ -202,6 +202,16 @@ class SettleFromResults(unittest.TestCase):
         # The pre-match title order is kept when the page agrees with it.
         cap["page_title"] = "Arsenal W - Birmingham W Odds, Predictions & H2H"
         self.assertEqual(odds_sources.oddsportal_quotes(cap, 60)[0]["outcomes"], ["Arsenal W", "Draw", "Birmingham W"])
+        # Without a breadcrumb the match header (home, score, away) decides.
+        cap["page_title"] = "Birmingham W - Arsenal W Odds, Predictions & H2H"
+        cap["html"] = html.replace("<a>Arsenal W - Birmingham W</a>",
+                                   "<h1><span>Arsenal W</span><img><b>1</b><b>-</b><b>1</b><img><span>Birmingham W</span></h1>")
+        self.assertEqual(odds_sources.oddsportal_quotes(cap, 60)[0]["outcomes"], ["Arsenal W", "Draw", "Birmingham W"])
+        # A sidebar fixture naming a team ("Tottenham W - Arsenal W") does not count as the header.
+        cap["html"] = "<body><a>Birmingham W - Chelsea W</a><a>Home</a><a>Football</a>" + html[len("<body>"):]
+        self.assertEqual(odds_sources.oddsportal_quotes(cap, 60)[0]["outcomes"], ["Arsenal W", "Draw", "Birmingham W"])
+        cap["page_title"] = "Arsenal W - Birmingham W Odds, Predictions & H2H"
+        self.assertEqual(odds_sources.oddsportal_quotes(cap, 60)[0]["outcomes"], ["Arsenal W", "Draw", "Birmingham W"])
 
     def test_a_reversed_finished_page_close_already_stored_gets_a_correction_row(self):
         op = "https://www.oddsportal.com/football/h2h/alpha-AAAAAAAA/beta-BBBBBBBB/"

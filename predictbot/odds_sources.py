@@ -268,7 +268,11 @@ def oddsportal_quotes(capture: dict, utc_offset_minutes) -> list[dict]:
     # 2026-10-18), which put every closing price on the wrong side. The
     # breadcrumb and header keep the page's own order: when the page shows
     # the pair the other way round, that order wins.
-    if re.search(r"\|%s - %s\|" % (re.escape(away), re.escape(home)), text) and not re.search(r"\|%s - %s\|" % (re.escape(home), re.escape(away)), text):
+    region = text[: head.start()]                          # the breadcrumb and match header sit between the
+    region = region[max(region.rfind("|Home|"), 0):]       # breadcrumb's "Home" and the odds table; side columns are outside
+    first = lambda name: min((m.start() for m in re.finditer(r"\|%s(?:\||\s+-\s+)|\s-\s%s\|" % (re.escape(name), re.escape(name)), region)), default=None)
+    at_home, at_away = first(home), first(away)
+    if at_home is not None and at_away is not None and at_away < at_home:
         home, away = away, home
     outcomes = [home, "Draw", away] if n == 3 else [home, away]
     taken = utc(parse_time(capture.get("captured_at_utc")))
