@@ -841,7 +841,7 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
         rows.append({"kickoff_utc": s.get("kickoff_utc") or "", "sport": s["sport"], "competition": s.get("competition") or "",
                      "event_name": s.get("event_name") or "", "selection": s.get("selection") or "", "tier": s["tier"],
                      "bookmaker_odds": s["bookmaker_odds"], "closing_fair_odds": c["closing_fair_odds"],
-                     "clv_pct": float(c["clv_pct"]), "snapshot_label": c.get("snapshot_label", "closing price"),
+                     "closing_odds": c.get("closing_odds") or "", "clv_pct": float(c["clv_pct"]), "snapshot_label": c.get("snapshot_label", "closing price"),
                      "source": c.get("source") or s.get("benchmark_source") or "", "result": r["result"] if r else ""})
     out["clv_rows"] = sorted(rows, key=lambda r: -r["clv_pct"])
     # Inputs to the written evidence review. Nothing unlocks automatically.

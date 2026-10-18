@@ -546,9 +546,9 @@ def clv_tables(perf: dict) -> str:
                   f"{v['positive_clv']} / {v['negative_clv']}", pct(v["win_rate"], 0).lstrip("+"), pct(v["unit_roi"])]
                  for k, v in perf["by_competition"].items()]
     rows = perf["clv_rows"]
-    sel_head = ["Kickoff UTC", "Sport", "Competition", "Game", "Selection", "Tier", "Bet9ja", "Closing fair", "CLV", "Close from", "Result"]
+    sel_head = ["Kickoff UTC", "Sport", "Competition", "Game", "Selection", "Tier", "Bet9ja", "Closing fair", "Closing odds", "CLV", "Close from", "Result"]
     row = lambda r: [e(r["kickoff_utc"][:16].replace("T", " ")), e(r["sport"]), e(r["competition"]), e(r["event_name"]),
-                     e(r["selection"]), e(r["tier"]), e(r["bookmaker_odds"]), e(r["closing_fair_odds"]), pct(r["clv_pct"]),
+                     e(r["selection"]), e(r["tier"]), e(r["bookmaker_odds"]), e(r["closing_fair_odds"]), e(r["closing_odds"]), pct(r["clv_pct"]),
                      e(f"{r['source']}, {r['snapshot_label']}"), e(r["result"])]
     best, worst = rows[:CLV_ROWS], rows[-CLV_ROWS:][::-1] if len(rows) > CLV_ROWS else []
     return ("<h2>Where the closing line value is</h2>"
@@ -558,7 +558,8 @@ def clv_tables(perf: dict) -> str:
             + (table(head, comp_rows, "num") if comp_rows else "<p>No competition has enough closing prices yet.</p>")
             + f"<h3>Best {len(best)} selections by CLV</h3><p class='dim'>Bet9ja's price at pricing time against the market's "
             "final fair price. Positive means Bet9ja paid more than the close; the result column says what happened, "
-            "which over one game is mostly luck.</p>"
+            "which over one game is mostly luck. Closing odds are the market's final prices in Bet9ja's outcome order "
+            "(1/X/2 or 1/2) before the margin is removed.</p>"
             + (table(sel_head, [row(r) for r in best], "num") if best else "<p>No closing prices yet.</p>")
             + (f"<details><summary>Worst {len(worst)} selections by CLV</summary>" + table(sel_head, [row(r) for r in worst], "num")
                + "</details>" if worst else ""))
