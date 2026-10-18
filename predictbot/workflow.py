@@ -537,7 +537,7 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
     by_url = {}
     for q in quotes:
         by_url.setdefault(q["url"], []).append(q)
-    new = []
+    new, reversed_closes = [], 0
     oldest = pcbf.utc(now - RESULT_LOOKBACK)[:10]      # a game older than this has no quote on file to close from
     for s in df.read("selection"):
         if s["tier"] not in schemas.PRICED_TIERS or s["selection_record_id"] in have or (s.get("kickoff_utc") or "")[:10] < oldest:
@@ -570,6 +570,14 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
         if not m:
             continue
         prices = [1 / q["probs"][i] for i in m[0]["order"]]
+        if q.get("closing") and _looks_reversed(prices, s.get("benchmark_odds")):
+            # Seen 2026-10-18: closing odds read off finished OddsPortal pages
+            # came out as the other side's price (Bet9ja 19.00 against a 1.16
+            # "close"). Until the page layout is understood, a close whose
+            # favourite is the opposite side from the pricing-time benchmark is
+            # not stored; the selection stays open for a corrected read.
+            reversed_closes += 1
+            continue
         rec, err = pcbf.closing_record(s, q["source"], q["url"], quote_time, prices,
                                        (f"closing odds on the finished page: {q.get('file') or ''}" if q.get("closing")
                                         else f"auto: {q['source']} capture {q.get('file') or ''}").strip())
@@ -577,7 +585,28 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
             new.append(rec)
             have.add(s["selection_record_id"])
     df.append("closing", new)
+    if reversed_closes:
+        print(f"closing: {reversed_closes} finished-page closes disagree with the pricing-time benchmark (favourite on the other side); not stored")
     return new
+
+
+def _looks_reversed(prices: list, benchmark_odds: str | None) -> bool:
+    """True when the closing prices, in Bet9ja order, sit far from the
+    pricing-time benchmark but close to it read backwards: the favourite has
+    swapped sides, which a real market move never does by this margin."""
+    if not benchmark_odds:
+        return False
+    try:
+        bench = [float(x) for x in str(benchmark_odds).split("/")]
+    except ValueError:
+        return False
+    if len(bench) != len(prices) or any(b <= 1 for b in bench) or any(p <= 1 for p in prices):
+        return False
+    norm = lambda odds: [(1 / o) / sum(1 / x for x in odds) for o in odds]
+    p, b = norm(prices), norm(bench)
+    direct = sum(abs(x - y) for x, y in zip(p, b))
+    back = sum(abs(x - y) for x, y in zip(p[::-1], b))
+    return direct > 0.5 and back < direct / 2
 
 
 def recheck_selection(df: DataFolder, selection_record_id: str, odds: str, now: datetime, note: str = "") -> dict:

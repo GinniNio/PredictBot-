@@ -185,6 +185,25 @@ class SettleFromResults(unittest.TestCase):
         self.assertTrue(new[0]["origin"].startswith("closing odds on the finished page"))
         self.assertAlmostEqual(float(new[0]["closing_fair_odds"]), 2.20, delta=0.03)   # 2.10 with the 4.8% margin removed
 
+    def test_a_finished_page_close_with_the_favourite_on_the_other_side_is_not_stored(self):
+        """18 Oct 2026: finished-page closes came out reversed (Bet9ja 19.00
+        against a 1.16 close). A close that only agrees with the pricing-time
+        benchmark read backwards is held back, not written."""
+        op = "https://www.oddsportal.com/football/h2h/alpha-AAAAAAAA/beta-BBBBBBBB/"
+        q = {"source": "oddsportal", "url": op, "sport": "soccer", "start_utc": "2026-10-07T19:00Z",
+             "captured_at_utc": "2026-10-07T22:30:00Z", "outcomes": ["Alpha", "Draw", "Beta United"],
+             "probs": [0.05, 0.10, 0.85], "closing": True, "closed": True, "file": "results.json"}
+        sels = [r for r in self.df.read("selection") if r["sport"] == "soccer"]
+        for r in sels:
+            r["benchmark_url"] = op
+            r["benchmark_odds"] = "1.15/9.00/17.00"                            # priced with Alpha the big favourite
+        with mock.patch.object(self.df, "read", lambda kind: sels if kind == "selection" else []):
+            with mock.patch.object(self.df, "append", lambda kind, rows: None):
+                self.assertEqual(workflow.snapshot_closes(self.df, NOW, [q]), [])
+        self.assertTrue(workflow._looks_reversed([20.0, 10.0, 1.18], "1.15/9.00/17.00"))
+        self.assertFalse(workflow._looks_reversed([1.30, 6.00, 12.00], "1.15/9.00/17.00"))   # a real drift
+        self.assertFalse(workflow._looks_reversed([2.10, 3.40, 3.60], "2/3/4"))
+
     def test_oddsportal_page_for_another_date_is_not_used(self):
         op = "https://www.oddsportal.com/football/h2h/alpha-AAAAAAAA/beta-BBBBBBBB/"
         quotes = [{"source": "oddsportal", "url": op, "sport": "soccer", "start_utc": "2026-10-07T19:00Z",
