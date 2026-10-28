@@ -596,6 +596,11 @@ def page_performance(msg="") -> str:
            "pre-kickoff snapshots.</p>"]
     for dim in ("sport", "market", "odds_band", "benchmark_source"):
         out.append(f"<details><summary>By {dim.replace('_', ' ')}</summary>" + table(head, rows(perf[f"by_{dim}"]), "num") + "</details>")
+    out.append("<h2>WATCH by why it is not a PICK</h2><p class='dim'>Either the edge is short of +3%, or the edge is there "
+               "and a caution holds it back; those rows are grouped by caution. A caution group whose CLV stays positive over "
+               "weeks is evidence for relaxing that rule; one that stays negative shows the caution is doing its job. "
+               "Unit ROI is the paper result at one unit a selection.</p>"
+               + (table(head, rows(perf["by_watch_reason"]), "num") if perf["by_watch_reason"] else "<p>No WATCH selections yet.</p>"))
     out.append(clv_tables(perf))
     b = perf["bets"]
     out.append(f"<h2>Actual wagers (separate from paper)</h2><p>{b['n']} logged against selections, {b['settled']} settled, "

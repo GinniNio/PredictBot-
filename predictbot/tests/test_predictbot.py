@@ -525,6 +525,14 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual([r["clv_pct"] for r in rows], sorted((r["clv_pct"] for r in rows), reverse=True))
         self.assertTrue(all(r["event_name"] and r["closing_fair_odds"] for r in rows))
         self.assertEqual(perf["by_competition"], {})         # three closing prices: under the 10 a competition needs
+        self.assertEqual(sum(v["n"] for v in perf["by_watch_reason"].values()), perf["by_tier"]["WATCH"]["n"])
+        # The split names the caution, with its numbers generalised.
+        self.assertEqual(pcbf.watch_reason({"edge_pct": "0.012", "caution_flags": ""}), "edge short of +3%, no caution")
+        self.assertEqual(pcbf.watch_reason({"edge_pct": "0.0480", "caution_flags": "Bet9ja capture and benchmark more than 6h apart; "
+                                            "benchmark book 99.5% < 100%: rulebook de-vig understates edge"}),
+                         "edge there, caution only: Bet9ja capture and benchmark more than 6h apart; benchmark book N% < N%: rulebook de-vig understates edge")
+        self.assertEqual(pcbf.watch_reason({"edge_pct": "-0.02", "caution_flags": "STALE: benchmark not from today"}),
+                         "edge short of +3%, with caution")
 
 
 class Batching(unittest.TestCase):

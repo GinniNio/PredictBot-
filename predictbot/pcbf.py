@@ -703,6 +703,20 @@ def build_settle_pack(selections: list[dict], settled_ids: set, now: datetime,
 MIN_CLV_GROUP = 10    # closing prices a competition needs before its mean CLV is shown
 
 
+def watch_reason(sel: dict) -> str:
+    """Why a WATCH selection is not a PICK: the edge is short, or the edge is
+    there and a caution holds it back (named, numbers generalised so that
+    'benchmark book 99.5%' and 'benchmark book 98.7%' are one group)."""
+    try:
+        short = float(sel.get("edge_pct") or 0) < PICK_EDGE
+    except ValueError:
+        short = True
+    flags = [re.sub(r"\d+(\.\d+)?%", "N%", f.strip()) for f in (sel.get("caution_flags") or "").split(";") if f.strip()]
+    if short:
+        return "edge short of +3%" + (", with caution" if flags else ", no caution")
+    return "edge there, caution only: " + ("; ".join(flags) if flags else "(none recorded)")
+
+
 def odds_band(o: float) -> str:
     for hi, label in ((1.5, "<1.50"), (2.0, "1.50-1.99"), (3.0, "2.00-2.99"), (5.0, "3.00-4.99")):
         if o < hi:
@@ -822,6 +836,15 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
         for s in priced:
             groups.setdefault((s["tier"], fn(s)), []).append(s)
         out[f"by_{dim}"] = {f"{t} | {k}": summarise(v) for (t, k), v in sorted(groups.items())}
+    # WATCH split by why it is not a PICK (operator, 28 Oct 2026): the edge
+    # short of +3%, or the edge there and a caution holding it back, by
+    # caution. A caution group that stays positive is evidence for relaxing
+    # that rule; one that stays negative shows the caution is doing its job.
+    reasons = {}
+    for s in priced:
+        if s["tier"] == "WATCH":
+            reasons.setdefault(watch_reason(s), []).append(s)
+    out["by_watch_reason"] = {k: summarise(v) for k, v in sorted(reasons.items())}
     # Where Bet9ja is soft: competitions (all priced tiers together) with
     # enough closing prices to mean something, best mean CLV first.
     comps = {}
