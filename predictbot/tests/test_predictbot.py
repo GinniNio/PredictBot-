@@ -308,6 +308,18 @@ class Polymarket(unittest.TestCase):
                                                              "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z",
                                                              liquidity="900"))[0]
         self.assertTrue(odds_sources.quote_problem(shallow).startswith("shallow market"))
+        # 28 Oct 2026: an untraded market at its seeded 50/50 (tight spread, nominal
+        # liquidity) priced tennis doubles as PM_PAPER at +120%. No volume and every
+        # price at the even split = no opinion.
+        seeded = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.495", "0.505"], "0",
+                                                            "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z"))[0]
+        self.assertTrue(odds_sources.quote_problem(seeded).startswith("untraded market"))
+        traded = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.495", "0.505"], "12",
+                                                            "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z"))[0]
+        self.assertIsNone(odds_sources.quote_problem(traded))     # traded, even if only a little
+        moved = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.62", "0.38"], "0",
+                                                           "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z"))[0]
+        self.assertIsNone(odds_sources.quote_problem(moved))      # a price away from the split is an opinion
 
     def test_no_match_on_different_players_or_day(self):
         import odds_sources

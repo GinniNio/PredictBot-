@@ -29,6 +29,11 @@ from pcbf import devig_power, devig_prop, parse_time, utc
 # 7 Oct 2026). Rules under evaluation.
 MAX_POLYMARKET_SPREAD = 0.04       # best ask - best bid; wider = RESEARCH
 MIN_POLYMARKET_LIQUIDITY = 5000.0  # USD resting liquidity on the thinnest leg; shallower or unknown = RESEARCH
+# A market nobody has traded still shows the even price its market maker
+# seeded it with (0.495 / 0.505 on a two-way), with a tight spread and
+# nominal liquidity. That price is no opinion: not a benchmark (operator,
+# 28 Oct 2026). A traded market at an even price is fine.
+PLACEHOLDER_TOLERANCE = 0.01       # every midpoint within this of 1/n, with zero traded volume = untraded placeholder
 SOURCE_PRIORITY = ("pinnacle", "betfair", "oddsportal", "oddschecker", "oddsapi", "polymarket")   # PCBF Mini order; oddsapi added 2026-10-14; betfair (exchange back prices via The Odds API) ranked second by the operator 2026-10-18
 # A Betfair exchange book whose back prices sum outside this range is thin
 # (an unmatched longshot, or one side missing): not a benchmark.
@@ -418,6 +423,8 @@ def quote_problem(q: dict) -> str | None:
         return None
     if q["source"] != "polymarket":
         return None
+    if is_placeholder(q):
+        return "untraded market: every price still at the seeded even split with no volume"
     if q["spread"] is not None and q["spread"] > MAX_POLYMARKET_SPREAD:
         return f"wide market: bid/ask spread {q['spread']:.2f} > {MAX_POLYMARKET_SPREAD:.2f}"
     if q.get("depth") is None:
@@ -427,6 +434,15 @@ def quote_problem(q: dict) -> str | None:
     if any(p <= 0 or p >= 1 for p in q["probs"]):
         return "price at 0 or 1"
     return None
+
+
+def is_placeholder(q: dict) -> bool:
+    """An untraded Polymarket market still at its seeded even price."""
+    probs = q.get("probs") or []
+    if not probs or (q.get("volume") or 0) > 0:
+        return False
+    even = 1 / len(probs)
+    return all(abs(p - even) <= PLACEHOLDER_TOLERANCE for p in probs)
 
 
 # ------------------------------------------------------------------ matching
