@@ -809,7 +809,8 @@ class Handler(BaseHTTPRequestHandler):
         with LOCK:
             self._post()
             if urlparse(self.path).path != "/update":
-                SNAPSHOT.clear()          # a decision or record was written: the next page recomputes the picture
+                WAKE.set()                # a decision or record was written: the loop re-prices and redraws the
+                                          # picture within about a minute; pages keep the last picture meanwhile
 
     def _get(self):
         u = urlparse(self.path)
@@ -880,8 +881,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/matchreview":
                 workflow.record_match_review(DF, get("event_id"), get("quote_key"), get("decision"), now(),
                                              get("event_name"), get("quote_event"), get("source"))
-                return self.redirect("/pending", "Match decision saved. Accepted matches are priced on the next "
-                                                 "Opportunities load.")
+                return self.redirect("/pending", "Match decision saved. Accepted matches are priced within about a "
+                                                 "minute; Opportunities shows them after that.")
             if u.path == "/rule":
                 workflow.record_rule(DF, get("key"), get("status"), now(), get("note"))
                 return self.redirect("/pending", "Settlement rule saved.")
