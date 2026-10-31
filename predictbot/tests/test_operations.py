@@ -1012,8 +1012,8 @@ class WalkerUpload(unittest.TestCase):
         to run; the odds walker is cleared once the Bet9ja run has landed."""
         import urllib.request
         from datetime import datetime, timezone
-        self.app.WALK_NOW["at"] = None
-        self.app.WALK_NOW["landed"] = []
+        self.app.WALK_NOW.clear()
+        self.app.WALK_NOW.update(loaded=True, at=None, landed=[])
         get = lambda: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/walker-targets.json", timeout=10).read())
         self.app.SNAPSHOT.clear()
         with self.assertRaises(urllib.error.HTTPError) as held:               # before the first update: 503, never a long wait
@@ -1045,8 +1045,15 @@ class WalkerUpload(unittest.TestCase):
         self.app.WALK_NOW["at"] = asked - timedelta(hours=2)
         w = self.app.walk_now_status(asked)
         self.assertTrue(w["odds_walk_ready"])
-        self.app.WALK_NOW["at"] = None
-        self.app.WALK_NOW["landed"] = []
+        # The request survives an app restart: it is kept in the data folder.
+        self.app.WALK_NOW["at"] = asked
+        self.app.WALK_NOW["landed"] = [asked + timedelta(minutes=2)]
+        self.app._walk_now_save()
+        self.app.WALK_NOW.clear()
+        w = self.app.walk_now_status(asked + timedelta(minutes=3))
+        self.assertEqual((w["walk_now_requested_utc"], w["bet9ja_files_since_request"]), (pcbf.utc(asked), 1))
+        self.app.WALK_NOW.clear()
+        self.app.WALK_NOW.update(loaded=True, at=None, landed=[])
 
     def test_bad_or_read_only_uploads_are_refused(self):
         self.assertEqual(self.post(b"not json")[0], 409)

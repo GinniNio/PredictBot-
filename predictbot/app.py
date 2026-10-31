@@ -187,7 +187,32 @@ WALK_NOW_WAIT = timedelta(minutes=30)   # the odds walker starts when the Bet9ja
 WALK_NOW_QUIET = timedelta(minutes=3)   # a Bet9ja run counts as landed when no sport file has arrived for this long
 
 
+WALK_NOW_FILE = "walk-now.json"       # in the data folder, so a restart of the app keeps the request and its progress
+
+
+def _walk_now_load():
+    if "loaded" in WALK_NOW:
+        return
+    WALK_NOW["loaded"] = True
+    try:
+        data = json.loads((DF.root / WALK_NOW_FILE).read_text(encoding="utf-8"))
+        WALK_NOW["at"] = pcbf.parse_time(data.get("at"))
+        WALK_NOW["landed"] = [x for x in (pcbf.parse_time(v) for v in data.get("landed") or []) if x]
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+def _walk_now_save():
+    try:
+        (DF.root / WALK_NOW_FILE).write_text(json.dumps({"at": pcbf.utc(WALK_NOW["at"]) if WALK_NOW.get("at") else "",
+                                                          "landed": [pcbf.utc(x) for x in WALK_NOW.get("landed") or []][-100:]}),
+                                             encoding="utf-8")
+    except OSError:
+        pass                              # a read-only viewer cannot save it; the request still works for this run
+
+
 def walk_now_status(t: datetime) -> dict:
+    _walk_now_load()
     """What the walkers read from /walker-targets.json about a walk request:
     when it was made, how many Bet9ja sport files have arrived since and
     when the last did, and whether the odds walker should start now (the
@@ -227,7 +252,10 @@ def accept_walk(raw: bytes) -> dict:
         raise InvalidRecord("data folder is read-only: " + blocked())
     path = DF.save_capture(name, raw)
     if name.startswith("bet9ja-allsports-walk-"):
+        _walk_now_load()
         WALK_NOW.setdefault("landed", []).append(now())     # the walk request's progress, without listing the folder
+        if WALK_NOW.get("at"):
+            _walk_now_save()
     WAKE.set()                        # priced by the update loop once the batch has settled
     return {"saved": path.name, "message": f"saved; priced within about {UPLOAD_SETTLE + 30} s with the rest of this batch"}
 
@@ -934,7 +962,9 @@ class Handler(BaseHTTPRequestHandler):
         get = lambda k: (form.get(k) or [""])[0]
         try:
             if u.path == "/walk-now":
+                _walk_now_load()
                 WALK_NOW["at"] = now()
+                _walk_now_save()
                 return self.redirect("/", "Walk requested. The Bet9ja walker starts within a minute and takes 20 to 40 minutes "
                                           "over its sports; the odds walker follows once those files have landed, another 10 "
                                           "to 20 minutes. Reload after about 45 minutes: the status line under the buttons "
