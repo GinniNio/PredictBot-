@@ -935,9 +935,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path == "/walk-now":
                 WALK_NOW["at"] = now()
-                return self.redirect("/", "Walk requested. The Bet9ja walker starts within a minute; the odds walker follows "
-                                          "once the Bet9ja files have landed. Allow about 20 minutes, then reload: the "
-                                          "shortlist is priced on fresh captures and ready to recheck and stake.")
+                return self.redirect("/", "Walk requested. The Bet9ja walker starts within a minute and takes 20 to 40 minutes "
+                                          "over its sports; the odds walker follows once those files have landed, another 10 "
+                                          "to 20 minutes. Reload after about 45 minutes: the status line under the buttons "
+                                          "shows where it has got to, and the shortlist is then priced on fresh captures.")
             if u.path == "/pack":
                 workflow.create_pack(DF, now(), set(form.get("sport") or []) or None, [DOWNLOADS])
                 return self.redirect("/pack")
