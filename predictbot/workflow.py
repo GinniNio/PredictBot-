@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import statistics
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -79,6 +80,63 @@ def load_candidates(df: DataFolder, now: datetime, extra_folders=(), since: date
         reason = pcbf.screen(c, now)
         (rejected if reason else accepted).append((c, reason))
     return {"files": files, "duplicates": dups, "accepted": [c for c, _ in accepted], "rejected": rejected}
+
+
+DURABILITY_DAYS = 14
+
+
+def price_durability(df: DataFolder, now: datetime, extra_folders=(), days: int = DURABILITY_DAYS) -> dict:
+    """Operator, 31 Oct 2026: does a priced edge survive until the operator
+    can stake it? For each PICK, PM_PAPER and edge-there WATCH selection of
+    the last `days`, Bet9ja's price for the same selection in later walker
+    captures before kickoff: at the next capture (about 4h on) and at the
+    last one before kickoff, against the selection's min odds. Returns per
+    group: n with a later capture, how many still at or above min odds at
+    each point, the median hours to the next capture and the median price
+    change by the last one."""
+    since = now - timedelta(days=days)
+    later = {}                                   # (event_id, market) -> [(captured_at_utc, [odds...])]
+    seen = set()
+    for path in df.paths("bet9ja-*.json", extra_folders, since):
+        got = _capture_candidates(path)
+        if not got or got[2] is None or got[0] in seen:
+            continue
+        seen.add(got[0])
+        for c in got[2]:
+            if c.get("captured_at_utc") and c.get("odds"):
+                later.setdefault((c["event_id"], c["market"]), []).append((pcbf.utc(pcbf.parse_time(c["captured_at_utc"])), c["odds"]))
+    cutoff = pcbf.utc(since)
+    groups = {}
+    for s in df.read("selection"):
+        if s["tier"] not in schemas.PRICED_TIERS or (s.get("priced_at_utc") or "") < cutoff or not s.get("fair_odds"):
+            continue
+        if s["tier"] == "WATCH" and not pcbf.watch_reason(s).startswith("edge there"):
+            continue
+        parts = s["selection_id"].split(":")
+        event_id, market, idx = ":".join(parts[:-2]), parts[-2], int(parts[-1])
+        kick = s.get("kickoff_utc") or "9"
+        caps = sorted(t for t in later.get((event_id, market), []) if s["priced_at_utc"] < t[0] < kick)
+        g = groups.setdefault("WATCH, edge there" if s["tier"] == "WATCH" else s["tier"],
+                              {"n": 0, "with_later": 0, "ok_next": 0, "ok_last": 0, "hours": [], "drift": []})
+        g["n"] += 1
+        if not caps:
+            continue
+        try:
+            min_odds = float(s["fair_odds"]) * (1 + pcbf.PICK_EDGE)
+            first, last = float(caps[0][1][idx]), float(caps[-1][1][idx])
+        except (IndexError, TypeError, ValueError):
+            continue
+        g["with_later"] += 1
+        g["ok_next"] += first >= min_odds
+        g["ok_last"] += last >= min_odds
+        g["hours"].append((pcbf.parse_time(caps[0][0]) - pcbf.parse_time(s["priced_at_utc"])).total_seconds() / 3600)
+        g["drift"].append(last / float(s["bookmaker_odds"]) - 1)
+    out = {}
+    for k, g in sorted(groups.items()):
+        out[k] = {"n": g["n"], "with_later": g["with_later"], "ok_next": g["ok_next"], "ok_last": g["ok_last"],
+                  "median_hours": statistics.median(g["hours"]) if g["hours"] else None,
+                  "median_drift": statistics.median(g["drift"]) if g["drift"] else None}
+    return out
 
 
 PACK_SIZE = 40

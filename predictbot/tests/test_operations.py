@@ -566,6 +566,17 @@ class OddsApiFeed(unittest.TestCase):
         self.assertIn("Pinnacle via The Odds API", r["records"][0]["note"] if "note" in r["records"][0] else "Pinnacle via The Odds API")
         home = next(x for x in r["records"] if x["selection_index"] == "0")
         self.assertEqual(home["tier"], "PICK")                                   # 2.30 against a 2.10 Pinnacle price
+        # Price durability (operator, 31 Oct 2026): the walker sees the game again
+        # 4h on at 2.15, below the PICK's min odds, and again at 2.40 before kickoff.
+        for stamp, price in (("2026-10-14T13-00-00-000Z", 2.15), ("2026-10-14T17-00-00-000Z", 2.40)):
+            w2 = walker("soccer", [("1x2", [price, 3.40, 3.20])], home="Arsenal", away="Chelsea", fid="9")
+            w2["captured_at_utc"] = w2["results"][0]["captured_at_utc"] = stamp.replace("-00-00-000Z", ":00:00.000Z").replace("T13-", "T13:").replace("T17-", "T17:")
+            w2["results"][0]["fixtures"][0]["kickoff_utc_derived"] = "2026-10-14T19:00:00.000Z"
+            (self.tmp / "captures" / f"bet9ja-allsports-walk-soccer-{stamp}.json").write_text(json.dumps(w2))
+        dur = workflow.price_durability(self.df, self.now + timedelta(hours=12))
+        self.assertEqual((dur["PICK"]["n"], dur["PICK"]["with_later"], dur["PICK"]["ok_next"], dur["PICK"]["ok_last"]), (1, 1, 0, 1))
+        self.assertAlmostEqual(dur["PICK"]["median_hours"], 3.5, delta=0.6)   # priced 09:30, seen again 13:00
+        self.assertAlmostEqual(dur["PICK"]["median_drift"], 2.40 / 2.30 - 1, places=3)
 
     def test_no_key_means_off_and_a_dead_key_backs_off(self):
         (self.tmp / feeds.ODDS_API_CONFIG).unlink()

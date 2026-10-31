@@ -534,6 +534,14 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(pcbf.watch_reason({"edge_pct": "-0.02", "caution_flags": "STALE: benchmark not from today"}),
                          "edge short of +3%, with caution")
         self.assertEqual(perf["freshness_review"]["needed"], 150)
+        self.assertTrue(all(k.startswith(("PICK | ", "WATCH | ")) for k in perf["by_lead_time"]))
+        self.assertEqual(pcbf.lead_band({"kickoff_utc": "2026-10-03T19:00Z", "priced_at_utc": "2026-10-03T14:30Z"}), "1 2-6h")
+        self.assertEqual(pcbf.lead_band({"kickoff_utc": "2026-10-05T19:00Z", "priced_at_utc": "2026-10-03T14:30Z"}), "4 over 24h")
+        self.assertEqual(pcbf.volume_band({"benchmark_source": "polymarket",
+                                           "research_note": "polymarket mid 0.520 / 0.480, volume $3,412, spread 0.010"}), "2 $1k-5k")
+        self.assertEqual(pcbf.volume_band({"benchmark_source": "polymarket", "research_note": "polymarket mid 0.5, volume $0"}), "0 $0")
+        self.assertIsNone(pcbf.volume_band({"benchmark_source": "pinnacle", "research_note": ""}))
+        self.assertEqual(perf["freshness_review"]["needed"], 150)
         self.assertLessEqual(perf["freshness_review"]["n"], perf["by_tier"]["WATCH"]["n"])
 
 

@@ -721,6 +721,40 @@ def watch_reason(sel: dict) -> str:
     return "edge there, caution only: " + ("; ".join(flags) if flags else "(none recorded)")
 
 
+LEAD_BANDS = ((2, "under 2h"), (6, "2-6h"), (12, "6-12h"), (24, "12-24h"))
+VOLUME_RE = re.compile(r"volume \$([\d,]+)")
+VOLUME_BANDS = ((1, "$0"), (1000, "under $1k"), (5000, "$1k-5k"), (25000, "$5k-25k"))
+
+
+def lead_band(sel: dict) -> str:
+    """Hours from pricing to kickoff, banded. Sorted by the band's order."""
+    kick, priced = parse_time(sel.get("kickoff_utc")), parse_time(sel.get("priced_at_utc"))
+    if not kick or not priced:
+        return "9 unknown"
+    hours = (kick - priced).total_seconds() / 3600
+    if hours < 0:
+        return "8 after kickoff"
+    for i, (hi, label) in enumerate(LEAD_BANDS):
+        if hours < hi:
+            return f"{i} {label}"
+    return f"{len(LEAD_BANDS)} over 24h"
+
+
+def volume_band(sel: dict) -> str | None:
+    """Traded volume of the Polymarket market a selection was priced from
+    (read from the quote note), banded; None for other sources."""
+    if (sel.get("benchmark_source") or "") != "polymarket":
+        return None
+    m = VOLUME_RE.search(sel.get("research_note") or "")
+    if not m:
+        return "9 unknown"
+    v = float(m.group(1).replace(",", ""))
+    for i, (hi, label) in enumerate(VOLUME_BANDS):
+        if v < hi:
+            return f"{i} {label}"
+    return f"{len(VOLUME_BANDS)} $25k+"
+
+
 def odds_band(o: float) -> str:
     for hi, label in ((1.5, "<1.50"), (2.0, "1.50-1.99"), (3.0, "2.00-2.99"), (5.0, "3.00-4.99")):
         if o < hi:
@@ -835,10 +869,18 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
     out["pick_notional_roi"] = (sum(b for _, b in notional) - staked) / staked if staked else None
     for dim, fn in (("sport", lambda s: s["sport"]), ("market", lambda s: s["market"]),
                     ("odds_band", lambda s: odds_band(float(s["bookmaker_odds"]))),
-                    ("benchmark_source", lambda s: s.get("benchmark_source") or "?")):
+                    ("benchmark_source", lambda s: s.get("benchmark_source") or "?"),
+                    # Operator, 31 Oct 2026: does an edge found long before kickoff
+                    # hold up as well as one found close to it?
+                    ("lead_time", lambda s: lead_band(s)),
+                    # ...and is a Polymarket price from a thin market worth less?
+                    ("polymarket_volume", lambda s: volume_band(s))):
         groups = {}
         for s in priced:
-            groups.setdefault((s["tier"], fn(s)), []).append(s)
+            band = fn(s)
+            if band is None:
+                continue
+            groups.setdefault((s["tier"], band), []).append(s)
         out[f"by_{dim}"] = {f"{t} | {k}": summarise(v) for (t, k), v in sorted(groups.items())}
     # WATCH split by why it is not a PICK (operator, 28 Oct 2026): the edge
     # short of +3%, or the edge there and a caution holding it back, by

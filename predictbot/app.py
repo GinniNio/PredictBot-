@@ -596,6 +596,27 @@ def page_performance(msg="") -> str:
            "pre-kickoff snapshots.</p>"]
     for dim in ("sport", "market", "odds_band", "benchmark_source"):
         out.append(f"<details><summary>By {dim.replace('_', ' ')}</summary>" + table(head, rows(perf[f"by_{dim}"]), "num") + "</details>")
+    strip = lambda d: {k.split(" | ", 1)[0] + " | " + k.split(" | ", 1)[1][2:]: v for k, v in d.items()}   # drop the sort prefix
+    out.append("<h2>By lead time</h2><p class='dim'>Hours from pricing to kickoff. An edge found a day out meets a market that "
+               "still has to move; one found inside two hours meets a market near its close. If the far-out bands keep "
+               "worse CLV, the 6h / 2h freshness cautions are set about right; if they keep up, they are too strict.</p>"
+               + table(head, rows(strip(perf["by_lead_time"])), "num"))
+    out.append("<h2>Polymarket by traded volume</h2><p class='dim'>Selections priced from Polymarket, by the market's traded volume "
+               "at the quote. A $5,000 floor rejected 95% of quotes on 6 Oct and was dropped; this table shows whether thin "
+               "markets price worse before any floor is set again.</p>"
+               + (table(head, rows(strip(perf["by_polymarket_volume"])), "num") if perf["by_polymarket_volume"]
+                  else "<p>No Polymarket-priced selections yet.</p>"))
+    dur = workflow.price_durability(DF, now(), [DOWNLOADS])
+    dhead = ["Group", "Priced (14 days)", "Seen again before kickoff", "Still at min odds, next walk", "Still at min odds, last walk",
+             "Median hours to next walk", "Median price change by last walk"]
+    drows = [[e(k), v["n"], v["with_later"], f"{v['ok_next']} ({v['ok_next'] / v['with_later']:.0%})" if v["with_later"] else "",
+              f"{v['ok_last']} ({v['ok_last'] / v['with_later']:.0%})" if v["with_later"] else "",
+              "" if v["median_hours"] is None else f"{v['median_hours']:.1f}", pct(v["median_drift"])] for k, v in dur.items()]
+    out.append("<h2>Price durability</h2><p class='dim'>Does the edge survive until you can stake it? For each selection the "
+               "Bet9ja walker saw again before kickoff, its price at the next walk (about 4h on) and at the last walk before "
+               "kickoff, against the selection's min odds. If most edges are gone by the next walk, the shortlist cannot be "
+               "staked in the evening; if they hold, it can.</p>"
+               + (table(dhead, drows, "num") if drows else "<p>No priced selection has been seen again yet.</p>"))
     out.append("<h2>WATCH by why it is not a PICK</h2><p class='dim'>Either the edge is short of +3%, or the edge is there "
                "and a caution holds it back; those rows are grouped by caution. A caution group whose CLV stays positive over "
                "weeks is evidence for relaxing that rule; one that stays negative shows the caution is doing its job. "
