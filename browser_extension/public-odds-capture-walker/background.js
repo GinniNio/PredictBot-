@@ -596,9 +596,9 @@ async function oddsportalTab() {
   return { tabId: tab.id, created: true };
 }
 
-async function scheduledWalk(kind) {
+async function scheduledWalk(kind, trigger = 'schedule') {
   const schedule = await loadSchedule();
-  if (!schedule.enabled) return;
+  if (trigger === 'schedule' && !schedule.enabled) return;
   const current = await loadRun();
   const s = summary(current);
   if (s && s.status === 'RUNNING') {
@@ -655,10 +655,31 @@ async function finishRun() {
   }
 }
 
+// "Walk now, then stake" (app, 31 Oct 2026): the operator presses a button
+// on Opportunities; the app notes the request in /walker-targets.json. Every
+// minute the walker reads it and, once the app says the Bet9ja run has
+// landed (odds_walk_ready), starts a search walk, schedule on or off. Each
+// request is acted on once.
+const WALK_NOW_KEY = 'public_odds_walk_now_handled';
+const POLL_ALARM = 'walk:poll';
+
+async function pollApp() {
+  let targets = null;
+  try { targets = await appTargetList(); } catch (_) { return; }
+  const asked = targets && targets.walk_now_requested_utc;
+  if (!asked || !targets.odds_walk_ready) return;
+  const handled = (await chrome.storage.local.get(WALK_NOW_KEY))[WALK_NOW_KEY];
+  if (handled === asked) return;
+  await chrome.storage.local.set({ [WALK_NOW_KEY]: asked });
+  await scheduledWalk('search', 'app');
+}
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'walk:search') scheduledWalk('search');
   if (alarm.name === 'walk:results') scheduledWalk('results');
+  if (alarm.name === POLL_ALARM) pollApp();
 });
+chrome.alarms.get(POLL_ALARM).then((a) => { if (!a) chrome.alarms.create(POLL_ALARM, { delayInMinutes: 1, periodInMinutes: 1 }); });
 
 // A run left RUNNING by a suspended or restarted service worker resumes on
 // its own when the worker wakes, if its tab still exists.

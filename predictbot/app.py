@@ -26,7 +26,7 @@ import sys
 import threading
 import time
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -90,6 +90,19 @@ def blocked() -> str | None:
 def form_button(action, label, fields=None, cls=""):
     hidden = "".join(f"<input type='hidden' name='{e(k)}' value='{e(v)}'>" for k, v in (fields or {}).items())
     return f"<form method='post' action='{action}' class='inline {cls}'>{hidden}<button>{e(label)}</button></form>"
+
+
+def walk_now_note(t) -> str:
+    w = walk_now_status(t)
+    if not w["walk_now_requested_utc"]:
+        return ("<p class='dim'>Walk now, then stake: both walkers run at once (Bet9ja first, then the OddsPortal search), "
+                "so the shortlist is priced minutes before you stake instead of hours. Far-out prices carry the edge; "
+                "most of it is gone within a few hours (Performance, Price durability).</p>")
+    mins = int((t - WALK_NOW["at"]).total_seconds() // 60)
+    bet9ja = (f"{w['bet9ja_files_since_request']} Bet9ja sport files landed (last {e(w['bet9ja_last_file_utc'][11:16])} UTC)"
+              if w["bet9ja_files_since_request"] else "waiting for the Bet9ja walker")
+    odds = "odds walker cleared to start" if w["odds_walk_ready"] else "odds walker waits for the Bet9ja run to finish"
+    return f"<p class='dim'><b>Walk requested {e(w['walk_now_requested_utc'][11:16])} UTC</b> ({mins} min ago): {bet9ja}; {odds}.</p>"
 
 
 def review_banner() -> str:
@@ -167,6 +180,36 @@ def timed(label: str, steps: list, fn):
         return fn()
     finally:
         steps.append(f"{label} {time.perf_counter() - t0:.1f}s")
+
+
+WALK_NOW = {"at": None}           # the operator asked for a fresh walk before staking (operator, 31 Oct 2026)
+WALK_NOW_WAIT = timedelta(minutes=30)   # the odds walker starts when the Bet9ja run has landed, or after this long
+WALK_NOW_QUIET = timedelta(minutes=3)   # a Bet9ja run counts as landed when no sport file has arrived for this long
+
+
+def walk_now_status(t: datetime) -> dict:
+    """What the walkers read from /walker-targets.json about a walk request:
+    when it was made, how many Bet9ja sport files have arrived since and
+    when the last did, and whether the odds walker should start now (the
+    Bet9ja run has gone quiet, or the wait is up)."""
+    at = WALK_NOW["at"]
+    if not at:
+        return {"walk_now_requested_utc": "", "bet9ja_files_since_request": 0, "bet9ja_last_file_utc": "", "odds_walk_ready": False}
+    since = pcbf.utc(at)
+    stamps = []
+    try:
+        for p in (DF.root / "captures").iterdir():
+            if p.name.startswith("bet9ja-allsports-walk-") and p.suffix == ".json":
+                m = storage.FILE_STAMP.search(p.name)
+                stamp = f"{m.group(1)[:13]}:{m.group(1)[14:16]}Z" if m else ""     # file name -> YYYY-MM-DDTHH:MMZ
+                if stamp and stamp >= since:
+                    stamps.append(stamp)
+    except OSError:
+        pass
+    last = max(stamps) if stamps else ""
+    quiet = bool(last) and (t - (pcbf.parse_time(last) or t)) >= WALK_NOW_QUIET
+    return {"walk_now_requested_utc": since, "bet9ja_files_since_request": len(stamps), "bet9ja_last_file_utc": last,
+            "odds_walk_ready": quiet or t - at >= WALK_NOW_WAIT}
 
 
 def accept_walk(raw: bytes) -> dict:
@@ -361,7 +404,8 @@ def page_opportunities(msg="") -> str:
     auto = (f"<b>Last update {e(pcbf.utc(LAST_AUTO['at'])[11:16])} UTC:</b> {e(LAST_AUTO['message'])}" if LAST_AUTO else
             "<b>First update running</b> (reading the captures; the tables below fill in when it finishes: refresh in a minute).")
     out = [f"<p class='msg'>{e(msg)}</p>" if msg else "",
-           f"<p>{auto} {form_button('/update', 'Update now')}</p>"
+           f"<p>{auto} {form_button('/update', 'Update now')} {form_button('/walk-now', 'Walk now, then stake')}</p>"
+           + walk_now_note(t) +
            f"<p class='dim'>Page shown at {e(pcbf.utc(t)[11:16])} UTC from the fixture picture of "
            f"{e(pcbf.utc(SNAPSHOT['at'])[11:16]) if SNAPSHOT else 'no update yet'} UTC. The app updates itself every "
            f"{AUTO_EVERY // 60} minutes while it runs: imports Downloads, fetches Polymarket, links tickets, "
@@ -864,7 +908,8 @@ class Handler(BaseHTTPRequestHandler):
                  "/pack": lambda: page_pack("research"), "/settle": lambda: page_pack("settle"),
                  "/selections": lambda: page_selections(q), "/bets": lambda: page_bets(msg, (q.get("rid") or [""])[0])}
         if u.path == "/walker-targets.json":     # read-only, for the odds walker extension
-            body = json.dumps(SNAPSHOT.get("targets") or workflow.walker_targets(DF, now(), current_status())).encode("utf-8")
+            body = json.dumps({**(SNAPSHOT.get("targets") or workflow.walker_targets(DF, now(), current_status())),
+                               **walk_now_status(now())}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -897,6 +942,11 @@ class Handler(BaseHTTPRequestHandler):
         form = parse_qs(self.rfile.read(n).decode("utf-8"), keep_blank_values=True)
         get = lambda k: (form.get(k) or [""])[0]
         try:
+            if u.path == "/walk-now":
+                WALK_NOW["at"] = now()
+                return self.redirect("/", "Walk requested. The Bet9ja walker starts within a minute; the odds walker follows "
+                                          "once the Bet9ja files have landed. Allow about 20 minutes, then reload: the "
+                                          "shortlist is priced on fresh captures and ready to recheck and stake.")
             if u.path == "/pack":
                 workflow.create_pack(DF, now(), set(form.get("sport") or []) or None, [DOWNLOADS])
                 return self.redirect("/pack")

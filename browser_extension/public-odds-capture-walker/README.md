@@ -6,6 +6,10 @@ The extension captures raw DOM snapshots only. It never logs in, places bets, su
 
 Automatic event-link discovery is enabled only for route shapes verified in this build: OddsPortal H2H fixtures, Oddschecker US event pages, Flashscore fixtures, BetExplorer match pages, and Polymarket sports cards. Polymarket's non-sports `/event/...` pages are included only when the popup's non-sports option is selected. Betfair Exchange remains evidence-first because its live public page was unavailable during the latest audit.
 
+## Walk now, then stake (0.7.0)
+
+The PredictBot app's Opportunities page has a **Walk now, then stake** button. Pressing it asks both walkers to run at once, Bet9ja first. This walker reads the app's `/walker-targets.json` once a minute; when it carries a new request and the app says the Bet9ja run has landed (no new sport file for 3 minutes, or 30 minutes passed), a find-all search walk starts, whether or not the schedule is on. Each request is acted on once. The point is to price the shortlist minutes before staking instead of hours: Performance shows that far-out prices carry the edge and that most of it is gone within a few hours.
+
 ## Site access (0.6.6)
 
 The walker now asks for access to oddsportal.com and polymarket.com in its manifest. Before 0.6.6 it relied on the access Chrome grants a tab when you click the extension in it, which lapsed whenever Chrome restarted or the walker opened a fresh tab: every page then failed with "Cannot access contents of url ... Extension manifest must request permission to access this host" and a run stopped after 15 failures. After reloading the walker on chrome://extensions, check that it is still enabled (Chrome may ask you to accept the new site access).

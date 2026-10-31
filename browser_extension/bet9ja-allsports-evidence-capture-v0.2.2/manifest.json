@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PredictBot Bet9ja All-Sports Evidence Capture",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Captures Bet9ja fixtures and prices for the PredictBot app: every sport's competitions, parsed from the page as it is shown. Runs on a schedule while Chrome is open and sends each capture to the app over localhost. Never places, cashes out or changes a bet.",
   "action": {
     "default_popup": "popup.html"

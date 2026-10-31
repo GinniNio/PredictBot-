@@ -9,7 +9,7 @@ const vm = require('node:vm');
  * executeScript that "walks" a sport by sending the BET9JA_WALK_DONE
  * message the page-side function would send. Uploads are recorded.
  */
-function loadWorker({ uploadOk = true, walkResult = (sport) => ({ schema_version: 'bet9ja-allsports-sport-walk.v3',
+function loadWorker({ uploadOk = true, appTargets = {}, walkResult = (sport) => ({ schema_version: 'bet9ja-allsports-sport-walk.v3',
   sport, capture_status: 'COMPLETE', fixtures_total: 3, fixtures_with_priced_market: 3, competitions_seen: 2,
   competitions_validated: 2, results: [] }) } = {}) {
   const store = {};
@@ -23,6 +23,7 @@ function loadWorker({ uploadOk = true, walkResult = (sport) => ({ schema_version
     console, setTimeout, clearTimeout, Date, JSON, Promise, Map, Set, Object, String, Number, Math, Array,
     BET9JA_TIMING: { sport: 2000, settle: 10 },
     fetch: async (url, opts) => {
+      if (!opts || !opts.body) return { ok: true, status: 200, json: async () => appTargets };   // /walker-targets.json
       uploads.push(JSON.parse(opts.body));
       return uploadOk ? { ok: true, status: 200, json: async () => ({ saved: 'bet9ja-allsports-walk-x.json', message: 'priced' }) }
         : { ok: false, status: 409, json: async () => ({ error: 'data folder is read-only' }) };
@@ -83,6 +84,23 @@ test('saving a schedule creates the alarm; disabling clears it', async () => {
   assert.equal(w.alarms['bet9ja:walk'].periodInMinutes, 240);
   await w.send({ type: 'SET_BET9JA_SCHEDULE', schedule: { enabled: false } });
   assert.equal(w.alarms['bet9ja:walk'], undefined);
+});
+
+test('"Walk now, then stake" from the app starts a run once per request, schedule off', async () => {
+  const appTargets = { fixtures: [], walk_now_requested_utc: '2026-10-31T18:00Z' };
+  const w = loadWorker({ appTargets });
+  await w.send({ type: 'SET_BET9JA_SCHEDULE', schedule: { enabled: false, sports: ['soccer'], start_url: 'https://sports.bet9ja.com/' } });
+  assert.equal(w.alarms['bet9ja:poll'].periodInMinutes, 1);           // the app is read every minute
+  w.fire('bet9ja:poll');
+  const done = await w.until((r) => r.state && r.state.status === 'COMPLETE');
+  assert.equal(done.state.sports[0].sport, 'soccer');
+  assert.equal(w.uploads.length, 1);
+  w.fire('bet9ja:poll');                                               // the same request again: nothing starts
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(w.uploads.length, 1);
+  appTargets.walk_now_requested_utc = '2026-10-31T21:00Z';            // a new request: a new run
+  w.fire('bet9ja:poll');
+  await w.until((r) => r.state && r.state.status === 'COMPLETE' && w.uploads.length === 2);
 });
 
 test('a scheduled run opens its own Bet9ja tab, walks each sport in turn, uploads each capture, closes the tab', async () => {

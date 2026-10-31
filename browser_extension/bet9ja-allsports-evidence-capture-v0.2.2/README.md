@@ -14,6 +14,10 @@ Futsal, MMA, Snooker, Squash, Table Tennis, Waterpolo, Outrights — plus
 the `TODAY` / `3H` / `24H` / `72H` / `ALL` time-window filters the site
 itself exposes.
 
+## Walk now, then stake (0.6.0)
+
+The PredictBot app's Opportunities page has a **Walk now, then stake** button. This walker reads the app's `/walker-targets.json` once a minute and starts a full run (every sport in the schedule's list) for a request it has not acted on yet, whether or not the schedule is on. The odds walker follows once the sport files have landed. See the app README.
+
 ## Survives Chrome suspending the worker (0.5.0)
 
 A scheduled run used to be one long function in the extension's service worker. Chrome suspends such workers; when it did, the sport walking in the page still reported and was sent to the app, but nobody started the next sport, so a day's run delivered soccer alone. The run is now a list of sports in storage driven by events: start a sport and return; when the page reports it (or its 90-minute timeout alarm fires) record the outcome, send the capture, start the next. A restarted worker picks the run up where it was. The popup lists sports as queued, walking since HH:MM, or done.

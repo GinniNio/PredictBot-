@@ -51,6 +51,7 @@ FILES = {
 EXTRA_SYNCED = {("selections", "screening.csv")}
 VERSION_FILE = "predictbot-data.json"
 FILE_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})T\d{2}")
+FILE_STAMP = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})")   # the capture time in a walker file name
 SESSION_FILE = "predictbot-session.json"
 SESSION_STALE = timedelta(minutes=15)
 SCREENING_FIELDS = ["screened_at_utc", "pack_id", "event_id", "sport", "competition", "event_name",

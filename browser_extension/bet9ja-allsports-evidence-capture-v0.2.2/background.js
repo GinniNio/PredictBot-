@@ -242,8 +242,33 @@ async function handleWalkDone(msg) {
   return sent;
 }
 
+// "Walk now, then stake" (app, 31 Oct 2026): the operator presses a button on
+// Opportunities; the app notes the request in /walker-targets.json. Every
+// minute this walker reads it and starts a full run for a request it has not
+// acted on, schedule on or off.
+const APP_TARGETS = ['http://localhost:8000/walker-targets.json', 'http://127.0.0.1:8000/walker-targets.json'];
+const WALK_NOW_KEY = 'bet9ja_walk_now_handled';
+const POLL_ALARM = 'bet9ja:poll';
+
+async function pollApp() {
+  let targets = null;
+  for (const url of APP_TARGETS) {
+    try {
+      const r = await fetch(url, { cache: 'no-store' });
+      if (r.ok) { targets = await r.json(); break; }
+    } catch (_) { /* app not running on this address */ }
+  }
+  const asked = targets && targets.walk_now_requested_utc;
+  if (!asked) return;
+  const handled = (await chrome.storage.local.get(WALK_NOW_KEY))[WALK_NOW_KEY];
+  if (handled === asked) return;
+  await chrome.storage.local.set({ [WALK_NOW_KEY]: asked });
+  await scheduledWalk('app');
+}
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'bet9ja:walk') scheduledWalk('schedule');
+  if (alarm.name === POLL_ALARM) pollApp();
   if (alarm.name === SPORT_ALARM) sportTimedOut();
 });
 
@@ -253,6 +278,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 (async () => {
   const schedule = await loadSchedule();
   if (schedule.enabled && !(await chrome.alarms.get('bet9ja:walk'))) await applySchedule(schedule);
+  if (!(await chrome.alarms.get(POLL_ALARM))) await chrome.alarms.create(POLL_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
   const state = await loadState();
   const entry = state && state.status === 'RUNNING' && current(state);
   if (!entry) return;

@@ -1007,6 +1007,41 @@ class WalkerUpload(unittest.TestCase):
         self.app.update_now(light=True)                          # what the woken loop does for the batch
         self.assertEqual(len(self.app.DF.read("selection")), 3)
 
+    def test_walk_now_request_reaches_the_walkers_in_order(self):
+        """Operator, 31 Oct 2026: the Opportunities button asks both walkers
+        to run; the odds walker is cleared once the Bet9ja run has landed."""
+        import urllib.request
+        from datetime import datetime, timezone
+        self.app.WALK_NOW["at"] = None
+        get = lambda: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/walker-targets.json", timeout=10).read())
+        self.assertEqual(get()["walk_now_requested_utc"], "")
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/walk-now", data=b"", method="POST")
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k): return None
+        try:
+            urllib.request.build_opener(NoRedirect).open(req, timeout=10)
+        except urllib.error.HTTPError as err:
+            self.assertEqual(err.code, 303)
+            self.assertIn("Walk%20requested", err.headers["Location"])
+        asked = self.app.WALK_NOW["at"]
+        t = get()
+        self.assertEqual(t["walk_now_requested_utc"], pcbf.utc(asked))
+        self.assertEqual((t["bet9ja_files_since_request"], t["odds_walk_ready"]), (0, False))
+        # Two Bet9ja sport files land; the run is "landed" once quiet for 3 minutes.
+        stamp = lambda dt: dt.strftime("%Y-%m-%dT%H-%M-%S-000Z")
+        for sport, dt in (("soccer", asked + timedelta(minutes=2)), ("tennis", asked + timedelta(minutes=5))):
+            (self.tmp / "captures" / f"bet9ja-allsports-walk-{sport}-{stamp(dt)}.json").write_text("{}")
+        w = self.app.walk_now_status(asked + timedelta(minutes=6))
+        self.assertEqual((w["bet9ja_files_since_request"], w["odds_walk_ready"]), (2, False))
+        w = self.app.walk_now_status(asked + timedelta(minutes=9))
+        self.assertTrue(w["odds_walk_ready"])
+        self.assertEqual(w["bet9ja_last_file_utc"], pcbf.utc(asked + timedelta(minutes=5)))
+        # With no Bet9ja walker at all, the odds walker is cleared after the wait.
+        self.app.WALK_NOW["at"] = asked - timedelta(hours=2)
+        w = self.app.walk_now_status(asked)
+        self.assertTrue(w["odds_walk_ready"])
+        self.app.WALK_NOW["at"] = None
+
     def test_bad_or_read_only_uploads_are_refused(self):
         self.assertEqual(self.post(b"not json")[0], 409)
         self.assertEqual(self.post(b'{"schema_version": "something-else"}')[0], 409)
