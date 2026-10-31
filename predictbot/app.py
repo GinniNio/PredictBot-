@@ -884,8 +884,11 @@ def layout(path, body):
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         t0 = time.perf_counter()
-        with LOCK:
-            self._get()
+        if urlparse(self.path).path == "/walker-targets.json":   # polled every minute by both walkers: never waits, never computes
+            self.send_targets()
+        else:
+            with LOCK:
+                self._get()
         took = time.perf_counter() - t0
         if took > 2:
             print(f"GET {self.path} took {took:.1f}s")
@@ -907,15 +910,8 @@ class Handler(BaseHTTPRequestHandler):
                  "/performance": lambda: page_performance(msg),
                  "/pack": lambda: page_pack("research"), "/settle": lambda: page_pack("settle"),
                  "/selections": lambda: page_selections(q), "/bets": lambda: page_bets(msg, (q.get("rid") or [""])[0])}
-        if u.path == "/walker-targets.json":     # read-only, for the odds walker extension
-            body = json.dumps({**(SNAPSHOT.get("targets") or workflow.walker_targets(DF, now(), current_status())),
-                               **walk_now_status(now())}).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
+        if u.path == "/walker-targets.json":
+            return self.send_targets()
         if u.path not in pages:
             return self.send_error(404)
         try:
@@ -1002,6 +998,23 @@ class Handler(BaseHTTPRequestHandler):
         except InvalidRecord as exc:
             return self.send(layout(u.path, f"<p class='err'>{e(str(exc))}</p>"))
         self.send_error(404)
+
+    def send_targets(self):
+        """The walkers' view: the targets from the last update plus the walk
+        request. Served from the snapshot alone (31 Oct 2026: computing
+        targets on demand, under the page lock, took 40 to 140 s per poll
+        and queued every page behind it). Before the first update the walkers
+        get a 503 and try again a minute later."""
+        targets = SNAPSHOT.get("targets")
+        if not targets:
+            return self.send_json(503, {"error": "the app is still running its first update; the walkers try again in a minute",
+                                        **walk_now_status(now())})
+        body = json.dumps({**targets, **walk_now_status(now())}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def redirect(self, where, msg=""):
         from urllib.parse import quote

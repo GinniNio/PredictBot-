@@ -1014,6 +1014,11 @@ class WalkerUpload(unittest.TestCase):
         from datetime import datetime, timezone
         self.app.WALK_NOW["at"] = None
         get = lambda: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/walker-targets.json", timeout=10).read())
+        self.app.SNAPSHOT.clear()
+        with self.assertRaises(urllib.error.HTTPError) as held:               # before the first update: 503, never a long wait
+            get()
+        self.assertEqual(held.exception.code, 503)
+        self.app.SNAPSHOT.update(status=self.app.EMPTY_STATUS, targets={"fixtures": [], "results": []}, at=self.app.now())
         self.assertEqual(get()["walk_now_requested_utc"], "")
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/walk-now", data=b"", method="POST")
         class NoRedirect(urllib.request.HTTPRedirectHandler):
