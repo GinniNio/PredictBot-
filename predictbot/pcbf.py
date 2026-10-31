@@ -703,6 +703,10 @@ def build_settle_pack(selections: list[dict], settled_ids: set, now: datetime,
 MIN_CLV_GROUP = 10    # closing prices a competition needs before its mean CLV is shown
 
 
+FRESHNESS_REVIEW = 150
+FRESHNESS_WORDS = re.compile(r"more than 6h apart|more than 2h apart|benchmark book")
+
+
 def watch_reason(sel: dict) -> str:
     """Why a WATCH selection is not a PICK: the edge is short, or the edge is
     there and a caution holds it back (named, numbers generalised so that
@@ -845,6 +849,14 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
         if s["tier"] == "WATCH":
             reasons.setdefault(watch_reason(s), []).append(s)
     out["by_watch_reason"] = {k: summarise(v) for k, v in sorted(reasons.items())}
+    # Review point for the freshness cautions (operator, 31 Oct 2026): the
+    # rows where the edge was there and only the 6h / 2h freshness cautions
+    # (and the under-100% book note) held it back, all together. The 6h and
+    # 2h limits are reconsidered at FRESHNESS_REVIEW settled if CLV is still
+    # positive on about 70% of them.
+    fresh = [s for s in priced if s["tier"] == "WATCH" and watch_reason(s).startswith("edge there")
+             and all(FRESHNESS_WORDS.search(f) for f in (s.get("caution_flags") or "").split(";") if f.strip())]
+    out["freshness_review"] = {**summarise(fresh), "needed": FRESHNESS_REVIEW}
     # Where Bet9ja is soft: competitions (all priced tiers together) with
     # enough closing prices to mean something, best mean CLV first.
     comps = {}

@@ -600,7 +600,11 @@ def page_performance(msg="") -> str:
                "and a caution holds it back; those rows are grouped by caution. A caution group whose CLV stays positive over "
                "weeks is evidence for relaxing that rule; one that stays negative shows the caution is doing its job. "
                "Unit ROI is the paper result at one unit a selection.</p>"
-               + (table(head, rows(perf["by_watch_reason"]), "num") if perf["by_watch_reason"] else "<p>No WATCH selections yet.</p>"))
+               + (table(head, rows(perf["by_watch_reason"]), "num") if perf["by_watch_reason"] else "<p>No WATCH selections yet.</p>")
+               + (lambda f: f"<p><b>Freshness review:</b> {f['settled']} of {f['needed']} settled rows where only the 6h / 2h freshness "
+                            f"cautions held the edge back; CLV positive on {f['positive_clv']} of {f['positive_clv'] + f['negative_clv']}"
+                            f" ({pct(f['median_clv'])} median). The 6h and 2h limits are reconsidered at {f['needed']} if about 70% "
+                            "are still positive.</p>")(perf["freshness_review"]))
     out.append(clv_tables(perf))
     b = perf["bets"]
     out.append(f"<h2>Actual wagers (separate from paper)</h2><p>{b['n']} logged against selections, {b['settled']} settled, "

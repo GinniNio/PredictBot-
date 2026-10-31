@@ -533,6 +533,8 @@ class EndToEnd(unittest.TestCase):
                          "edge there, caution only: Bet9ja capture and benchmark more than 6h apart; benchmark book N% < N%: rulebook de-vig understates edge")
         self.assertEqual(pcbf.watch_reason({"edge_pct": "-0.02", "caution_flags": "STALE: benchmark not from today"}),
                          "edge short of +3%, with caution")
+        self.assertEqual(perf["freshness_review"]["needed"], 150)
+        self.assertLessEqual(perf["freshness_review"]["n"], perf["by_tier"]["WATCH"]["n"])
 
 
 class Batching(unittest.TestCase):
