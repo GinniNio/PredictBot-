@@ -195,6 +195,9 @@ def walk_now_status(t: datetime) -> dict:
     at = WALK_NOW["at"]
     if not at:
         return {"walk_now_requested_utc": "", "bet9ja_files_since_request": 0, "bet9ja_last_file_utc": "", "odds_walk_ready": False}
+    cached = WALK_NOW.get("cached")
+    if cached and cached[0] == at and (t - cached[1]).total_seconds() < 20:
+        return cached[2]                 # the captures folder on OneDrive can take seconds to list while an update reads it
     since = pcbf.utc(at)
     stamps = []
     try:
@@ -208,8 +211,10 @@ def walk_now_status(t: datetime) -> dict:
         pass
     last = max(stamps) if stamps else ""
     quiet = bool(last) and (t - (pcbf.parse_time(last) or t)) >= WALK_NOW_QUIET
-    return {"walk_now_requested_utc": since, "bet9ja_files_since_request": len(stamps), "bet9ja_last_file_utc": last,
-            "odds_walk_ready": quiet or t - at >= WALK_NOW_WAIT}
+    out = {"walk_now_requested_utc": since, "bet9ja_files_since_request": len(stamps), "bet9ja_last_file_utc": last,
+           "odds_walk_ready": quiet or t - at >= WALK_NOW_WAIT}
+    WALK_NOW["cached"] = (at, t, out)
+    return out
 
 
 def accept_walk(raw: bytes) -> dict:
