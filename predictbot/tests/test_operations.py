@@ -1013,6 +1013,7 @@ class WalkerUpload(unittest.TestCase):
         import urllib.request
         from datetime import datetime, timezone
         self.app.WALK_NOW["at"] = None
+        self.app.WALK_NOW["landed"] = []
         get = lambda: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/walker-targets.json", timeout=10).read())
         self.app.SNAPSHOT.clear()
         with self.assertRaises(urllib.error.HTTPError) as held:               # before the first update: 503, never a long wait
@@ -1032,10 +1033,9 @@ class WalkerUpload(unittest.TestCase):
         t = get()
         self.assertEqual(t["walk_now_requested_utc"], pcbf.utc(asked))
         self.assertEqual((t["bet9ja_files_since_request"], t["odds_walk_ready"]), (0, False))
-        # Two Bet9ja sport files land; the run is "landed" once quiet for 3 minutes.
-        stamp = lambda dt: dt.strftime("%Y-%m-%dT%H-%M-%S-000Z")
-        for sport, dt in (("soccer", asked + timedelta(minutes=2)), ("tennis", asked + timedelta(minutes=5))):
-            (self.tmp / "captures" / f"bet9ja-allsports-walk-{sport}-{stamp(dt)}.json").write_text("{}")
+        # Two Bet9ja sport files land (noted by accept_walk as they arrive); the
+        # run counts as landed once quiet for 3 minutes.
+        self.app.WALK_NOW["landed"] = [asked + timedelta(minutes=2), asked + timedelta(minutes=5)]
         w = self.app.walk_now_status(asked + timedelta(minutes=6))
         self.assertEqual((w["bet9ja_files_since_request"], w["odds_walk_ready"]), (2, False))
         w = self.app.walk_now_status(asked + timedelta(minutes=9))
@@ -1046,6 +1046,7 @@ class WalkerUpload(unittest.TestCase):
         w = self.app.walk_now_status(asked)
         self.assertTrue(w["odds_walk_ready"])
         self.app.WALK_NOW["at"] = None
+        self.app.WALK_NOW["landed"] = []
 
     def test_bad_or_read_only_uploads_are_refused(self):
         self.assertEqual(self.post(b"not json")[0], 409)
