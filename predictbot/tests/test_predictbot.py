@@ -541,6 +541,13 @@ class EndToEnd(unittest.TestCase):
                                            "research_note": "polymarket mid 0.520 / 0.480, volume $3,412, spread 0.010"}), "2 $1k-5k")
         self.assertEqual(pcbf.volume_band({"benchmark_source": "polymarket", "research_note": "polymarket mid 0.5, volume $0"}), "0 $0")
         self.assertIsNone(pcbf.volume_band({"benchmark_source": "pinnacle", "research_note": ""}))
+        # Overround skew: three closes on one 1X2 market, one per role.
+        sk = perf["overround_skew"]["overall"]
+        self.assertEqual(set(sk), {"home", "draw", "away"})
+        self.assertEqual(sk["home"]["n"], 1)
+        self.assertAlmostEqual(sk["home"]["margin_points"], 1 / 2.20 - 1 / 2.292, places=4)   # Bet9ja 2.20 v fair close 2.292
+        self.assertEqual(pcbf.outcome_role({"market": "MATCH_WINNER", "selection_index": "1"}, 0.62), "favourite")
+        self.assertEqual(pcbf.outcome_role({"market": "MATCH_WINNER", "selection_index": "0"}, 0.38), "underdog")
         self.assertEqual(perf["freshness_review"]["needed"], 150)
         self.assertLessEqual(perf["freshness_review"]["n"], perf["by_tier"]["WATCH"]["n"])
 

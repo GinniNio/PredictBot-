@@ -755,6 +755,14 @@ def volume_band(sel: dict) -> str | None:
     return f"{len(VOLUME_BANDS)} $25k+"
 
 
+def outcome_role(sel: dict, fair_prob: float) -> str:
+    """home / draw / away on a three-way market; favourite / underdog on a
+    two-way one, judged by the closing fair probability."""
+    if sel.get("market") == THREE_WAY:
+        return ["home", "draw", "away"][int(sel.get("selection_index") or 0)]
+    return "favourite" if fair_prob >= 0.5 else "underdog"
+
+
 def odds_band(o: float) -> str:
     for hi, label in ((1.5, "<1.50"), (2.0, "1.50-1.99"), (3.0, "2.00-2.99"), (5.0, "3.00-4.99")):
         if o < hi:
@@ -899,6 +907,34 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
     fresh = [s for s in priced if s["tier"] == "WATCH" and watch_reason(s).startswith("edge there")
              and all(FRESHNESS_WORDS.search(f) for f in (s.get("caution_flags") or "").split(";") if f.strip())]
     out["freshness_review"] = {**summarise(fresh), "needed": FRESHNESS_REVIEW}
+    # Overround skew (operator, 31 Oct 2026): where Bet9ja puts its margin.
+    # For each selection with a closing price, Bet9ja's raw implied
+    # probability less the market's fair closing probability, in points,
+    # by outcome role (home / draw / away on 1X2; favourite / underdog on
+    # two-way markets, by the closing price) overall and per competition.
+    # A role with a small or negative skew is where Bet9ja prices tightly;
+    # a large one is where its margin sits.
+    skew_rows = {}
+    for s in priced:
+        c = cl.get(s["selection_record_id"])
+        if not c:
+            continue
+        try:
+            b, f = 1 / float(s["bookmaker_odds"]), 1 / float(c["closing_fair_odds"])
+        except (TypeError, ValueError, ZeroDivisionError):
+            continue
+        role = outcome_role(s, f)
+        comp = f"{s['sport']} | {s.get('competition') or '?'}"
+        for key in (("all", role), (comp, role)):
+            skew_rows.setdefault(key, []).append((b, f, float(c["clv_pct"])))
+
+    def skew(v):
+        return {"n": len(v), "bet9ja_implied": sum(b for b, _, _ in v) / len(v), "fair": sum(f for _, f, _ in v) / len(v),
+                "margin_points": sum(b - f for b, f, _ in v) / len(v), "mean_clv": sum(x for _, _, x in v) / len(v),
+                "median_clv": statistics.median(x for _, _, x in v)}
+    out["overround_skew"] = {"overall": {role: skew(v) for (comp, role), v in sorted(skew_rows.items()) if comp == "all"},
+                             "by_competition": {f"{comp} | {role}": skew(v) for (comp, role), v in sorted(skew_rows.items())
+                                                if comp != "all" and len(v) >= MIN_CLV_GROUP}}
     # Where Bet9ja is soft: competitions (all priced tiers together) with
     # enough closing prices to mean something, best mean CLV first.
     comps = {}

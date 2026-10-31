@@ -606,6 +606,19 @@ def page_performance(msg="") -> str:
                "markets price worse before any floor is set again.</p>"
                + (table(head, rows(strip(perf["by_polymarket_volume"])), "num") if perf["by_polymarket_volume"]
                   else "<p>No Polymarket-priced selections yet.</p>"))
+    sk = perf["overround_skew"]
+    shead = ["Group", "n", "Bet9ja implied", "Fair at close", "Margin (points)", "Mean CLV", "Median CLV"]
+    srow = lambda k, v: [e(k), v["n"], f"{v['bet9ja_implied'] * 100:.1f}%", f"{v['fair'] * 100:.1f}%",
+                         f"{v['margin_points'] * 100:+.1f}", pct(v["mean_clv"]), pct(v["median_clv"])]
+    out.append("<h2>Where Bet9ja puts its margin</h2><p class='dim'>For every selection with a closing price: Bet9ja's raw implied "
+               "probability (1 / its price) less the market's fair closing probability, in percentage points, by outcome role. "
+               "Home, draw and away on 1X2; favourite and underdog on two-way markets, judged by the close. A role with a small "
+               "margin is where Bet9ja prices tightly; a large one is where it hides the overround. Competitions need "
+               f"{pcbf.MIN_CLV_GROUP} closing prices in a role to appear.</p>"
+               + (table(shead, [srow(k, v) for k, v in sk["overall"].items()], "num") if sk["overall"] else "<p>No closing prices yet.</p>")
+               + (f"<details><summary>By competition and role ({len(sk['by_competition'])} rows)</summary>"
+                  + table(shead, [srow(k, v) for k, v in sorted(sk["by_competition"].items(), key=lambda kv: kv[1]["margin_points"])], "num")
+                  + "</details>" if sk["by_competition"] else ""))
     dur = workflow.price_durability(DF, now(), [DOWNLOADS])
     dhead = ["Group", "Priced (14 days)", "Seen again before kickoff", "Still at min odds, next walk", "Still at min odds, last walk",
              "Median hours to next walk", "Median price change by last walk"]
