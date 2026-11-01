@@ -14,6 +14,10 @@ Futsal, MMA, Snooker, Squash, Table Tennis, Waterpolo, Outrights — plus
 the `TODAY` / `3H` / `24H` / `72H` / `ALL` time-window filters the site
 itself exposes.
 
+## A Bet9ja tab the walker cannot script is replaced (0.6.1)
+
+A run uses an open bet9ja.com tab when there is one. If Chrome refuses to script it ("Cannot access contents of the page": an error page, a discarded tab, a page in a state the walker cannot reach; 1 Nov 2026, every sport failed that way), the run opens a fresh Bet9ja tab once and tries the sport again there.
+
 ## Walk now, then stake (0.6.0)
 
 The PredictBot app's Opportunities page has a **Walk now, then stake** button. This walker reads the app's `/walker-targets.json` once a minute and starts a full run (every sport in the schedule's list) for a request it has not acted on yet, whether or not the schedule is on. The odds walker follows once the sport files have landed. See the app README.

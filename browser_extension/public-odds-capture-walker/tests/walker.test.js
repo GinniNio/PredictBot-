@@ -495,6 +495,28 @@ test('a scheduled results walk due during a search walk runs as soon as that wal
   assert.equal(w.uploads.length, 2);                                   // the search walk, then the results walk
 });
 
+test('a walk whose pages never show odds, one after another, stops and says why', async () => {
+  const pages = {};
+  const targets = [];
+  for (let i = 0; i < 30; i++) {
+    const sfx = String.fromCharCode(97 + Math.floor(i / 26)) + String.fromCharCode(97 + (i % 26));   // name tokens are letters only
+    const home = `Home${sfx}`, away = `Away${sfx}`;
+    const url = `https://www.oddsportal.com/football/h2h/home${sfx}-AAAAAAAA/away${sfx}-BBBBBBBB/#x${i}`;
+    pages[P.eventKey(url)] = `<head><title>${home} - ${away} Odds, Predictions & H2H</title></head><body><div>Bookmakers</div></body>`;  // no table ever
+    pages[`https://www.oddsportal.com/search/${home.toLowerCase()}/`] = `<body>Next Matches (1)<a href="${url.replace('https://www.oddsportal.com', '')}">${home}-${away}</a></body>`;
+    targets.push({ sport: 'football', home, away });
+  }
+  pages[ODDSPORTAL_HOME] = '<body>OddsPortal</body>';
+  const w = loadWalker({ pages, targets, timing: { listing: 1, ready: 20, poll: 5, settleCap: 1, search: 40 } });
+  await w.send({ type: 'SET_SCHEDULE', schedule: { enabled: true, search_hours: 2, results_hours: 6, max_events: 50 } });
+  w.fire('walk:search');
+  const done = await w.until((s) => s && s.status === 'STOPPED');
+  assert.match(done.message, /25 pages in a row showed no odds/);
+  assert.equal(done.counts.captured, 0);
+  assert.ok(done.counts.no_odds >= 25 && done.counts.visited < 30);
+  await w.send({ type: 'SET_SCHEDULE', schedule: { enabled: false } });
+});
+
 test('a walk whose pages fail one after another stops and says why, keeping what it captured', async () => {
   const { pages, targets } = footballDay();
   const S = (t) => `https://www.oddsportal.com/search/${t}/`;

@@ -165,7 +165,29 @@ async function startSport(stale) {
     await injectWalker(state.tab_id);
     await chrome.scripting.executeScript({ target: { tabId: state.tab_id }, func: walkInPage, args: [sportId, entry.sport, state.run_id] });
   } catch (err) {
-    await sportDone(state.run_id, entry.sport, { error: err && err.message ? err.message : String(err) });
+    const msg = err && err.message ? err.message : String(err);
+    // 1 Nov 2026: a run picked an open Bet9ja tab that Chrome would not let it
+    // script (an error page, a discarded tab, a page in a state the walker
+    // cannot reach) and every sport failed with "Cannot access contents of
+    // the page". Once per run: open a fresh tab and try the sport again.
+    if (/Cannot access contents/i.test(msg) && !state.tab_replaced) {
+      const schedule = await loadSchedule();
+      try {
+        const fresh = await chrome.tabs.create({ url: schedule.start_url || DEFAULT_START_URL, active: false });
+        await waitForTab(fresh.id);
+        await new Promise((r) => setTimeout(r, T.settle));
+        const cur = await loadState();
+        if (!cur || cur.run_id !== state.run_id || cur.status !== 'RUNNING') { chrome.tabs.remove(fresh.id).catch(() => {}); return; }
+        if (cur.tab_created && cur.tab_id) chrome.tabs.remove(cur.tab_id).catch(() => {});
+        cur.tab_id = fresh.id;
+        cur.tab_created = true;
+        cur.tab_replaced = true;
+        cur.notes = (cur.notes || []).concat(`${entry.sport}: the open Bet9ja tab could not be scripted; opened a fresh one`);
+        await saveState(cur);
+        return startSport(cur);
+      } catch (_) { /* fall through: record the failure */ }
+    }
+    await sportDone(state.run_id, entry.sport, { error: msg });
   }
 }
 

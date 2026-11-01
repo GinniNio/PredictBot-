@@ -9,7 +9,7 @@ const vm = require('node:vm');
  * executeScript that "walks" a sport by sending the BET9JA_WALK_DONE
  * message the page-side function would send. Uploads are recorded.
  */
-function loadWorker({ uploadOk = true, appTargets = {}, walkResult = (sport) => ({ schema_version: 'bet9ja-allsports-sport-walk.v3',
+function loadWorker({ uploadOk = true, appTargets = {}, blockedTabs = new Set(), walkResult = (sport) => ({ schema_version: 'bet9ja-allsports-sport-walk.v3',
   sport, capture_status: 'COMPLETE', fixtures_total: 3, fixtures_with_priced_market: 3, competitions_seen: 2,
   competitions_validated: 2, results: [] }) } = {}) {
   const store = {};
@@ -55,6 +55,7 @@ function loadWorker({ uploadOk = true, appTargets = {}, walkResult = (sport) => 
       onUpdated: { addListener: (fn) => listeners.updated.add(fn), removeListener: (fn) => listeners.updated.delete(fn) },
     },
     scripting: { executeScript: async ({ target, files, func, args }) => {
+      if (blockedTabs.has(target.tabId)) throw new Error('Cannot access contents of the page. Extension manifest must request permission to access the respective host.');
       if (files) { injected.push(files); return [{ result: undefined }]; }
       const [sportId, sport, runId] = args;
       // the page-side walk: report back by message, as walkInPage does
@@ -84,6 +85,19 @@ test('saving a schedule creates the alarm; disabling clears it', async () => {
   assert.equal(w.alarms['bet9ja:walk'].periodInMinutes, 240);
   await w.send({ type: 'SET_BET9JA_SCHEDULE', schedule: { enabled: false } });
   assert.equal(w.alarms['bet9ja:walk'], undefined);
+});
+
+test('a run whose open Bet9ja tab cannot be scripted opens a fresh tab and carries on', async () => {
+  const w = loadWorker({ blockedTabs: new Set([5]) });
+  w.tabs.open.push(5);                                                 // an open bet9ja.com tab Chrome will not script
+  await w.send({ type: 'SET_BET9JA_SCHEDULE', schedule: { enabled: true, sports: ['soccer', 'tennis'], start_url: 'https://sports.bet9ja.com/' } });
+  w.fire('bet9ja:walk');
+  const done = await w.until((r) => r.state && r.state.status === 'COMPLETE');
+  assert.deepEqual(done.state.sports.map((s) => [s.sport, s.status]), [['soccer', 'COMPLETE'], ['tennis', 'COMPLETE']]);
+  assert.deepEqual([...w.tabs.created], ['https://sports.bet9ja.com/']);   // the replacement tab
+  assert.equal(done.state.tab_replaced, true);
+  assert.match((done.state.notes || []).join(' '), /could not be scripted/);
+  assert.equal(w.uploads.length, 2);
 });
 
 test('"Walk now, then stake" from the app starts a run once per request, schedule off', async () => {

@@ -17,6 +17,8 @@ const READY_TIMEOUT_MS = T.ready;   // stop waiting for a page's odds after this
 const READY_POLL_MS = T.poll;
 const STALE_MS = 90000;           // a RUNNING run not updated for this long was interrupted
 const MAX_FAILURES_IN_A_ROW = 15;  // then the site is refusing us: stop the walk and say so
+const MAX_NO_ODDS_IN_A_ROW = 25;   // pages that never show a bookmaker table, one after another: the site is not
+                                   // serving odds to us (a block page, a changed layout): stop rather than walk on
 const DAYS_AHEAD = 1;
 const APP_TARGETS = ['http://localhost:8000/walker-targets.json', 'http://127.0.0.1:8000/walker-targets.json'];
 const APP_UPLOAD = ['http://localhost:8000/walker-upload', 'http://127.0.0.1:8000/walker-upload'];
@@ -331,12 +333,23 @@ async function visitOdds(run, target, source) {
   const ready = await waitReady(run.tab_id, run.source_key);
   run.counts.visited += 1;
   if (ready.state === 'READY') {
+    run.no_odds_in_a_row = 0;
     await injectPageTools(run.tab_id);
     const captured = await callPage(run.tab_id, source && source.excerptPattern ? 'capture-excerpt' : 'capture');
     await storeCapture(run, { role: 'event', discovered_label_raw: target.label_raw, readiness: ready.detail, ...captured });
   } else {
     run.counts[ready.state === 'STARTED' ? 'started' : 'no_odds'] += 1;
     run.skipped.push({ url: target.url, state: ready.state, detail: ready.detail, at_utc: nowIso() });
+    if (ready.state === 'NO_ODDS') {
+      // 1 Nov 2026: a walk visited 263 pages without one bookmaker table.
+      run.no_odds_in_a_row = (run.no_odds_in_a_row || 0) + 1;
+      if (run.no_odds_in_a_row >= MAX_NO_ODDS_IN_A_ROW) {
+        run.status = 'STOPPED';
+        run.message = `stopped: ${MAX_NO_ODDS_IN_A_ROW} pages in a row showed no odds (last: ${ready.detail}). `
+          + 'Open one of them yourself: a block or error page means OddsPortal is refusing the walker for now; '
+          + 'a normal page with odds means its layout changed and the walker needs an update.';
+      }
+    }
   }
 }
 
