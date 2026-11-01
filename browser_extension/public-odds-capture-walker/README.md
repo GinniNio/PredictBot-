@@ -6,6 +6,10 @@ The extension captures raw DOM snapshots only. It never logs in, places bets, su
 
 Automatic event-link discovery is enabled only for route shapes verified in this build: OddsPortal H2H fixtures, Oddschecker US event pages, Flashscore fixtures, BetExplorer match pages, and Polymarket sports cards. Polymarket's non-sports `/event/...` pages are included only when the popup's non-sports option is selected. Betfair Exchange remains evidence-first because its live public page was unavailable during the latest audit.
 
+## A walk started during an upload keeps its tab (0.7.2)
+
+Handing a finished walk to the app can take a minute. A walk that starts meanwhile (the schedule, or the app's walk-now poll) may reuse the same OddsPortal tab; the finished walk no longer closes that tab under it (1 Nov 2026: "The walker tab was closed" on a walk nobody touched). The tab is closed when the later walk finishes.
+
 ## A walk with no odds on any page stops (0.7.1)
 
 A search walk that visits 25 match pages in a row without a bookmaker table stops and says so (1 Nov 2026: a walk visited 263 pages without one). Open one of the pages yourself: a block or error page means OddsPortal is refusing the walker for now, and the next scheduled walk tries again; a normal page with odds means the layout changed and the walker needs an update.

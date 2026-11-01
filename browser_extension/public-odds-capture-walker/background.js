@@ -657,9 +657,18 @@ async function scheduledWalk(kind, trigger = 'schedule') {
 async function finishRun() {
   const run = await uploadRun();
   if (run && run.auto_tab) {
-    chrome.tabs.remove(run.auto_tab).catch(() => {});
-    run.auto_tab = null;
-    await saveRun(run);
+    // The upload can take a minute; a walk started meanwhile (the schedule or
+    // the app's walk-now poll) may be using this very tab. Hand the tab to
+    // it instead of closing it under its feet (1 Nov 2026: "The walker tab
+    // was closed" on a walk nobody touched).
+    const latest = await loadRun();
+    if (latest && latest.status === 'RUNNING' && latest.tab_id === run.auto_tab) {
+      latest.auto_tab = run.auto_tab;
+      await saveRun(latest);
+    } else {
+      chrome.tabs.remove(run.auto_tab).catch(() => {});
+      if (latest && latest.run_id === run.run_id) { latest.auto_tab = null; await saveRun(latest); }
+    }
   }
   const pending = (await chrome.storage.local.get(PENDING_KEY))[PENDING_KEY];
   if (pending) {
