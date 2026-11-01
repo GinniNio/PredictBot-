@@ -116,6 +116,7 @@ async function bet9jaTab(startUrl) {
   const open = await chrome.tabs.query({ url: '*://*.bet9ja.com/*' });
   if (open.length) return { tabId: open[0].id, created: false };
   const tab = await chrome.tabs.create({ url: startUrl || DEFAULT_START_URL, active: false });
+  try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (_) { /* older Chrome */ }   // memory saver must not discard it
   await waitForTab(tab.id);
   await new Promise((r) => setTimeout(r, T.settle)); // the sidebar renders after load
   return { tabId: tab.id, created: true };

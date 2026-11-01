@@ -605,6 +605,9 @@ async function oddsportalTab() {
   const open = await chrome.tabs.query({ url: '*://*.oddsportal.com/*' });
   if (open.length) return { tabId: open[0].id, created: false };
   const tab = await chrome.tabs.create({ url: ODDSPORTAL_HOME, active: false });
+  // Chrome's memory saver discards background tabs; a discarded tab loads
+  // nothing until someone clicks it. Keep the walker's tab out of that.
+  try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (_) { /* older Chrome */ }
   await waitForTab(tab.id);
   return { tabId: tab.id, created: true };
 }

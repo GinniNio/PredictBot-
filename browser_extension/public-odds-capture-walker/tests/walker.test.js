@@ -96,8 +96,9 @@ function loadWalker({ pages, targets, results = [], uploadOk = true, timing = { 
       create: async ({ url }) => { tabs.created.push(url); tab.url = url; tab.exists = true; return { id: tab.id, url, status: 'complete' }; },
       remove: async (id) => { tabs.removed.push(id); },
       get: async (id) => { if (!tab.exists || id !== tab.id) throw new Error(`No tab with id: ${id}.`); return { ...tab, status: 'complete' }; },
-      update: async (id, { url }) => {
+      update: async (id, { url } = {}) => {
         if (!tab.exists) throw new Error(`No tab with id: ${id}.`);
+        if (url === undefined) return { ...tab };              // e.g. { autoDiscardable: false }
         tab.url = url;
         if (pages.onVisit) pages.onVisit(url, tab);
         setTimeout(() => listeners.updated.forEach((fn) => fn(id, { status: 'complete' })), 1);
