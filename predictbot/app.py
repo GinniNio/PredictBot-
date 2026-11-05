@@ -266,11 +266,12 @@ def update_now(light: bool = False) -> str:
     delivered a capture) prices and refreshes only: the feeds, tickets and
     results wait for the timer."""
     steps, t0 = [], time.perf_counter()
+    merged = auto_merge_conflicts()
     fetched = None if light or blocked() else _fetch_feeds(steps)   # network first, outside the lock
     with UPDATE_LOCK:
         prepared = PREPARED.get("results")
         try:
-            return _update_now(steps, light, fetched)
+            return _update_now(steps, light, fetched, merged)
         finally:
             status = timed("picture", steps, lambda: workflow.day_status(DF, now(), [DOWNLOADS]))
             # The results targets change only when games finish: a light update
@@ -304,9 +305,29 @@ def _fetch_feeds(steps: list) -> list[str]:
     return msg
 
 
-def _update_now(steps: list, light: bool = False, fetched: list | None = None) -> str:
+def auto_merge_conflicts() -> list:
+    """A OneDrive conflict copy used to pause pricing until the operator
+    pressed Merge on Pending (4 Nov 2026: 13 hours lost to one copy with no
+    new rows). The merge is append-only and skips rows the original already
+    has, so the writer now merges on its own at the start of an update; any
+    other block (newer data, another writer) still waits for the operator."""
+    if not DF.conflict_copies():
+        return []
+    try:
+        done = DF.merge_conflict_copies()
+    except InvalidRecord as exc:
+        print(f"conflict copies found but not merged: {exc}")
+        return []
+    if done:
+        print("merged OneDrive conflict copies: " + ", ".join(f"{f} (+{n} rows)" for f, n in done))
+    return done
+
+
+def _update_now(steps: list, light: bool = False, fetched: list | None = None, merged: list = ()) -> str:
     imported = 0 if light else timed("import", steps, lambda: DF.import_captures(DOWNLOADS))
     msg = [f"{imported} new capture files from Downloads" if imported else "no new capture files"]
+    if merged:
+        msg.append("merged conflict copies: " + ", ".join(f"{f} (+{n} rows)" for f, n in merged))
     if blocked():
         return "; ".join(msg) + ". Pricing paused: data folder is read-only (see Pending)." + unreadable_note()
     if light:

@@ -1007,6 +1007,23 @@ class WalkerUpload(unittest.TestCase):
         self.app.update_now(light=True)                          # what the woken loop does for the batch
         self.assertEqual(len(self.app.DF.read("selection")), 3)
 
+    def test_a_conflict_copy_is_merged_by_the_update_instead_of_pausing_pricing(self):
+        """4 Nov 2026: one copy with no new rows paused pricing for 13 hours."""
+        import csv
+        df = self.app.DF
+        df.append("rule", [{"rule_key": "a|x|M", "status": "differs", "confirmed_at_utc": "2026-10-05T12:00Z", "note": ""}])
+        mine = df.path("rule")
+        theirs = mine.with_name("settlement-rules-HUAWAI.csv")
+        shutil.copy(mine, theirs)
+        with theirs.open("a", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(["c|x|M", "differs", "2026-10-05T12:00Z", ""])
+        self.assertIn("sync-conflict", df.write_block())
+        msg = self.app.update_now()
+        self.assertIn("merged conflict copies: settlement-rules-HUAWAI.csv (+1 rows)", msg)
+        self.assertNotIn("Pricing paused", msg)
+        self.assertIsNone(df.write_block())
+        self.assertEqual([r["rule_key"] for r in df.read("rule")], ["a|x|M", "c|x|M"])
+
     def test_walk_now_request_reaches_the_walkers_in_order(self):
         """Operator, 31 Oct 2026: the Opportunities button asks both walkers
         to run; the odds walker is cleared once the Bet9ja run has landed."""
