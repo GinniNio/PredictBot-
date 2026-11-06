@@ -541,6 +541,13 @@ class EndToEnd(unittest.TestCase):
                          "edge short of +3%, with caution")
         self.assertEqual(perf["freshness_review"]["needed"], 150)
         self.assertTrue(all(k.startswith(("PICK | ", "WATCH | ")) for k in perf["by_lead_time"]))
+        self.assertEqual(pcbf.hour_band({"priced_at_utc": "2026-10-03T14:30Z"}), "3 12-15 UTC")
+        self.assertEqual(pcbf.hour_band({"priced_at_utc": "2026-10-03T23:59Z"}), "5 20-23 UTC")
+        self.assertTrue(all(k.split(" | ")[1][0].isdigit() for k in perf["by_hour_of_day"]))
+        self.assertEqual(perf["by_first_sight"], {})                                           # no walk files passed
+        self.assertEqual(pcbf.sight_band({"selection_record_id": "x"}, {"x": True}), "0 first walk")
+        self.assertEqual(pcbf.sight_band({"selection_record_id": "x"}, {"x": False}), "1 later walk")
+        self.assertIsNone(pcbf.sight_band({"selection_record_id": "y"}, {"x": True}))
         self.assertEqual(pcbf.lead_band({"kickoff_utc": "2026-10-03T19:00Z", "priced_at_utc": "2026-10-03T14:30Z"}), "1 2-6h")
         self.assertEqual(pcbf.lead_band({"kickoff_utc": "2026-10-05T19:00Z", "priced_at_utc": "2026-10-03T14:30Z"}), "4 over 24h")
         self.assertEqual(pcbf.volume_band({"benchmark_source": "polymarket",

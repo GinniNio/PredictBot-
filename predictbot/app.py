@@ -689,6 +689,14 @@ def page_performance(msg="") -> str:
                "still has to move; one found inside two hours meets a market near its close. If the far-out bands keep "
                "worse CLV, the 6h / 2h freshness cautions are set about right; if they keep up, they are too strict.</p>"
                + table(head, rows(strip(perf["by_lead_time"])), "num"))
+    out.append("<h2>By hour of day</h2><p class='dim'>The hour (UTC; Lagos is one hour ahead) at which the selection was priced, "
+               "in four-hour bands. A band with better CLV is when Bet9ja's prices are loosest; that is when to press Walk now.</p>"
+               + table(head, rows(strip(perf["by_hour_of_day"])), "num"))
+    out.append("<h2>First sight of a price</h2><p class='dim'>Whether the Bet9ja capture a selection was priced from came from the "
+               "first walk that listed the game or a later one, over the last 14 days of walk files. If first-walk prices keep "
+               "better CLV, Bet9ja's opening price is its loose one and the edge is in being first to it.</p>"
+               + (table(head, rows(strip(perf["by_first_sight"])), "num") if perf["by_first_sight"]
+                  else "<p>No priced selection falls inside the walk files on hand.</p>"))
     out.append("<h2>Polymarket by traded volume</h2><p class='dim'>Selections priced from Polymarket, by the market's traded volume "
                "at the quote. A $5,000 floor rejected 95% of quotes on 6 Oct and was dropped; this table shows whether thin "
                "markets price worse before any floor is set again.</p>"
@@ -792,7 +800,8 @@ def page_reply_result(res: dict) -> str:
 
 
 def perf_now():
-    return pcbf.performance(DF.read("selection"), DF.read("settlement"), DF.read("closing"), DF.read("bet"))
+    return pcbf.performance(DF.read("selection"), DF.read("settlement"), DF.read("closing"), DF.read("bet"),
+                            first_sight=workflow.first_sight(DF, now(), [DOWNLOADS]))
 
 
 def page_selections(query) -> str:

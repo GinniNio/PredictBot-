@@ -594,6 +594,8 @@ class OddsApiFeed(unittest.TestCase):
             w2["captured_at_utc"] = w2["results"][0]["captured_at_utc"] = stamp.replace("-00-00-000Z", ":00:00.000Z").replace("T13-", "T13:").replace("T17-", "T17:")
             w2["results"][0]["fixtures"][0]["kickoff_utc_derived"] = "2026-10-14T19:00:00.000Z"
             (self.tmp / "captures" / f"bet9ja-allsports-walk-soccer-{stamp}.json").write_text(json.dumps(w2))
+        fs = workflow.first_sight(self.df, self.now + timedelta(hours=12))
+        self.assertEqual({v for v in fs.values()}, {True})                 # priced from the 09:00 walk, the first to list the game
         dur = workflow.price_durability(self.df, self.now + timedelta(hours=12))
         self.assertEqual((dur["PICK"]["n"], dur["PICK"]["with_later"], dur["PICK"]["ok_next"], dur["PICK"]["ok_last"]), (1, 1, 0, 1))
         self.assertAlmostEqual(dur["PICK"]["median_hours"], 3.5, delta=0.6)   # priced 09:30, seen again 13:00

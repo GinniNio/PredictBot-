@@ -769,6 +769,26 @@ def volume_band(sel: dict) -> str | None:
     return f"{len(VOLUME_BANDS)} $25k+"
 
 
+HOUR_BANDS = 4   # hours per band of the pricing time
+
+
+def hour_band(sel: dict) -> str:
+    t = parse_time(sel.get("priced_at_utc"))
+    if not t:
+        return "9 unknown"
+    i = t.hour // HOUR_BANDS
+    return f"{i} {i * HOUR_BANDS:02d}-{i * HOUR_BANDS + HOUR_BANDS - 1:02d} UTC"
+
+
+def sight_band(sel: dict, first_sight: dict | None) -> str | None:
+    """'first walk' when the Bet9ja capture a selection was priced from was
+    the first walk to list the game, 'later walk' otherwise; None when the
+    walks on file do not cover the game (older than the window)."""
+    if not first_sight or sel["selection_record_id"] not in first_sight:
+        return None
+    return "0 first walk" if first_sight[sel["selection_record_id"]] else "1 later walk"
+
+
 def outcome_role(sel: dict, fair_prob: float) -> str:
     """home / draw / away on a three-way market; favourite / underdog on a
     two-way one, judged by the closing fair probability."""
@@ -858,7 +878,7 @@ def probability_metrics(selections: list[dict], settlements: list[dict]) -> dict
 
 
 def performance(selections: list[dict], settlements: list[dict], closings: list[dict],
-                bets: list[dict] | None = None) -> dict:
+                bets: list[dict] | None = None, first_sight: dict | None = None) -> dict:
     """Aggregate CLV, ROI, win rate and sample sizes, separately by tier, and
     PICKs by sport / market / odds band / benchmark source. Unit-stake ROI is
     used for every tier so PICK and WATCH are comparable; the notional-stake
@@ -896,7 +916,12 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
                     # hold up as well as one found close to it?
                     ("lead_time", lambda s: lead_band(s)),
                     # ...and is a Polymarket price from a thin market worth less?
-                    ("polymarket_volume", lambda s: volume_band(s))):
+                    ("polymarket_volume", lambda s: volume_band(s)),
+                    # Operator, 7 Nov 2026: is Bet9ja looser at some hours of the day
+                    # (UTC; Lagos is UTC+1), and is its first price for a game
+                    # (the walk that first saw it) looser than later ones?
+                    ("hour_of_day", lambda s: hour_band(s)),
+                    ("first_sight", lambda s: sight_band(s, first_sight))):
         groups = {}
         for s in priced:
             band = fn(s)

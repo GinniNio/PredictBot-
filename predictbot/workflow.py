@@ -139,6 +139,43 @@ def price_durability(df: DataFolder, now: datetime, extra_folders=(), days: int 
     return out
 
 
+FIRST_SIGHT_SLACK = timedelta(minutes=30)   # a capture this close to the earliest one of the game is the same walk
+
+
+def first_sight(df: DataFolder, now: datetime, extra_folders=(), days: int = DURABILITY_DAYS) -> dict:
+    """Operator, 7 Nov 2026: for each priced selection of the last `days`,
+    whether the Bet9ja capture it was priced from came from the first walk
+    that listed the game (True) or a later one (False). From the walk files
+    themselves, since later captures of an already priced game are not
+    recorded. Selections whose game the files do not cover are left out."""
+    since = now - timedelta(days=days)
+    earliest = {}                                 # (event_id, market) -> earliest capture time on file
+    seen = set()
+    for path in df.paths("bet9ja-*.json", extra_folders, since):
+        got = _capture_candidates(path)
+        if not got or got[2] is None or got[0] in seen:
+            continue
+        seen.add(got[0])
+        for c in got[2]:
+            t = pcbf.parse_time(c.get("captured_at_utc"))
+            if t:
+                key = (c["event_id"], c["market"])
+                if key not in earliest or t < earliest[key]:
+                    earliest[key] = t
+    captured = {c["capture_id"]: pcbf.parse_time(c.get("captured_at_utc")) for c in df.read("capture")}
+    out = {}
+    cutoff = pcbf.utc(since)
+    for s in df.read("selection"):
+        if s["tier"] not in schemas.PRICED_TIERS or (s.get("priced_at_utc") or "") < cutoff:
+            continue
+        parts = s["selection_id"].split(":")
+        key = (":".join(parts[:-2]), parts[-2])
+        t = captured.get(s["capture_id"])
+        if key in earliest and t:
+            out[s["selection_record_id"]] = t <= earliest[key] + FIRST_SIGHT_SLACK
+    return out
+
+
 PACK_SIZE = 40
 RESEND_AFTER = timedelta(hours=24)
 
