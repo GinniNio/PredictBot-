@@ -619,6 +619,20 @@ def snapshot_label(quote_time: datetime | None, kickoff: datetime | None) -> tup
     return f"pre-kickoff snapshot, {mins} min before kickoff", str(mins)
 
 
+def seeded_close(c: dict) -> bool:
+    """A Polymarket close whose every price is still the seeded even split
+    (1.980/2.020): the market never traded, so it is no close (operator,
+    6 Nov 2026). Such rows stay in the ledger and are left out of CLV."""
+    if canonical_source(c.get("source") or "") != "polymarket":
+        return False
+    try:
+        probs = [1 / float(x) for x in str(c.get("closing_odds") or "").split("/")]
+    except (ValueError, ZeroDivisionError):
+        return False
+    import odds_sources
+    return odds_sources.seeded_prices(probs)
+
+
 def closing_record(sel: dict, source: str, url: str, quote_time: datetime, prices: list, origin: str) -> tuple[dict | None, str | None]:
     """A closing (or labelled pre-kickoff) price for a priced selection."""
     n = 3 if sel["market"] == THREE_WAY else 2
@@ -850,7 +864,7 @@ def performance(selections: list[dict], settlements: list[dict], closings: list[
     used for every tier so PICK and WATCH are comparable; the notional-stake
     ROI applies to PICKs only (PCBF step 5)."""
     st = {s["selection_record_id"]: s for s in settlements}
-    cl = {c["selection_record_id"]: c for c in closings}
+    cl = {c["selection_record_id"]: c for c in closings if not seeded_close(c)}
 
     def summarise(rows):
         settled = [r for r in rows if r["selection_record_id"] in st]

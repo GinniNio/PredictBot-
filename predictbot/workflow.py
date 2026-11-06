@@ -602,7 +602,10 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
     # and, where the prices differ, a correction row is appended; the
     # original rows stay (records are append-only).
     recheck = {k for k, c in stored.items() if (c.get("origin") or "").startswith(FINISHED_PAGE)}
-    have = set(stored) - recheck
+    # A close at Polymarket's seeded even price (6 Nov 2026) is no close:
+    # those selections are closed again from a real quote when one exists.
+    reseed = {k for k, c in stored.items() if pcbf.seeded_close(c)}
+    have = set(stored) - recheck - reseed
     by_url = {}
     for q in quotes:
         by_url.setdefault(q["url"], []).append(q)
@@ -619,7 +622,8 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
         src = pcbf.canonical_source(s["benchmark_source"])
         same = [q for q in by_url[s["benchmark_url"]]
                 if pcbf.canonical_source(q["source"]) == src            # an OddsPortal page also carries a Pinnacle row
-                and all(0 < p < 1 for p in q["probs"])]
+                and all(0 < p < 1 for p in q["probs"])
+                and not odds_sources.is_placeholder(q)]                # a seeded even split is no close
         # The closing odds read off the finished page (results walk) are the
         # true close; otherwise the last quote captured before kickoff.
         closing = [q for q in same if q.get("closing")]
@@ -660,12 +664,18 @@ def snapshot_closes(df: DataFolder, now: datetime, quotes: list[dict]) -> list[d
                 continue                                        # the same read as before: nothing to correct
             rec["origin"] = f"correction of a reversed close ({old_rec['closing_odds']}): {rec['origin']}"
             corrected += 1
+        elif rec and s["selection_record_id"] in reseed:
+            old_rec = stored[s["selection_record_id"]]
+            if pcbf.seeded_close(rec):
+                continue                                        # still only the seeded price on file
+            rec["origin"] = f"correction of a seeded-market close ({old_rec['closing_odds']}): {rec['origin']}"
+            corrected += 1
         if rec:
             new.append(rec)
             have.add(s["selection_record_id"])
     df.append("closing", new)
     if corrected:
-        print(f"closing: {corrected} reversed finished-page closes corrected (a correction row appended for each)")
+        print(f"closing: {corrected} closes corrected (reversed finished-page reads or seeded Polymarket prices; a correction row appended for each)")
     if reversed_closes:
         print(f"closing: {reversed_closes} finished-page closes disagree with the pricing-time benchmark (favourite on the other side); not stored")
     return new

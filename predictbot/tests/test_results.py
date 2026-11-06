@@ -238,6 +238,36 @@ class SettleFromResults(unittest.TestCase):
                 again = workflow.snapshot_closes(self.df, NOW, [q])
         self.assertNotIn(home["selection_record_id"], {c["selection_record_id"] for c in again})
 
+    def test_a_seeded_polymarket_price_is_never_a_close_and_a_stored_one_is_corrected(self):
+        """6 Nov 2026: four Polymarket markets with a few dollars traded closed
+        selections at 1.980/2.020. Such a quote is skipped as a close; a close
+        already stored at that price is replaced when a real quote exists and
+        is left out of CLV meanwhile."""
+        pm = "https://polymarket.com/sports/wta/ten-ann-bea"
+        seeded = {"source": "polymarket", "url": pm, "sport": "tennis", "start_utc": "2026-10-07T19:00Z",
+                  "captured_at_utc": "2026-10-07T18:50:00Z", "outcomes": ["Ann", "Bea"], "probs": [0.505, 0.495],
+                  "volume": 12.0, "closed": False, "file": "feed.json"}
+        real = {**seeded, "captured_at_utc": "2026-10-07T18:55:00Z", "probs": [0.62, 0.38], "volume": 900.0}
+        sels = [sel("e3", 0, "Ann", "MATCH_WINNER", "tennis"), sel("e3", 1, "Bea", "MATCH_WINNER", "tennis")]
+        for r in sels:
+            r["benchmark_url"], r["benchmark_source"], r["benchmark_odds"] = pm, "polymarket", "1.60/2.60"
+            r["event_name"] = "Ann v Bea"
+        with mock.patch.object(self.df, "read", lambda kind: sels if kind == "selection" else []):
+            with mock.patch.object(self.df, "append", lambda kind, rows: None):
+                self.assertEqual(workflow.snapshot_closes(self.df, NOW, [seeded]), [])          # the seed alone closes nothing
+                new = workflow.snapshot_closes(self.df, NOW, [seeded, real])
+        self.assertEqual({c["closing_odds"] for c in new}, {"1.613/2.632"})                    # the real quote, not the seed
+        old = {"selection_record_id": sels[0]["selection_record_id"], "captured_at_utc": "2026-10-07T18:50Z", "source": "polymarket",
+               "closing_odds": "1.980/2.020", "closing_fair_odds": "1.980", "clv_pct": "0.0101", "origin": "auto: polymarket capture feed.json"}
+        with mock.patch.object(self.df, "read", lambda kind: sels if kind == "selection" else [old] if kind == "closing" else []):
+            with mock.patch.object(self.df, "append", lambda kind, rows: None):
+                fixed = workflow.snapshot_closes(self.df, NOW, [seeded, real])
+        mine = next(c for c in fixed if c["selection_record_id"] == old["selection_record_id"])
+        self.assertTrue(mine["origin"].startswith("correction of a seeded-market close (1.980/2.020)"))
+        import pcbf
+        perf = pcbf.performance(sels, [], [old], [])
+        self.assertEqual(perf["by_tier"]["WATCH"]["with_clv"], 0)                           # the seeded close is left out
+
     def test_a_finished_page_close_with_the_favourite_on_the_other_side_is_not_stored(self):
         """18 Oct 2026: finished-page closes came out reversed (Bet9ja 19.00
         against a 1.16 close). A close that only agrees with the pricing-time

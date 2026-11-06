@@ -33,7 +33,9 @@ MIN_POLYMARKET_LIQUIDITY = 5000.0  # USD resting liquidity on the thinnest leg; 
 # seeded it with (0.495 / 0.505 on a two-way), with a tight spread and
 # nominal liquidity. That price is no opinion: not a benchmark (operator,
 # 28 Oct 2026). A traded market at an even price is fine.
-PLACEHOLDER_TOLERANCE = 0.01       # every midpoint within this of 1/n, with zero traded volume = untraded placeholder
+PLACEHOLDER_TOLERANCE = 0.01       # every midpoint within this of 1/n = still at the seeded even split
+PLACEHOLDER_MAX_VOLUME = 100.0     # USD traded; below this an even-split market is the seed, not an opinion (operator, 6 Nov 2026:
+                                   # four markets with a few dollars traded got past the zero-volume rule of 28 Oct)
 SOURCE_PRIORITY = ("pinnacle", "betfair", "oddsportal", "oddschecker", "oddsapi", "polymarket")   # PCBF Mini order; oddsapi added 2026-10-14; betfair (exchange back prices via The Odds API) ranked second by the operator 2026-10-18
 # A Betfair exchange book whose back prices sum outside this range is thin
 # (an unmatched longshot, or one side missing): not a benchmark.
@@ -424,7 +426,7 @@ def quote_problem(q: dict) -> str | None:
     if q["source"] != "polymarket":
         return None
     if is_placeholder(q):
-        return "untraded market: every price still at the seeded even split with no volume"
+        return f"untraded market: every price still at the seeded even split with under ${PLACEHOLDER_MAX_VOLUME:.0f} traded"
     if q["spread"] is not None and q["spread"] > MAX_POLYMARKET_SPREAD:
         return f"wide market: bid/ask spread {q['spread']:.2f} > {MAX_POLYMARKET_SPREAD:.2f}"
     if q.get("depth") is None:
@@ -437,9 +439,18 @@ def quote_problem(q: dict) -> str | None:
 
 
 def is_placeholder(q: dict) -> bool:
-    """An untraded Polymarket market still at its seeded even price."""
+    """A Polymarket market still at its seeded even price with next to no
+    trade behind it: no opinion, so neither a benchmark nor a close."""
     probs = q.get("probs") or []
-    if not probs or (q.get("volume") or 0) > 0:
+    if not probs or (q.get("volume") or 0) >= PLACEHOLDER_MAX_VOLUME:
+        return False
+    return seeded_prices(probs)
+
+
+def seeded_prices(probs) -> bool:
+    """Every probability within PLACEHOLDER_TOLERANCE of an even split."""
+    probs = list(probs)
+    if not probs:
         return False
     even = 1 / len(probs)
     return all(abs(p - even) <= PLACEHOLDER_TOLERANCE for p in probs)

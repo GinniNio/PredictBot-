@@ -314,9 +314,15 @@ class Polymarket(unittest.TestCase):
         seeded = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.495", "0.505"], "0",
                                                             "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z"))[0]
         self.assertTrue(odds_sources.quote_problem(seeded).startswith("untraded market"))
-        traded = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.495", "0.505"], "12",
+        barely = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.495", "0.505"], "12",
                                                             "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z"))[0]
-        self.assertIsNone(odds_sources.quote_problem(traded))     # traded, even if only a little
+        self.assertTrue(odds_sources.quote_problem(barely).startswith("untraded market"))   # 6 Nov: a few dollars is still the seed
+        traded = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.495", "0.505"], "150",
+                                                            "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z"))[0]
+        self.assertIsNone(odds_sources.quote_problem(traded))     # $100 or more traded at the split: an opinion
+        self.assertTrue(pcbf.seeded_close({"source": "polymarket", "closing_odds": "1.980/2.020"}))
+        self.assertFalse(pcbf.seeded_close({"source": "polymarket", "closing_odds": "1.500/3.000"}))
+        self.assertFalse(pcbf.seeded_close({"source": "oddsportal", "closing_odds": "2.000/2.000"}))
         moved = odds_sources.quotes_from_walk(poly_capture(["A Lennon", "B Tuik"], ["0.62", "0.38"], "0",
                                                            "2026-10-05 13:55:00+00", "2026-10-05T12:58:00Z"))[0]
         self.assertIsNone(odds_sources.quote_problem(moved))      # a price away from the split is an opinion
