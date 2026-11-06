@@ -786,15 +786,21 @@ MAX_LEAD = timedelta(days=7)        # a bet is linked to a game kicking off with
 PRICE_SLACK = timedelta(minutes=2)  # ticket times are whole minutes
 
 
+_TICKET_CACHE: dict = {}   # content hash -> parsed ticket capture (or None): the files never change, only arrive
+
+
 def ticket_captures(df: DataFolder, extra_folders=()) -> list:
     out = []
     for path, raw in df.ticket_files(extra_folders):
-        try:
-            d = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
-            continue
-        if isinstance(d, dict) and str(d.get("schema_version", "")).startswith(TICKET_SCHEMAS):
-            out.append((path, d))
+        key = hashlib.sha256(raw).hexdigest()
+        if key not in _TICKET_CACHE:
+            try:
+                d = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                d = None
+            _TICKET_CACHE[key] = d if isinstance(d, dict) and str(d.get("schema_version", "")).startswith(TICKET_SCHEMAS) else None
+        if _TICKET_CACHE[key] is not None:
+            out.append((path, _TICKET_CACHE[key]))
     return out
 
 

@@ -319,6 +319,27 @@ class Storage(unittest.TestCase):
             df.append("rule", [self.rule()])
         self.assertIn("from_the_future", str(ctx.exception))
 
+    def test_reads_parse_only_the_rows_appended_since_the_last_read(self):
+        """7 Nov 2026: a 130,000-row ledger was re-parsed on nearly every
+        read. Appended rows are parsed alone; a rewritten file is parsed whole."""
+        import storage
+        df = DataFolder(self.tmp, host="HP")
+        df.append("rule", [self.rule("a|x|M")])
+        first = df.read("rule")
+        self.assertEqual([r["rule_key"] for r in first], ["a|x|M"])
+        self.assertIs(df.read("rule"), first)                              # unchanged file: the same cached list
+        df.append("rule", [self.rule("b|x|M"), self.rule("c|x|M")])
+        rows = df.read("rule")
+        self.assertEqual([r["rule_key"] for r in rows], ["a|x|M", "b|x|M", "c|x|M"])
+        self.assertEqual(rows[0], first[0])                                 # the old rows were not re-parsed
+        cache = storage._READ_CACHE[str(df.path("rule"))]
+        self.assertEqual(len(cache["rows"]), 3)
+        # A rewrite (a merge, a header upgrade) changes the start of the file: parsed whole again.
+        p = df.path("rule")
+        text = p.read_text(encoding="utf-8").replace("a|x|M", "z|x|M")
+        p.write_text(text, encoding="utf-8", newline="")
+        self.assertEqual([r["rule_key"] for r in df.read("rule")], ["z|x|M", "b|x|M", "c|x|M"])
+
     def test_conflict_copy_blocks_then_merges_without_duplicates(self):
         df = DataFolder(self.tmp, host="HP")
         df.append("rule", [self.rule("a|x|M"), self.rule("b|x|M")])

@@ -26,6 +26,7 @@ is read-only to an older one.
 from __future__ import annotations
 
 import csv
+import io
 import hashlib
 import json
 import os
@@ -70,7 +71,9 @@ def _stamp(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 
-_READ_CACHE: dict = {}            # (path, size, mtime) -> parsed rows of a record file
+_READ_CACHE: dict = {}            # path -> {"size", "mtime", "header", "head", "rows"}: the parsed record file
+_HEAD_BYTES = 4096                # the start of a file is compared on every read: unchanged + grown = rows were appended
+_DIGESTS: dict = {}               # (path, size, mtime) -> sha256 of a capture file (import_captures)
 UNREADABLE: dict[str, str] = {}   # path -> error, for files the OS would not hand over (e.g. OneDrive cloud-only placeholders)
 
 
@@ -309,14 +312,32 @@ class DataFolder:
             st = p.stat()
         except OSError:
             return []
-        key = (str(p), st.st_size, st.st_mtime_ns)
-        rows = _READ_CACHE.get(key)
-        if rows is None:
-            with p.open(newline="", encoding="utf-8") as f:
-                rows = list(csv.DictReader(f))
-            _READ_CACHE.clear()                      # one live version per file is plenty
-            _READ_CACHE[key] = rows
-        return [dict(r) for r in rows]               # callers may edit their copies
+        # 7 Nov 2026: a 130,000-row ledger took seconds to parse and was
+        # parsed on nearly every read (one cache slot for all files, and a copy
+        # of every row per call). Now each file keeps its parsed rows; a file
+        # that only grew (records are append-only) has just the new bytes
+        # parsed; and callers get the cached rows themselves: never edit them.
+        cached = _READ_CACHE.get(str(p))
+        if cached and cached["size"] == st.st_size and cached["mtime"] == st.st_mtime_ns:
+            return cached["rows"]
+        with p.open("rb") as f:
+            head = f.read(_HEAD_BYTES)
+            if cached and st.st_size > cached["size"] and head == cached["head"]:
+                f.seek(cached["size"])
+                tail = f.read().decode("utf-8")
+                if cached["ended_line"]:
+                    new = list(csv.DictReader(io.StringIO(tail, newline=""), fieldnames=cached["header"]))
+                    rows = cached["rows"] + new
+                    _READ_CACHE[str(p)] = {"size": st.st_size, "mtime": st.st_mtime_ns, "header": cached["header"],
+                                           "head": head, "rows": rows, "ended_line": tail.endswith(("\n", "\r"))}
+                    return rows
+            f.seek(0)
+            text = f.read().decode("utf-8")
+        reader = csv.DictReader(io.StringIO(text, newline=""))
+        rows = list(reader)
+        _READ_CACHE[str(p)] = {"size": st.st_size, "mtime": st.st_mtime_ns, "header": list(reader.fieldnames or []),
+                               "head": head, "rows": rows, "ended_line": text.endswith(("\n", "\r"))}
+        return rows
 
     def append(self, kind: str, records: list[dict]) -> int:
         if not records:
@@ -428,7 +449,12 @@ class DataFolder:
             raw = read_bytes(p)
             if raw is None:
                 continue
-            h = hashlib.sha256(raw).hexdigest()
+            try:
+                st = p.stat()
+                key = (str(p), st.st_size, st.st_mtime_ns)
+                h = _DIGESTS.get(key) or _DIGESTS.setdefault(key, hashlib.sha256(raw).hexdigest())
+            except OSError:
+                h = hashlib.sha256(raw).hexdigest()
             if h not in seen:
                 seen.add(h)
                 out.append((p, raw))
@@ -447,7 +473,19 @@ class DataFolder:
         if not sources or self.write_block():      # a read-only laptop never copies into the shared folder
             return 0
         dest = self.root / "captures"
-        have = {hashlib.sha256(raw).hexdigest() for p in dest.glob("*.json") if (raw := read_bytes(p)) is not None}
+        have = set()
+        for p in dest.glob("*.json"):              # digests are remembered per file version: thousands of files on OneDrive
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            key = (str(p), st.st_size, st.st_mtime_ns)
+            if key not in _DIGESTS:
+                raw = read_bytes(p)
+                if raw is None:
+                    continue
+                _DIGESTS[key] = hashlib.sha256(raw).hexdigest()
+            have.add(_DIGESTS[key])
         n = 0
         for src in sources:
             raw = read_bytes(src)
