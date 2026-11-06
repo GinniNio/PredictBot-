@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -69,7 +70,11 @@ def _trim(ev: dict) -> dict | None:
     return out
 
 
-def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=None, pause: float = 0.3) -> dict:
+WORKERS = 4                              # window slices fetched at the same time (7 Nov 2026: one after another took ~2 min)
+
+
+def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=None, pause: float = 0.3,
+                     workers: int = WORKERS) -> dict:
     """Fetch upcoming Polymarket games and save them. Returns {'status':
     'fetched' | 'recent' | 'failed', 'events', 'file', 'error'}. A failure
     never stops the day: pricing carries on with what is already saved."""
@@ -81,23 +86,30 @@ def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=
     opener = opener or (lambda url: urllib.request.urlopen(
         urllib.request.Request(url, headers={"User-Agent": "PredictBot (personal, read-only)"}), timeout=30))
     until = now + HORIZON
-    events, requests, error, seen = [], [], "", set()
     # The API refuses offsets past 2,500 (a busy weekend lists more games
     # than that within 36 h), so the horizon is walked in WINDOW slices, each
-    # paged from offset 0. A game on a window edge is kept once.
+    # paged from offset 0. The slices are fetched at the same time (a few
+    # threads), each paged in turn; a game on a window edge is kept once.
+    windows = []
     window_from = now
-    while window_from < until and not error:
+    while window_from < until:
         window_to = min(window_from + WINDOW, until)
+        windows.append((window_from, window_to))
+        window_from = window_to
+
+    def fetch_window(bounds):
+        window_from, window_to = bounds
+        got, urls, err = [], [], ""
         for page in range(MAX_PAGES):
             url = GAMMA_EVENTS + "?" + urllib.parse.urlencode({
                 "tag_slug": "games", "closed": "false", "order": "startTime", "ascending": "true",
                 "start_time_min": _stamp(window_from), "start_time_max": _stamp(window_to), "limit": PAGE, "offset": page * PAGE})
-            requests.append(url)
+            urls.append(url)
             try:
                 with opener(url) as r:
                     batch = json.loads(r.read().decode("utf-8"))
             except Exception as exc:  # network, HTTP or JSON: report, keep what we have
-                error = f"{type(exc).__name__}: {exc}"
+                err = f"{type(exc).__name__}: {exc}"
                 break
             if not isinstance(batch, list) or not batch:
                 break
@@ -107,15 +119,28 @@ def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=
                 if start and start > until:
                     late = True
                     continue
-                t = _trim(ev)
-                if t and t.get("id") not in seen:
-                    seen.add(t.get("id"))
-                    events.append(t)
+                got.append(ev)
             if late or len(batch) < PAGE:
                 break
             if pause:
                 time.sleep(pause)
-        window_from = window_to
+        return got, urls, err
+
+    if workers > 1 and len(windows) > 1:
+        with ThreadPoolExecutor(max_workers=min(workers, len(windows))) as pool:
+            results = list(pool.map(fetch_window, windows))      # in window order, whatever finished first
+    else:
+        results = [fetch_window(w) for w in windows]
+    events, requests, error, seen = [], [], "", set()
+    for got, urls, err in results:
+        requests.extend(urls)
+        if err and not error:
+            error = err
+        for ev in got:
+            t = _trim(ev)
+            if t and t.get("id") not in seen:
+                seen.add(t.get("id"))
+                events.append(t)
     if not events and error:
         _FAILED[(str(df.root), "feed")] = now
         return {"status": "failed", "events": 0, "file": None, "error": error}

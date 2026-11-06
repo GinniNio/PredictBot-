@@ -488,13 +488,24 @@ def feed_event(slug, start, outcomes, prices, tags=("games", "sports", "tennis")
 
 
 class FakeFeed:
+    """Pages served in call order (thread-safe; fetches with workers=1 are
+    deterministic), or, given a dict, by the window's start_time_min."""
     def __init__(self, pages):
-        self.pages, self.urls = pages, []
+        import threading
+        self.pages, self.urls, self.lock, self.calls = pages, [], threading.Lock(), {}
 
     def __call__(self, url):
         import io
-        self.urls.append(url)
-        page = self.pages[len(self.urls) - 1] if len(self.urls) <= len(self.pages) else []
+        from urllib.parse import parse_qs, urlparse
+        with self.lock:
+            self.urls.append(url)
+            if isinstance(self.pages, dict):
+                key = parse_qs(urlparse(url).query).get("start_time_min", [""])[0]
+                self.calls[key] = self.calls.get(key, 0) + 1
+                pages = self.pages.get(key, [])
+                page = pages[self.calls[key] - 1] if self.calls[key] <= len(pages) else []
+            else:
+                page = self.pages[len(self.urls) - 1] if len(self.urls) <= len(self.pages) else []
         if isinstance(page, Exception):
             raise page
         return io.BytesIO(json.dumps(page).encode())
@@ -708,14 +719,22 @@ class PolymarketFeed(unittest.TestCase):
                 for i in range(feeds.PAGE)]
         more = [feed_event(f"atp-q{i}-2026-10-06", "2026-10-06T12:00:00Z", [f"C{i} X", f"D{i} Y"], [0.5, 0.5]) for i in range(3)]
         fake = FakeFeed([page, more])
-        r = feeds.fetch_polymarket(self.df, self.now, opener=fake, pause=0)
+        r = feeds.fetch_polymarket(self.df, self.now, opener=fake, pause=0, workers=1)
         windows = -(-feeds.HORIZON // feeds.WINDOW)                 # one request per empty later window
         self.assertEqual((len(fake.urls), r["events"]), (1 + windows, feeds.PAGE + 3))
         self.assertIn("offset=100", fake.urls[1])
         self.assertIn("start_time_max=", fake.urls[0])
         # the same game on a window edge is kept once
         fake = FakeFeed([page[:5], page[:5]])
-        self.assertEqual(feeds.fetch_polymarket(self.df, self.now, force=True, opener=fake, pause=0)["events"], 5)
+        self.assertEqual(feeds.fetch_polymarket(self.df, self.now, force=True, opener=fake, pause=0, workers=1)["events"], 5)
+        # The windows are fetched at the same time (7 Nov 2026): pages keyed by window, events merged in window order.
+        stamp = lambda t: feeds._stamp(t)
+        w0, w1 = stamp(self.now), stamp(self.now + feeds.WINDOW)
+        byw = {w0: [page, more], w1: [page[:5]]}                   # the same five games again on the window edge
+        fake = FakeFeed(byw)
+        r = feeds.fetch_polymarket(self.df, self.now, force=True, opener=fake, pause=0, workers=4)
+        self.assertEqual(r["events"], feeds.PAGE + 3)
+        self.assertEqual(len(fake.urls), 2 + 1 + (windows - 2))
 
     def test_throttle_and_failure(self):
         import feeds
