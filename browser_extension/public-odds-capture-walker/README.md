@@ -14,9 +14,9 @@ Handing a finished walk to the app can take a minute. A walk that starts meanwhi
 
 A search walk that visits 25 match pages in a row without a bookmaker table stops and says so (1 Nov 2026: a walk visited 263 pages without one). Open one of the pages yourself: a block or error page means OddsPortal is refusing the walker for now, and the next scheduled walk tries again; a normal page with odds means the layout changed and the walker needs an update.
 
-## Walk now, then stake (0.7.0)
+## Walk now, then stake (0.7.0, retried since 0.7.4)
 
-The PredictBot app's Opportunities page has a **Walk now, then stake** button. Pressing it asks both walkers to run at once, Bet9ja first. This walker reads the app's `/walker-targets.json` once a minute; when it carries a new request and the app says the Bet9ja run has landed (no new sport file for 3 minutes, or 30 minutes passed), a find-all search walk starts, whether or not the schedule is on. Each request is acted on once. The point is to price the shortlist minutes before staking instead of hours: Performance shows that far-out prices carry the edge and that most of it is gone within a few hours.
+The PredictBot app's Opportunities page has a **Walk now, then stake** button. Pressing it asks both walkers to run at once, Bet9ja first. This walker reads the app's `/walker-targets.json` once a minute; when it carries a new request and the app says the Bet9ja run has landed (no new sport file for 3 minutes, or 30 minutes passed), a find-all search walk starts, whether or not the schedule is on. Each request is acted on once; one that finds a walk already running, or the last walk not yet with the app, is tried again a minute later instead of being dropped (0.7.4). The point is to price the shortlist minutes before staking instead of hours: Performance shows that far-out prices carry the edge and that most of it is gone within a few hours.
 
 ## Site access (0.6.6)
 

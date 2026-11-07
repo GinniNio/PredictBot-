@@ -18,9 +18,9 @@ itself exposes.
 
 A run uses an open bet9ja.com tab when there is one. If Chrome refuses to script it ("Cannot access contents of the page": an error page, a discarded tab, a page in a state the walker cannot reach; 1 Nov 2026, every sport failed that way), the run opens a fresh Bet9ja tab once and tries the sport again there.
 
-## Walk now, then stake (0.6.0)
+## Walk now, then stake (0.6.0, retried since 0.6.3)
 
-The PredictBot app's Opportunities page has a **Walk now, then stake** button. This walker reads the app's `/walker-targets.json` once a minute and starts a full run (every sport in the schedule's list) for a request it has not acted on yet, whether or not the schedule is on. The odds walker follows once the sport files have landed. See the app README.
+The PredictBot app's Opportunities page has a **Walk now, then stake** button. This walker reads the app's `/walker-targets.json` once a minute and starts a full run (every sport in the schedule's list) for a request it has not acted on yet, whether or not the schedule is on. A request that arrives while a run is going is not dropped: the walker asks again every minute and starts it once that run has ended (0.6.3; before, such a request was marked handled and never ran). The odds walker follows once the sport files have landed. See the app README.
 
 ## Survives Chrome suspending the worker (0.5.0)
 

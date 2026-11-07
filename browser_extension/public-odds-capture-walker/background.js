@@ -619,14 +619,17 @@ async function scheduledWalk(kind, trigger = 'schedule') {
   const s = summary(current);
   if (s && s.status === 'RUNNING') {
     // A find-all walk over hundreds of games can outlast the interval; the
-    // walk due now runs as soon as the current one has finished.
+    // walk due now runs as soon as the current one has finished. An app
+    // request is not queued: its poll asks again every minute.
+    if (trigger === 'app') return 'busy';
     await chrome.storage.local.set({ [PENDING_KEY]: kind });
-    return noteScheduled(kind, 'waiting: a walk is already running; this one starts when it finishes');
+    await noteScheduled(kind, 'waiting: a walk is already running; this one starts when it finishes');
+    return 'queued';
   }
   if (current && current.status === 'RUNNING') {
     // Stalled: the page never settled, or Chrome suspended the worker mid-walk.
     // Wrap it up with what it captured so the schedule can move on.
-    if (driving) return noteScheduled(kind, 'skipped: a walk is already running');
+    if (driving) { await noteScheduled(kind, 'skipped: a walk is already running'); return 'busy'; }
     current.status = 'INTERRUPTED';
     current.capture_status = 'CAPTURE_PARTIAL';
     current.completed_at_utc = nowIso();
@@ -635,7 +638,7 @@ async function scheduledWalk(kind, trigger = 'schedule') {
   }
   if (current && !current.uploaded && !current.downloaded && (current.counts || {}).captured) {
     const prev = await uploadRun();                 // never discard a walk nobody has received
-    if (!prev.uploaded) return noteScheduled(kind, `skipped: the last walk is not yet with the app (${prev.upload_message || 'not sent'})`);
+    if (!prev.uploaded) { await noteScheduled(kind, `skipped: the last walk is not yet with the app (${prev.upload_message || 'not sent'})`); return 'busy'; }
   }
   let tab;
   try {
@@ -648,10 +651,12 @@ async function scheduledWalk(kind, trigger = 'schedule') {
       await saveRun(stored);
     }
     await noteScheduled(kind, `started (${run.targets_status})`);
+    return 'started';
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
     await noteScheduled(kind, `not started: ${msg}`);
     if (tab && tab.created) chrome.tabs.remove(tab.tabId).catch(() => {});
+    return 'failed';
   }
 }
 
@@ -684,7 +689,9 @@ async function finishRun() {
 // on Opportunities; the app notes the request in /walker-targets.json. Every
 // minute the walker reads it and, once the app says the Bet9ja run has
 // landed (odds_walk_ready), starts a search walk, schedule on or off. Each
-// request is acted on once.
+// request is acted on once; one that finds a walk running, or the last walk
+// not yet with the app, is tried again a minute later (6 Nov 2026: such a
+// request was marked handled and never ran).
 const WALK_NOW_KEY = 'public_odds_walk_now_handled';
 const POLL_ALARM = 'walk:poll';
 
@@ -695,8 +702,8 @@ async function pollApp() {
   if (!asked || !targets.odds_walk_ready) return;
   const handled = (await chrome.storage.local.get(WALK_NOW_KEY))[WALK_NOW_KEY];
   if (handled === asked) return;
+  if (await scheduledWalk('search', 'app') === 'busy') return;   // the next poll tries again
   await chrome.storage.local.set({ [WALK_NOW_KEY]: asked });
-  await scheduledWalk('search', 'app');
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {

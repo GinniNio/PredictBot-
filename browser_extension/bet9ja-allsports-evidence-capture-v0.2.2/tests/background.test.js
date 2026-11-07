@@ -117,6 +117,26 @@ test('"Walk now, then stake" from the app starts a run once per request, schedul
   await w.until((r) => r.state && r.state.status === 'COMPLETE' && w.uploads.length === 2);
 });
 
+test('a "Walk now" request made while a run is going starts once that run has ended', async () => {
+  const appTargets = { fixtures: [] };
+  const w = loadWorker({ appTargets });
+  await w.send({ type: 'SET_BET9JA_SCHEDULE', schedule: { enabled: true, sports: ['soccer'], start_url: 'https://sports.bet9ja.com/' } });
+  w.fire('bet9ja:walk');                                               // the scheduled run is under way
+  await w.until((r) => r.state && r.state.status === 'RUNNING');
+  appTargets.walk_now_requested_utc = '2026-11-06T20:10Z';            // the operator presses the button mid-run
+  w.fire('bet9ja:poll');
+  await new Promise((r) => setTimeout(r, 30));
+  const first = await w.until((r) => r.state && r.state.status === 'COMPLETE');
+  assert.equal(first.state.trigger, 'schedule');                       // the running run was left alone
+  w.fire('bet9ja:poll');                                               // the next poll: the request still stands
+  const second = await w.until((r) => r.state && r.state.trigger === 'app' && r.state.status === 'COMPLETE');
+  assert.equal(second.state.sports[0].sport, 'soccer');
+  assert.equal(w.uploads.length, 2);
+  w.fire('bet9ja:poll');                                               // acted on once
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(w.uploads.length, 2);
+});
+
 test('a scheduled run opens its own Bet9ja tab, walks each sport in turn, uploads each capture, closes the tab', async () => {
   const w = loadWorker();
   await w.send({ type: 'SET_BET9JA_SCHEDULE', schedule: { enabled: true, sports: ['soccer', 'tennis'], start_url: 'https://sports.bet9ja.com/' } });

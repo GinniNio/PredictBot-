@@ -460,6 +460,27 @@ test('"Walk now, then stake": the search walk starts when the app clears it, onc
   assert.equal(w.uploads.length, 1);
 });
 
+test('"Walk now, then stake": a request that finds a walk running is tried again at the next poll', async () => {
+  const { pages } = footballDay();
+  pages[`https://www.oddsportal.com/search/belouizdad/`] = '<body>Next Matches (1)<a href="/football/h2h/cr-belouizdad-vNJLB2jP/khenchela-lYuJtBj9/#Uw6q0Y3M">CR Belouizdad-Khenchela</a></body>';
+  pages[ODDSPORTAL_HOME] = '<body>OddsPortal</body>';
+  const targets = [{ sport: 'football', home: 'CR Belouizdad', away: 'Khenchela' }];
+  const extra = { walk_now_requested_utc: '2026-11-06T20:10Z', odds_walk_ready: true };
+  const w = loadWalker({ pages, targets, timing: { listing: 1, ready: 60, poll: 5, settleCap: 1, search: 40 }, extra });
+  await new Promise((r) => setTimeout(r, 10));
+  w.tab.url = SEED;
+  const started = await w.send({ type: 'START_SEARCH_WALK', tabId: 7, maxEvents: 50 });   // a walk from the popup is under way
+  assert.equal(started.ok, true);
+  w.fire('walk:poll');                                                 // the request arrives mid-walk: not dropped
+  await w.until((s) => s && s.status === 'COMPLETE' && s.uploaded);
+  assert.equal(w.uploads.length, 1);
+  w.fire('walk:poll');                                                 // the next poll starts it
+  await w.until((s) => s && s.status === 'COMPLETE' && s.uploaded && w.uploads.length === 2);
+  w.fire('walk:poll');                                                 // acted on once
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(w.uploads.length, 2);
+});
+
 test('a start that fails is reported to the popup instead of "No walk yet"', async () => {
   const w = loadWalker({ pages: {}, targets: null });      // the app is not reachable
   w.tab.url = SEED;

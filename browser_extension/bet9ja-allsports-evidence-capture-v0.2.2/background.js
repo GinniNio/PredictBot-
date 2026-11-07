@@ -129,7 +129,7 @@ async function scheduledWalk(trigger = 'schedule') {
   if (trigger === 'schedule' && !schedule.enabled) return;
   const running = await loadState();
   if (running && running.status === 'RUNNING' && Date.now() - Date.parse(running.updated_at_utc || 0) < STALE_RUN_MS) {
-    return;                                         // one run at a time
+    return 'busy';                                  // one run at a time
   }
   const state = { run_id: Date.now().toString(36), status: 'RUNNING', trigger, started_at_utc: nowIso(),
     sports: (schedule.sports || DEFAULT_SPORTS).map((sport) => ({ sport })), tab_created: false };
@@ -138,7 +138,8 @@ async function scheduledWalk(trigger = 'schedule') {
   try {
     tab = await bet9jaTab(schedule.start_url);
   } catch (err) {
-    return endRun(state, 'FAILED', err && err.message ? err.message : String(err));
+    await endRun(state, 'FAILED', err && err.message ? err.message : String(err));
+    return 'failed';
   }
   const cur = await loadState();                    // the popup may have stopped it while the tab opened
   if (!cur || cur.run_id !== state.run_id || cur.status !== 'RUNNING') {
@@ -149,6 +150,7 @@ async function scheduledWalk(trigger = 'schedule') {
   cur.tab_id = tab.tabId;
   await saveState(cur);
   await startSport(cur);
+  return 'started';
 }
 
 // Starts the next sport of the run, or ends the run when none is left.
@@ -268,7 +270,9 @@ async function handleWalkDone(msg) {
 // "Walk now, then stake" (app, 31 Oct 2026): the operator presses a button on
 // Opportunities; the app notes the request in /walker-targets.json. Every
 // minute this walker reads it and starts a full run for a request it has not
-// acted on, schedule on or off.
+// acted on, schedule on or off. A request that arrives while a run is going
+// is kept, and starts within a minute of that run ending (6 Nov 2026: one
+// made mid-run was marked handled and never ran).
 const APP_TARGETS = ['http://localhost:8000/walker-targets.json', 'http://127.0.0.1:8000/walker-targets.json'];
 const WALK_NOW_KEY = 'bet9ja_walk_now_handled';
 const POLL_ALARM = 'bet9ja:poll';
@@ -285,8 +289,8 @@ async function pollApp() {
   if (!asked) return;
   const handled = (await chrome.storage.local.get(WALK_NOW_KEY))[WALK_NOW_KEY];
   if (handled === asked) return;
+  if (await scheduledWalk('app') === 'busy') return;   // a run is going: the next poll tries again
   await chrome.storage.local.set({ [WALK_NOW_KEY]: asked });
-  await scheduledWalk('app');
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
