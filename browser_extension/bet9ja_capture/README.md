@@ -1171,7 +1171,14 @@ payout, and cashout with decimal-safe arithmetic is the (future) ledger
 importer's job, not this capture's.
 
 **SELECTOR STATUS: real profile confirmed and run end-to-end (Round 2) —
-see `SETTLED_BETS_REAL_PAGE_VALIDATION.md`.** The Settled Bets tab
+see `SETTLED_BETS_REAL_PAGE_VALIDATION.md`.** Round 3 (10 Nov 2026, parser
+0.5.1): a real capture showed 11 of 15 tickets with the stake line as the
+SECOND `.mybets-holder__info-item`, which the fixed stake-then-result
+order misread as an unrecognized status. The two summary items are now
+picked by their text (the item starting "Stake" is the stake; the first
+other item reading exactly "Lost" or "Won <amount>" is the result), and a
+ticket that still has no recognized result records every info item it saw
+in `unresolved_tickets[].raw.ticket_status_raw`. The Settled Bets tab
 (`.mybets__bets-item`, exact text "Settled Bets", selected state
 `.mybets__bets-item--current`), ticket/leg structure (largely the same
 `.mybets`/`.accordion-item` shape `ticket_parser.js`'s Open Bets profile

@@ -170,7 +170,7 @@
   const Bet9jaStakeBuckets =
     typeof module !== 'undefined' && module.exports ? require('./stake_buckets.js') : root.Bet9jaStakeBuckets;
 
-  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.5.0-structured-stake-buckets';
+  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.5.1-summary-items-by-text';
 
   // Confirmed via live authenticated inspection (Round 1). See the
   // REAL-DOM PROFILE header comment above for the full contract.
@@ -509,9 +509,21 @@
    * See the REAL-DOM PROFILE header comment.
    */
   function parseTicketSummary(ticketEl) {
-    const items = Array.from(ticketEl.querySelectorAll(SELECTORS.infoItem)).map(text);
-    const stakeRaw = items.length > 0 ? items[0] : null;
-    const resultRaw = items.length > 1 ? items[1] : null;
+    // 10 Nov 2026 real evidence: 11 of 15 tickets in one capture carried the
+    // stake line as their SECOND info item ("Stake: 100.00"), so a fixed
+    // first-is-stake / second-is-result order misread every one of them as
+    // an unrecognized status. The items are now picked by their text: the
+    // stake is the item that starts with "Stake", the result is the first
+    // other item that reads exactly "Lost" or "Won <amount>". Recognition
+    // itself is unchanged; a ticket with neither stays UNRESOLVED and its
+    // raw status records every info item, so the next capture shows what
+    // the page said instead of one item of it.
+    const items = Array.from(ticketEl.querySelectorAll(SELECTORS.infoItem)).map(text).map((t) => (t || '').trim());
+    const stakeIndex = items.findIndex((t) => /^stake\b/i.test(t));
+    const stakeRaw = stakeIndex >= 0 ? items[stakeIndex] : (items.length > 0 ? items[0] : null);
+    const others = items.filter((_, i) => i !== (stakeIndex >= 0 ? stakeIndex : 0));
+    const resultRaw = others.find((t) => /^lost$/i.test(t) || /^won\s*([\d.,]+)?$/i.test(t))
+      || (others.length > 0 ? others.join(' | ') : null);
     const totalStakeRaw = extractLeadingDecimal(stakeRaw);
 
     const resultTrimmed = (resultRaw || '').trim();

@@ -294,6 +294,29 @@ test('a ticket already open before capture is left open afterward (collapseIfNee
   assert.equal(envelope.coverage.tickets_parsed, 1);
 });
 
+test('ticket summary items are picked by text, not position: "Lost" before the stake line still parses (10 Nov 2026 real capture)', async () => {
+  const { envelope } = await captureSettled(
+    settledTicket({ ticketId: '1828193950', stakeItem: 'Lost', resultItem: 'Stake: 100.00', legs: [settledLeg({ outcome: 'Lost', score: '0:2' })] })
+      + settledTicket({ ticketId: '1760472830', stakeItem: 'Stake: 70.00', resultItem: 'Won 99.05', legs: [settledLeg({ outcome: 'Won' })] })
+  );
+  assert.equal(envelope.coverage.tickets_parsed, 2);
+  assert.equal(envelope.coverage.tickets_unresolved, 0);
+  const lost = envelope.tickets.find((x) => x.bet9ja_ticket_id === '1828193950');
+  assert.equal(lost.ticket_status, 'LOST');
+  assert.equal(lost.total_stake, '100.00');
+  const won = envelope.tickets.find((x) => x.bet9ja_ticket_id === '1760472830');
+  assert.equal(won.ticket_status, 'WON');
+  assert.equal(won.total_stake, '70.00');
+  assert.equal(won.actual_payout, '99.05');
+});
+
+test('a ticket whose info items carry no recognized result stays unresolved and records every item it saw', async () => {
+  const { envelope } = await captureSettled(settledTicket({ stakeItem: 'Cashed Out 12.00', resultItem: 'Stake: 100.00' }));
+  assert.equal(envelope.coverage.tickets_unresolved, 1);
+  assert.equal(envelope.unresolved_tickets[0].reason, 'MISSING_OR_UNRECOGNIZED_SETTLEMENT_STATUS');
+  assert.equal(envelope.unresolved_tickets[0].raw.ticket_status_raw, 'Cashed Out 12.00');
+});
+
 test('row accounting invariant: tickets_seen = parsed + unresolved + expected_excluded', async () => {
   const { envelope } = await captureSettled(
     settledTicket({ ticketId: 'A', resultItem: 'Won 1.00' }) + settledTicket({ ticketId: 'B', resultItem: 'Unknown Text' })
