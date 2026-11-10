@@ -1178,7 +1178,14 @@ order misread as an unrecognized status. The two summary items are now
 picked by their text (the item starting "Stake" is the stake; the first
 other item reading exactly "Lost" or "Won <amount>" is the result), and a
 ticket that still has no recognized result records every info item it saw
-in `unresolved_tickets[].raw.ticket_status_raw`. The Settled Bets tab
+in `unresolved_tickets[].raw.ticket_status_raw`. Round 4 (10 Nov 2026, parser 0.5.2): two
+real captures showed that after a pagination click the list first
+empties, then renders, then can replace its nodes once more, so pages
+were captured empty (0 containers) or with 5 containers that never became
+ready (`TICKET_EXPANSION_TIMEOUT`, no ticket id seen). The walker now
+parses a page only once its collapsed content has held still for 0.6 s
+with a ticket present (up to 8 s), and waits up to 6 s for the page
+marker to move. The Settled Bets tab
 (`.mybets__bets-item`, exact text "Settled Bets", selected state
 `.mybets__bets-item--current`), ticket/leg structure (largely the same
 `.mybets`/`.accordion-item` shape `ticket_parser.js`'s Open Bets profile

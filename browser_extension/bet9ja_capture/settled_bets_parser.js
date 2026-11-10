@@ -170,7 +170,7 @@
   const Bet9jaStakeBuckets =
     typeof module !== 'undefined' && module.exports ? require('./stake_buckets.js') : root.Bet9jaStakeBuckets;
 
-  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.5.1-summary-items-by-text';
+  const PARSER_VERSION = 'bet9ja-settled-bets-parser@0.5.2-page-settle-wait';
 
   // Confirmed via live authenticated inspection (Round 1). See the
   // REAL-DOM PROFILE header comment above for the full contract.
@@ -236,6 +236,22 @@
   // (paginateAndCaptureAllPages), used only when the first, normal-length
   // wait fails -- never a third attempt.
   const PAGE_CONTENT_RETRY_TIMEOUT_MS = 6000;
+  // Round 4 real-capture correction (10 Nov 2026, two captures): after a
+  // pagination click Bet9ja's list first EMPTIES, then renders the new
+  // page's tickets, and can replace those nodes once more a moment later.
+  // The content-fingerprint wait above was satisfied by the empty state
+  // (pages 2, 4 and 6 captured with 0 containers) or by the first render
+  // whose nodes were then detached before they could be expanded (pages 3
+  // and 5: 5 containers, every one TICKET_EXPANSION_TIMEOUT with no ticket
+  // id ever seen). So after the content has changed, the page is parsed
+  // only once its collapsed fingerprint has held still for
+  // PAGE_SETTLE_QUIET_MS with at least one ticket container present, or
+  // PAGE_SETTLE_TIMEOUT_MS has passed (a page that stays empty is then
+  // recorded as empty, as before). The marker wait is also given the
+  // longer window, since page 6's marker did not move within 3 s.
+  const PAGE_SETTLE_QUIET_MS = 600;
+  const PAGE_SETTLE_TIMEOUT_MS = 8000;
+  const PAGE_MARKER_TIMEOUT_MS = 6000;
   // Real evidence confirmed 191 pages in the inspected account; this cap
   // is kept well above that (not tightly at it) so a larger real account
   // is never truncated by an unrelated safety limit -- still a hard
@@ -838,6 +854,28 @@
       .join('|');
   }
 
+  /**
+   * See PAGE_SETTLE_QUIET_MS. Resolves true once the collapsed fingerprint
+   * has been unchanged for the quiet window with a ticket container
+   * present; false when the settle window runs out first.
+   */
+  async function waitForPageToSettle(mybetsRoot) {
+    const deadline = Date.now() + PAGE_SETTLE_TIMEOUT_MS;
+    let last = getCollapsedPageFingerprint(mybetsRoot);
+    let stableSince = Date.now();
+    while (Date.now() < deadline) {
+      await sleep(PAGE_CONTENT_POLL_INTERVAL_MS);
+      const now = getCollapsedPageFingerprint(mybetsRoot);
+      if (now !== last) {
+        last = now;
+        stableSince = Date.now();
+        continue;
+      }
+      if (now !== '' && Date.now() - stableSince >= PAGE_SETTLE_QUIET_MS) return true;
+    }
+    return false;
+  }
+
   function getPageNumberText(el) {
     return el ? text(el).trim() : '';
   }
@@ -947,7 +985,7 @@
           const el = mybetsRoot.querySelector(SELECTORS.paginationContainer);
           return !!el && getCurrentPageNumber(el) === nextPageNumber;
         },
-        EXPAND_TIMEOUT_MS,
+        PAGE_MARKER_TIMEOUT_MS,
         EXPAND_POLL_INTERVAL_MS
       );
       if (!advanced) {
@@ -980,6 +1018,7 @@
         stoppedReason = 'PAGE_CONTENT_DID_NOT_UPDATE';
         break;
       }
+      await waitForPageToSettle(mybetsRoot);   // see PAGE_SETTLE_QUIET_MS
 
       pagesVisited += 1;
       const pageResult = await processCurrentPageTickets(mybetsRoot, capturedAtUtc, seenTickets, aggregate, currentPage);

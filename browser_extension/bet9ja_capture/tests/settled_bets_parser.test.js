@@ -575,7 +575,7 @@ test('a ticket whose expansion never succeeds even after the one retry stays unr
 // setTimeout) to model that race for real, rather than the other
 // pagination tests' synchronous (marker + content together) swap.
 
-function settledPaginationHtmlWithDelayedContent({ pageTicketsHtmlList, contentDelayMs = 0, neverUpdateContent = false }) {
+function settledPaginationHtmlWithDelayedContent({ pageTicketsHtmlList, contentDelayMs = 0, neverUpdateContent = false, emptyFirst = false, rerenderAfterMs = 0 }) {
   const totalPages = pageTicketsHtmlList.length;
   const items = [];
   for (let p = 1; p <= totalPages; p += 1) {
@@ -592,6 +592,8 @@ function settledPaginationHtmlWithDelayedContent({ pageTicketsHtmlList, contentD
         const PAGES = ${JSON.stringify(pageTicketsHtmlList)};
         const NEVER_UPDATE = ${JSON.stringify(neverUpdateContent)};
         const DELAY_MS = ${JSON.stringify(contentDelayMs)};
+        const EMPTY_FIRST = ${JSON.stringify(emptyFirst)};
+        const RERENDER_AFTER_MS = ${JSON.stringify(rerenderAfterMs)};
         const list = document.getElementById('ticket-list');
         const pagination = document.querySelector('.pg-pagination');
         function attachAccordionListeners() {
@@ -611,10 +613,17 @@ function settledPaginationHtmlWithDelayedContent({ pageTicketsHtmlList, contentD
             // never, for NEVER_UPDATE).
             pagination.querySelectorAll('.pg-pagination__item').forEach((x) => x.classList.remove('pg-pagination__item--current'));
             el.classList.add('pg-pagination__item--current');
+            if (EMPTY_FIRST) list.innerHTML = '';
             if (!NEVER_UPDATE) {
               setTimeout(() => {
                 list.innerHTML = PAGES[pageNum - 1];
                 attachAccordionListeners();
+                if (RERENDER_AFTER_MS > 0) {
+                  // The real page replaces the freshly rendered nodes once
+                  // more a moment later: references taken before this are
+                  // detached and never become ready.
+                  setTimeout(() => { list.innerHTML = PAGES[pageNum - 1]; attachAccordionListeners(); }, RERENDER_AFTER_MS);
+                }
               }, DELAY_MS);
             }
           });
@@ -646,6 +655,26 @@ test('pagination: the page marker advancing before content updates is tolerated 
   // The exact real-capture defect this fixes: page 2 must never be
   // parsed as a byte-for-byte repeat of page 1.
   assert.equal(envelope.coverage.legs_seen, envelope.coverage.legs_parsed);
+});
+
+test('pagination: a list that empties, renders, then re-renders after a click is parsed once it has settled (10 Nov 2026 real captures)', async () => {
+  const doc = docFromHtml(
+    settledPaginationHtmlWithDelayedContent({
+      pageTicketsHtmlList: [
+        settledTicket({ ticketId: '910000001', resultItem: 'Won 1.00' }),
+        settledTicket({ ticketId: '910000002', resultItem: 'Lost' }),
+        settledTicket({ ticketId: '910000003', resultItem: 'Lost' }),
+      ],
+      contentDelayMs: 120,
+      emptyFirst: true,
+      rerenderAfterMs: 150,
+    })
+  );
+  const { envelope } = await settledParser.captureFromDocument(doc, SETTLED_CONTEXT);
+  assert.equal(envelope.coverage.pages_visited, 3);
+  assert.equal(envelope.coverage.tickets_parsed, 3);
+  assert.equal(envelope.coverage.tickets_unresolved, 0);
+  assert.deepEqual(envelope.page_results.map((r) => r.ticket_containers_seen), [1, 1, 1]);
 });
 
 test('pagination: content that never updates after the marker moves is a safe stop, not a false duplicate-page parse', async () => {
