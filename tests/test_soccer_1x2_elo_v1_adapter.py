@@ -23,7 +23,6 @@ from pcbf_calculator.adapters.soccer_1x2_elo_v1.errors import (
     FORECAST_COMPETITION_UNRESOLVED,
     FORECAST_FIXTURE_ALREADY_STARTED,
     FORECAST_INPUT_INCOMPLETE,
-    FORECAST_TEAM_NOT_IN_ARTIFACT,
     FORECAST_TEAM_UNRESOLVED,
 )
 from pcbf_calculator.adapters.soccer_1x2_elo_v1.identity import normalize_name, resolve_competition, resolve_team, TeamAliasBook

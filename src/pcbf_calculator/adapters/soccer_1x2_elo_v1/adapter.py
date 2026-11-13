@@ -51,7 +51,7 @@ from pathlib import Path
 from typing import Any
 
 from ..base import AdapterInterfaceDeclaration, ForecastResult, SportAdapter
-from .config import SoccerEloV1Config, load_config
+from .config import load_config
 from .errors import (
     FORECAST_ARTIFACT_AFTER_CUTOFF,
     FORECAST_ARTIFACT_STALE,

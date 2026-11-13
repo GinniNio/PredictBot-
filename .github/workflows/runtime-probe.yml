@@ -252,3 +252,21 @@ jobs:
         run: npm ci
       - name: Run parser test suite against sanitized HTML fixtures
         run: npm test
+
+  bet9ja-allsports-capture-tests:
+    # Independent job, same reasoning as bet9ja-capture-tests above: the
+    # browser_extension/bet9ja_capture_allsports/ extension has its own
+    # package.json and must never gate or be gated by the other jobs.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: browser_extension/bet9ja_capture_allsports
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dev dependencies (jsdom only -- the extension itself ships zero runtime dependencies)
+        run: npm ci
+      - name: Run snapshot test suite
+        run: npm test

@@ -30,7 +30,6 @@ from pcbf_calculator.adapters.soccer_1x2_elo_v1.adapter import (  # noqa: E402
     load_known_teams_by_league,
     load_team_alias_book,
 )
-from pcbf_calculator.adapters.soccer_1x2_elo_v1.identity import TeamAliasBook  # noqa: E402
 from pcbf_calculator.orchestration import football_data_settlement as fds  # noqa: E402
 from pcbf_calculator.orchestration.bet9ja_research_session import run_session  # noqa: E402
 

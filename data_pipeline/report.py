@@ -72,8 +72,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from data_pipeline.download import DEFAULT_MANIFEST_PATH, ERROR_NOT_FOUND, load_manifest, season_codes
-from data_pipeline.schema_inspection import column_drift, inspect_file, result_to_dict as schema_to_dict
-from data_pipeline.validation import result_to_dict as validation_to_dict
+from data_pipeline.schema_inspection import column_drift, inspect_file
 from data_pipeline.validation import validate_file
 
 
