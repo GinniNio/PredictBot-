@@ -7,7 +7,6 @@ et al.): plain ``unittest.TestCase``, no third-party test framework.
 
 from __future__ import annotations
 
-import copy
 import json
 import unittest
 from pathlib import Path

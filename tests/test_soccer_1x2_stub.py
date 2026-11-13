@@ -14,7 +14,7 @@ with zero real forecasting logic.
 import unittest
 
 from pcbf_calculator.adapters.base import ForecastResult, SportAdapter
-from pcbf_calculator.adapters.registry import NoForecastAdapter, _ADAPTER_IMPLEMENTATIONS, get_adapter
+from pcbf_calculator.adapters.registry import _ADAPTER_IMPLEMENTATIONS, get_adapter
 from pcbf_calculator.adapters.soccer_1x2_elo_v1 import SoccerOneXTwoEloV1Adapter
 from pcbf_calculator.adapters.soccer_1x2_stub import (
     ADAPTER_ID,

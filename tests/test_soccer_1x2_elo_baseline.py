@@ -31,7 +31,6 @@ from data_pipeline.dataset_builder import LEAGUE_CODES, raw_file_path
 
 from research.soccer_1x2_elo_baseline import calibration, evaluate, evidence, hash_provenance, model, train
 from research.soccer_1x2_elo_baseline.elo import (
-    HOME_ADVANTAGE_ELO_BONUS,
     INITIAL_RATING,
     K_FACTOR,
     PROVISIONAL_MATCH_THRESHOLD,

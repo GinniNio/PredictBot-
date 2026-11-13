@@ -19,7 +19,6 @@ from pathlib import Path
 from pcbf_calculator.orchestration.bet9ja_research_session import (
     main as session_main,
     run_bet9ja_research_session,
-    run_session,
 )
 
 CAPTURED_AT_UTC = "2026-09-12T15:30:23.000Z"

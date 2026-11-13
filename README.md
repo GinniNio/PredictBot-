@@ -2,7 +2,7 @@
 
 A deterministic, host-neutral statistical calculation package for sports betting analysis: a universal market-pricing engine, a registered per-sport forecasting adapter, and a decision layer that gates real-money staking behind evidence.
 
-Zero runtime dependencies. Pure Python stdlib throughout (`pyproject.toml`: `dependencies = []`).
+Zero third-party runtime dependencies on Linux/macOS. Pure Python stdlib throughout; the only declared dependency is `tzdata`, installed on Windows only (`pyproject.toml`: `tzdata; sys_platform == 'win32'`), because Windows ships no IANA time zone database.
 
 ---
 
