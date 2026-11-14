@@ -713,6 +713,32 @@ class PolymarketFeed(unittest.TestCase):
         self.assertEqual(odds_sources.choose_quote(cand, qs)["match"]["order"], [0, 1])
         self.assertIn(("polymarket", "tennis"), workflow.rules_text(qs))
 
+    def test_gamma_requests_accept_gzip_and_inflate_compressed_answers(self):
+        """12 Nov 2026: gamma-api answered the feed query with HTTP 406
+        "gzip_required" for two days. Requests now accept gzip, and a
+        compressed body (by header, or by its bytes) is inflated."""
+        import feeds, gzip, io
+        self.assertEqual(feeds.HEADERS.get("Accept-Encoding"), "gzip")
+
+        class Gz:
+            def __init__(self, page, header=True):
+                self.body = gzip.compress(json.dumps(page).encode())
+                self.headers = {"Content-Encoding": "gzip"} if header else {}
+            def read(self):
+                return self.body
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+        urls = []
+        def opener(url):
+            urls.append(url)
+            return Gz(self.events(), header=len(urls) % 2 == 0)      # with and without the header
+        r = feeds.fetch_polymarket(self.df, self.now, opener=opener, pause=0, workers=1)
+        self.assertEqual((r["status"], r["events"]), ("fetched", 3))
+        # a plain body still parses
+        self.assertEqual(feeds._read_json(io.BytesIO(b"[1, 2]")), [1, 2])
+
     def test_paging_stops_at_horizon_and_short_page(self):
         import feeds
         page = [feed_event(f"atp-p{i}-2026-10-06", "2026-10-06T12:00:00Z", [f"A{i} X", f"B{i} Y"], [0.5, 0.5])

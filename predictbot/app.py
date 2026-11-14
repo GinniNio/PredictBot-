@@ -294,6 +294,7 @@ def _fetch_feeds(steps: list) -> list[str]:
         msg.append(f"Polymarket feed: {f['events']} upcoming games" + (f" (partial: {f['error']})" if f["error"] else ""))
     elif f["status"] == "failed":
         msg.append(f"Polymarket feed unavailable ({f['error']}); using earlier fetches")
+        print(f"polymarket feed failed: {f['error']}")     # 14 Nov 2026: a silent failure cost two days of benchmarks
     o = timed("odds api", steps, lambda: feeds.fetch_odds_api(DF, now()))
     if o["status"] == "fetched":
         msg.append(f"The Odds API: {o['events']} games from {o['requests']} requests"
@@ -301,6 +302,7 @@ def _fetch_feeds(steps: list) -> list[str]:
                    + (f" (partial: {o['error']})" if o["error"] else ""))
     elif o["status"] == "failed":
         msg.append(f"The Odds API unavailable ({o['error']})")
+        print(f"odds api failed: {o['error']}")
     PREPARED["results"] = timed("results fetch", steps, lambda: workflow.prepare_results(DF, now(), [DOWNLOADS]))
     return msg
 
@@ -389,7 +391,8 @@ def activity_table(t) -> str:
     return (table(["Day (UTC)", "Arrived (walkers and feeds)", "Written by the app"], rows)
             + "<p class='dim'>No Bet9ja walk means the Bet9ja walker's schedule did not run on this laptop; no OddsPortal "
               "search walk means the odds walker's schedule did not run; no Polymarket feed means the app itself was not "
-              "running or had no internet. Times are from the file names.</p>")
+              "running, had no internet, or the feed request failed (the console then shows 'polymarket feed failed' "
+              "with the reason). Times are from the file names.</p>")
 
 
 def coverage_table(status, t=None) -> str:

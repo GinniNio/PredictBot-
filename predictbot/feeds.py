@@ -9,6 +9,7 @@ response it came from. The only network code in the app; stdlib only.
 
 from __future__ import annotations
 
+import gzip
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -32,6 +33,29 @@ MARKET_FIELDS = ("id", "question", "slug", "outcomes", "outcomePrices", "volume"
 RESULTS_EVERY = timedelta(minutes=30)   # at most one results fetch per 30 minutes
 RETRY_AFTER = timedelta(minutes=10)     # after a failed fetch (offline?), wait before trying again
 _FAILED: dict = {}                      # (data folder, kind) -> time of the last failed fetch
+# 12 Nov 2026: gamma-api started answering /events requests with limit above
+# 50 with HTTP 406 "gzip_required" unless the request accepts gzip. The feed
+# went silent for two days (results requests, which name slugs and set no
+# limit, kept working). Every Gamma request now accepts gzip and is inflated
+# here when the answer is compressed.
+HEADERS = {"User-Agent": "PredictBot (personal, read-only)", "Accept-Encoding": "gzip"}
+
+
+def _gamma_opener(url):
+    return urllib.request.urlopen(urllib.request.Request(url, headers=HEADERS), timeout=30)
+
+
+def _read_json(response):
+    """The body of a Gamma response as parsed JSON, gunzipped when the
+    server compressed it (or when the bytes are gzip whatever the header)."""
+    body = response.read()
+    encoding = ""
+    headers = getattr(response, "headers", None)
+    if headers is not None:
+        encoding = (headers.get("Content-Encoding") or "").lower()
+    if encoding == "gzip" or body[:2] == b"\x1f\x8b":
+        body = gzip.decompress(body)
+    return json.loads(body.decode("utf-8"))
 
 
 def _backing_off(df: DataFolder, kind: str, now: datetime) -> bool:
@@ -83,8 +107,7 @@ def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=
         return {"status": "recent", "events": 0, "file": None, "error": "", "last": prev}
     if not force and _backing_off(df, "feed", now):
         return {"status": "recent", "events": 0, "file": None, "error": "", "last": prev}
-    opener = opener or (lambda url: urllib.request.urlopen(
-        urllib.request.Request(url, headers={"User-Agent": "PredictBot (personal, read-only)"}), timeout=30))
+    opener = opener or _gamma_opener
     until = now + HORIZON
     # The API refuses offsets past 2,500 (a busy weekend lists more games
     # than that within 36 h), so the horizon is walked in WINDOW slices, each
@@ -107,7 +130,7 @@ def fetch_polymarket(df: DataFolder, now: datetime, force: bool = False, opener=
             urls.append(url)
             try:
                 with opener(url) as r:
-                    batch = json.loads(r.read().decode("utf-8"))
+                    batch = _read_json(r)
             except Exception as exc:  # network, HTTP or JSON: report, keep what we have
                 err = f"{type(exc).__name__}: {exc}"
                 break
@@ -176,15 +199,14 @@ def fetch_polymarket_results(df: DataFolder, now: datetime, slugs, force: bool =
         return {"status": "recent", "events": 0, "file": None, "error": "", "last": prev}
     if not force and _backing_off(df, "results", now):
         return {"status": "recent", "events": 0, "file": None, "error": "", "last": prev}
-    opener = opener or (lambda url: urllib.request.urlopen(
-        urllib.request.Request(url, headers={"User-Agent": "PredictBot (personal, read-only)"}), timeout=30))
+    opener = opener or _gamma_opener
     events, requests, error = [], [], ""
     for i in range(0, len(slugs), RESULTS_BATCH):
         url = GAMMA_EVENTS + "?" + urllib.parse.urlencode([("slug", s) for s in slugs[i:i + RESULTS_BATCH]])
         requests.append(url)
         try:
             with opener(url) as r:
-                batch = json.loads(r.read().decode("utf-8"))
+                batch = _read_json(r)
         except Exception as exc:  # network, HTTP or JSON: report, keep what we have
             error = f"{type(exc).__name__}: {exc}"
             break
